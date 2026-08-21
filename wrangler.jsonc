@@ -1,0 +1,46 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "testra",
+  "main": "./src/worker.ts",
+  "compatibility_date": "2026-08-21",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "testra.becode.com.ar",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "BETTER_AUTH_URL": "https://testra.becode.com.ar",
+    "ALLOW_DEMO_AUTH": "false"
+  },
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "testra-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EXAM_RUNS",
+        "class_name": "ExamRunDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ExamRunDO"]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

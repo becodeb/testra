@@ -1,0 +1,8 @@
+---
+import { getActor } from "@/server/actors";
+
+const actor = getActor(Astro.locals);
+if (!actor) return Astro.redirect("/login");
+if (!actor.orgId) return Astro.redirect("/onboarding");
+return Astro.redirect(actor.role === "teacher" ? "/evaluaciones" : "/rendir");
+---

@@ -1,0 +1,19 @@
+---
+import { LoginButton } from "@/components/login-button";
+import StudentLayout from "@/layouts/StudentLayout.astro";
+
+const rawNext = Astro.url.searchParams.get("next") ?? "/";
+const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+---
+
+<StudentLayout title="Iniciar sesión">
+  <main id="contenido" class="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-md place-items-center px-4 py-12">
+    <section class="w-full rounded-lg border bg-paper p-8 shadow-card" aria-labelledby="login-title">
+      <p class="text-xs font-semibold tracking-[.08em] text-muted uppercase">Identidad institucional</p>
+      <h1 id="login-title" class="mt-2 text-2xl font-semibold text-ink">Ingresá a Testra</h1>
+      <p class="mt-2 text-sm leading-relaxed text-muted">Docentes y alumnos usan su cuenta real de Google. Testra no pide nombres escritos manualmente.</p>
+      <div class="mt-6"><LoginButton client:load callbackURL={next} /></div>
+      <p class="mt-5 border-t pt-4 text-xs leading-relaxed text-muted">Al continuar, Google comparte tu nombre, correo e identidad de cuenta. Los permisos de Classroom se solicitan aparte y sólo cuando usás esa integración.</p>
+    </section>
+  </main>
+</StudentLayout>

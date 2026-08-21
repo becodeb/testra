@@ -1,0 +1,39 @@
+---
+import { ExamEditor } from "@/components/exam-editor";
+import type { ExamDraft } from "@/domain/exam";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getActor, isTeacher } from "@/server/actors";
+
+const actor = getActor(Astro.locals, "teacher");
+if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
+if (!isTeacher(actor)) return Astro.redirect("/rendir");
+
+const now = new Date().toISOString();
+const initialExam: ExamDraft = {
+  id: crypto.randomUUID(),
+  title: "Nueva evaluación",
+  subject: "",
+  instructions: "",
+  timeLimitS: 40 * 60,
+  status: "draft",
+  updatedAt: now,
+  questions: [{
+    id: crypto.randomUUID(),
+    position: 0,
+    type: "mc",
+    prompt: "",
+    points: 1,
+    config: {
+      options: [
+        { id: crypto.randomUUID(), text: "" },
+        { id: crypto.randomUUID(), text: "" },
+      ],
+      correctOptionId: "",
+    },
+  }],
+};
+---
+
+<AppLayout title="Nueva evaluación" active="evaluaciones" fullBleed>
+  <ExamEditor client:load initialExam={initialExam} />
+</AppLayout>

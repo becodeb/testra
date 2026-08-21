@@ -1,0 +1,151 @@
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+test("the teacher editor adds a question from the keyboard shortcut", async ({ page }) => {
+  await page.goto("/evaluaciones/nueva");
+  await expect(page.getByRole("heading", { name: /Nueva evaluación/i })).toBeVisible();
+  await page.locator("[data-editor-ready=true]").waitFor({ state: "visible" });
+  const bubbles = page.getByRole("button", { name: /^Pregunta \d/ });
+  await expect(bubbles).toHaveCount(1);
+  await page.getByRole("textbox", { name: "Enunciado" }).press("Control+Enter");
+  await expect(bubbles).toHaveCount(2);
+  await expect(page.getByText("Pregunta 2 de 2")).toBeVisible();
+});
+
+test("student markup never contains answer-key fields", async ({ page }) => {
+  const response = await page.goto("/rendir/demo");
+  expect(response?.status()).toBe(200);
+  const html = await page.content();
+  expect(html).not.toContain("correctOptionId");
+  expect(html).not.toContain("correctOptionIds");
+  expect(html).not.toContain("accepted");
+});
+
+for (const route of ["/evaluaciones", "/evaluaciones/nueva", "/rendir/demo"]) {
+  test(`${route} has no serious axe violations`, async ({ page }) => {
+    await page.goto(route);
+    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
+    expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
+  });
+}
+
+test("student answers survive question navigation", async ({ page }) => {
+  await page.goto("/rendir/demo");
+  await page.getByText("Fotosíntesis", { exact: true }).click();
+  await page.getByRole("button", { name: /Pregunta 2/ }).click();
+  await page.getByRole("button", { name: /Pregunta 1/ }).click();
+  await expect(page.getByText("Fotosíntesis", { exact: true })).toBeVisible();
+});
+
+test("student answers survive a full reload through D1 autosave", async ({ page }) => {
+  await page.goto("/rendir/demo");
+  await page.locator("[data-student-ready=true]").waitFor();
+  const photosynthesis = page.getByRole("radio", { name: "Fotosíntesis" });
+  const targetName = await photosynthesis.isChecked() ? "Respiración" : "Fotosíntesis";
+  const saved = page.waitForResponse((response) =>
+    response.url().endsWith("/api/student/answer") && response.request().method() === "POST",
+  );
+  await page.getByRole("radio", { name: targetName }).click();
+  expect((await saved).ok()).toBe(true);
+  await expect(page.getByText("Guardado", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("radio", { name: targetName })).toBeChecked();
+});
+
+test("teacher monitoring is backed by the persisted demo run", async ({ page }) => {
+  const response = await page.goto("/tomas/run-biology-demo");
+  expect(response?.status()).toBe(200);
+  await expect(page.getByRole("heading", { name: "Fotosíntesis y respiración celular" })).toBeVisible();
+  await expect(page.getByText("K7M4QH", { exact: true })).toBeVisible();
+});
+
+test("teacher drafts persist and reopen from their canonical URL", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "Persistence flow is covered once on desktop");
+  const title = `Evaluación persistente ${Date.now()}`;
+  await page.goto("/evaluaciones/nueva");
+  await page.locator("[data-editor-ready=true]").waitFor();
+  await page.getByLabel("Título").fill(title);
+  await page.getByLabel("Materia").fill("Ciencias");
+  await page.getByRole("textbox", { name: "Enunciado" }).fill("¿Qué propiedad demuestra este guardado?");
+  await expect(page.getByText("Guardando…", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/evaluaciones\/[0-9a-f-]+$/i, { timeout: 10_000 });
+  await expect(page.getByText("Guardado", { exact: true })).toBeVisible({ timeout: 10_000 });
+  await page.reload();
+  await expect(page.getByLabel("Título")).toHaveValue(title);
+  await expect(page.getByLabel("Materia")).toHaveValue("Ciencias");
+  await expect(page.getByRole("textbox", { name: "Enunciado" })).toHaveValue("¿Qué propiedad demuestra este guardado?");
+});
+
+test("a ready exam creates a real lobby backed by the Durable Object", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "Run creation is covered once on desktop");
+  await page.goto("/evaluaciones");
+  await page.locator("[data-library-ready=true]").waitFor();
+  const card = page.locator("article").filter({ hasText: "Fotosíntesis y respiración celular" }).first();
+  const take = card.getByRole("button", { name: "Tomar" });
+  await expect(take).toBeEnabled();
+  const creation = page.waitForResponse((response) => response.url().endsWith("/api/runs") && response.request().method() === "POST");
+  await take.click();
+  expect((await creation).status()).toBe(201);
+  await expect(page).toHaveURL(/\/tomas\/[0-9a-f-]+$/i, { timeout: 10_000 });
+  await expect(page.getByText("Sala de espera", { exact: true })).toBeVisible();
+  await expect(page.locator("[aria-label^='Código ']")).toHaveText(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
+});
+
+test("manual correction persists on the server", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "Correction persistence is covered once on desktop");
+  await page.goto("/correcciones");
+  await page.locator("[data-correction-ready=true]").waitFor();
+  const row = page.locator("article").filter({ hasText: "Tomás Benítez" }).first();
+  const input = row.getByLabel(/Puntaje sobre 4/);
+  const next = (await input.inputValue()) === "3" ? "2" : "3";
+  await input.fill(next);
+  await expect(input).toHaveValue(next);
+  await row.getByRole("button", { name: "Guardar" }).click();
+  await expect(row.getByRole("button", { name: "Guardado" })).toBeVisible();
+  await page.reload();
+  await expect(page.locator("article").filter({ hasText: "Tomás Benítez" }).first().getByLabel(/Puntaje sobre 4/)).toHaveValue(next);
+});
+
+test("an incident reaches teacher state in under one second", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "Realtime latency is covered once on desktop");
+  await page.goto("/rendir/demo");
+  const stateResponse = await page.request.get("/api/runs/run-biology-demo/state");
+  const state = await stateResponse.json() as { participants: Array<{ id: string }> };
+  expect(state.participants.length).toBeGreaterThan(0);
+  await page.request.post("/api/student/incident", {
+    data: { participantId: state.participants[0].id, type: "atajo-f12", at: Date.now(), durationMs: 0, meta: { warmup: true } },
+  });
+  const started = Date.now();
+  const incident = await page.request.post("/api/student/incident", {
+    data: { participantId: state.participants[0].id, type: "atajo-f12", at: Date.now(), durationMs: 0, meta: {} },
+  });
+  expect(incident.status()).toBe(202);
+  const refreshed = await page.request.get("/api/runs/run-biology-demo/state");
+  const body = await refreshed.json() as { incidents: Array<{ type: string }> };
+  expect(body.incidents.some((item) => item.type === "atajo-f12")).toBe(true);
+  expect(Date.now() - started).toBeLessThan(1_000);
+});
+
+test("a student can complete and submit an exam using only the keyboard", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "Keyboard flow is covered once on desktop");
+  const creation = await page.request.post("/api/runs", { data: { examId: "exam-biology-demo" } });
+  expect(creation.status()).toBe(201);
+  const run = await creation.json() as { id: string; code: string };
+
+  await page.goto(`/rendir/${run.code}`);
+  await expect(page.getByText(new RegExp(`Sala de espera · ${run.code}`))).toBeVisible();
+  const started = await page.request.post(`/api/runs/${run.id}/control`, { data: { action: "start" } });
+  expect(started.ok()).toBe(true);
+  await page.reload();
+  await page.locator("[data-student-ready=true]").waitFor();
+
+  await page.getByRole("radio", { name: "Fotosíntesis" }).press("Space");
+  await expect(page.getByRole("radio", { name: "Fotosíntesis" })).toBeChecked();
+  await page.getByRole("button", { name: /Pregunta 2/ }).press("Enter");
+  await page.getByLabel("Tu respuesta").pressSequentially("clorofila");
+  await page.getByRole("button", { name: /Pregunta 3/ }).press("Enter");
+  await page.getByLabel("Tu desarrollo").pressSequentially("Produce alimento y oxígeno.");
+  await page.getByRole("button", { name: "Entregar evaluación" }).press("Enter");
+  await page.getByRole("button", { name: "Entregar", exact: true }).press("Enter");
+  await expect(page.getByRole("heading", { name: "Entrega recibida" })).toBeVisible({ timeout: 10_000 });
+});

@@ -1,0 +1,28 @@
+---
+import { StudentRuntime } from "@/components/student-runtime";
+import StudentLayout from "@/layouts/StudentLayout.astro";
+import { getActor } from "@/server/actors";
+import { getStudentSession } from "@/server/repository";
+
+const actor = getActor(Astro.locals, "student");
+if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
+const session = await getStudentSession(actor, Astro.params.code!);
+if (!session) return new Response("No encontramos una toma activa con ese código", { status: 404 });
+---
+
+<StudentLayout title={session.run.title}>
+  <StudentRuntime
+    client:load
+    runId={session.run.id}
+    code={session.run.code}
+    title={session.run.title}
+    participantId={session.participant.id}
+    studentName={actor.name}
+    questions={session.questions}
+    initialAnswers={session.answers}
+    initialStatus={session.run.status}
+    participantStatus={session.participant.status}
+    serverNow={Date.now()}
+    endsAt={session.run.ends_at}
+  />
+</StudentLayout>

@@ -1,0 +1,25 @@
+---
+import { ExamLibrary } from "@/components/exam-library";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getActor, isTeacher } from "@/server/actors";
+import { listExams, listSubjects } from "@/server/repository";
+
+const actor = getActor(Astro.locals, "teacher");
+if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
+if (!isTeacher(actor)) return Astro.redirect("/rendir");
+const [exams, subjects] = await Promise.all([listExams(actor), listSubjects(actor)]);
+---
+
+<AppLayout title="Evaluaciones" active="evaluaciones">
+  <section class="flex flex-col gap-6" aria-labelledby="page-title">
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="mb-1 text-xs font-semibold tracking-[.08em] text-muted uppercase">Panel docente</p>
+        <h1 id="page-title" class="text-2xl font-semibold tracking-[-.02em] text-ink">Evaluaciones</h1>
+        <p class="mt-1 text-sm text-muted">Creá una evaluación o volvé a usar una anterior.</p>
+      </div>
+      <a href="/evaluaciones/nueva" class="inline-flex h-9 items-center justify-center rounded-md bg-brand px-4 text-sm font-semibold text-white shadow-card transition-colors hover:bg-brand-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">Nueva evaluación</a>
+    </div>
+    <ExamLibrary client:load initialExams={exams} subjects={subjects} />
+  </section>
+</AppLayout>

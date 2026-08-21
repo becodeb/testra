@@ -1,0 +1,78 @@
+---
+import "@/styles/global.css";
+import { getActor } from "@/server/actors";
+
+interface Props {
+  title: string;
+  active?: "evaluaciones" | "tomas" | "correcciones";
+  fullBleed?: boolean;
+}
+
+const { title, active, fullBleed = false } = Astro.props;
+const actor = getActor(Astro.locals, "teacher");
+const initials = actor?.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() ?? "T";
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="theme-color" content="#FFFFFF" />
+    <meta
+      name="description"
+      content="Testra ayuda a docentes a crear, tomar y corregir evaluaciones en línea."
+    />
+    <title>{title} · Testra</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#contenido">Saltar al contenido</a>
+    <header class="sticky top-0 z-30 border-b bg-paper" aria-label="Cabecera principal">
+      <div class="mx-auto flex h-[3.75rem] max-w-[1280px] items-center gap-6 px-4 lg:px-6">
+        <a href="/evaluaciones" class="flex shrink-0 items-center gap-2" aria-label="Testra, inicio">
+          <span class="grid size-7 place-items-center rounded-sm border-2 border-brand text-sm font-extrabold text-brand" aria-hidden="true">T</span>
+          <span class="text-[1.05rem] font-bold tracking-[-.02em] text-brand-deep">Testra</span>
+        </a>
+        <nav aria-label="Navegación principal" class="hidden h-full items-center gap-1 md:flex">
+          <a
+            href="/evaluaciones"
+            aria-current={active === "evaluaciones" ? "page" : undefined}
+            class:list={[
+              "relative flex h-full items-center px-3 text-sm font-medium text-ink-2 hover:text-ink",
+              active === "evaluaciones" && "font-semibold text-brand after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand",
+            ]}
+          >Evaluaciones</a>
+          <a
+            href="/tomas"
+            aria-current={active === "tomas" ? "page" : undefined}
+            class:list={[
+              "relative flex h-full items-center px-3 text-sm font-medium text-ink-2 hover:text-ink",
+              active === "tomas" && "font-semibold text-brand after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand",
+            ]}
+          >Tomas</a>
+          <a
+            href="/correcciones"
+            aria-current={active === "correcciones" ? "page" : undefined}
+            class:list={[
+              "relative flex h-full items-center px-3 text-sm font-medium text-ink-2 hover:text-ink",
+              active === "correcciones" && "font-semibold text-brand after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand",
+            ]}
+          >Correcciones</a>
+        </nav>
+        <div class="ms-auto flex items-center gap-3">
+          <span class="hidden text-right sm:block">
+            <span class="block text-sm font-semibold text-ink">{actor?.name ?? "Testra"}</span>
+            <span class="block text-xs text-muted">{actor?.role === "teacher" ? "Docente" : "Cuenta"}{!Astro.locals.user ? " · Demo local" : ""}</span>
+          </span>
+          <span class="grid size-8 place-items-center rounded-full bg-brand-soft text-xs font-bold text-brand" aria-hidden="true">{initials}</span>
+        </div>
+      </div>
+      <nav aria-label="Navegación principal móvil" class="mx-auto flex max-w-[1280px] overflow-x-auto border-t px-4 md:hidden">
+        <a href="/evaluaciones" aria-current={active === "evaluaciones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "evaluaciones" && "border-b-2 border-brand font-semibold text-brand"]}>Evaluaciones</a>
+        <a href="/tomas" aria-current={active === "tomas" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "tomas" && "border-b-2 border-brand font-semibold text-brand"]}>Tomas</a>
+        <a href="/correcciones" aria-current={active === "correcciones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "correcciones" && "border-b-2 border-brand font-semibold text-brand"]}>Correcciones</a>
+      </nav>
+    </header>
+    {fullBleed ? <slot /> : <main id="contenido" class="mx-auto w-full max-w-[1280px] px-4 py-7 lg:px-6"><slot /></main>}
+  </body>
+</html>
