@@ -1,4 +1,7 @@
 ---
+import { Image } from "astro:assets";
+
+import testraLogo from "@/assets/testra-logo.png";
 import "@/styles/global.css";
 import { getActor } from "@/server/actors";
 
@@ -29,8 +32,8 @@ const initials = actor?.name.split(/\s+/).map((part) => part[0]).join("").slice(
     <a class="skip-link" href="#contenido">Saltar al contenido</a>
     <header class="sticky top-0 z-30 border-b bg-paper" aria-label="Cabecera principal">
       <div class="mx-auto flex h-[3.75rem] max-w-[1280px] items-center gap-6 px-4 lg:px-6">
-        <a href="/evaluaciones" class="flex shrink-0 items-center gap-2" aria-label="Testra, inicio">
-          <span class="grid size-7 place-items-center rounded-sm border-2 border-brand text-sm font-extrabold text-brand" aria-hidden="true">T</span>
+        <a href="/evaluaciones" class="flex shrink-0 items-center gap-2.5" aria-label="Testra, inicio">
+          <span class="testra-mark" aria-hidden="true"><Image src={testraLogo} alt="" width={260} quality={80} loading="eager" /></span>
           <span class="text-[1.05rem] font-bold tracking-[-.02em] text-brand-deep">Testra</span>
         </a>
         <nav aria-label="Navegación principal" class="hidden h-full items-center gap-1 md:flex">

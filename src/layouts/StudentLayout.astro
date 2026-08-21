@@ -1,4 +1,7 @@
 ---
+import { Image } from "astro:assets";
+
+import testraLogo from "@/assets/testra-logo.png";
 import "@/styles/global.css";
 
 interface Props { title: string }
@@ -17,7 +20,7 @@ const { title } = Astro.props;
     <a class="skip-link" href="#contenido">Saltar al contenido</a>
     <header class="border-b bg-paper">
       <div class="mx-auto flex h-[3.75rem] max-w-[1020px] items-center justify-between px-4 lg:px-6">
-        <a href="/" class="flex items-center gap-2" aria-label="Testra, inicio"><span class="grid size-7 place-items-center rounded-sm border-2 border-brand text-sm font-extrabold text-brand" aria-hidden="true">T</span><span class="font-bold text-brand-deep">Testra</span></a>
+        <a href="/" class="flex items-center gap-2.5" aria-label="Testra, inicio"><span class="testra-mark" aria-hidden="true"><Image src={testraLogo} alt="" width={260} quality={80} loading="eager" /></span><span class="font-bold tracking-[-.025em] text-brand-deep">Testra</span></a>
         <a href="/docs/vigilancia" class="text-xs font-medium text-muted underline underline-offset-4 hover:text-ink">Qué se registra</a>
       </div>
     </header>

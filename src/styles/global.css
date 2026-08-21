@@ -14,9 +14,9 @@
   --color-ink: #16181d;
   --color-ink-2: #3f454f;
   --color-muted: #6b7280;
-  --color-brand: #1f3a68;
-  --color-brand-deep: #16294a;
-  --color-brand-soft: #eaeff7;
+  --color-brand: #0a2878;
+  --color-brand-deep: #061a59;
+  --color-brand-soft: #e8effc;
   --color-ok: #1f7a5c;
   --color-warn: #96601a;
   --color-alert: #a32c2c;
@@ -52,17 +52,17 @@
   --card-foreground: #16181d;
   --popover: #ffffff;
   --popover-foreground: #16181d;
-  --primary: #1f3a68;
+  --primary: #0a2878;
   --primary-foreground: #ffffff;
   --secondary: #f0f2f5;
   --secondary-foreground: #3f454f;
   --muted-foreground: #5f6672;
-  --accent: #eaeff7;
-  --accent-foreground: #16294a;
+  --accent: #e8effc;
+  --accent-foreground: #061a59;
   --destructive: #a32c2c;
   --border: #e3e6eb;
   --input: #cbd1da;
-  --ring: #1f3a68;
+  --ring: #0a2878;
 
   --check-spin-dur: 900ms;
   --check-pop-dur: 180ms;
@@ -84,6 +84,42 @@
   --check-ring-w: 2px;
   --check-mark-w: 2;
   --check-green: #1f7a5c;
+}
+
+.testra-logo-lockup {
+  position: relative;
+  aspect-ratio: 3.1;
+  width: min(100%, 21rem);
+  overflow: hidden;
+}
+
+.testra-logo-lockup img {
+  position: absolute;
+  top: -84%;
+  left: -16%;
+  width: 132%;
+  max-width: none;
+  height: auto;
+}
+
+.testra-mark {
+  position: relative;
+  display: block;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  overflow: hidden;
+  border-radius: .48rem;
+  box-shadow: 0 3px 10px rgba(6, 26, 89, .16);
+}
+
+.testra-mark img {
+  position: absolute;
+  top: -400%;
+  left: -216%;
+  width: 759%;
+  max-width: none;
+  height: auto;
 }
 
 @layer base {

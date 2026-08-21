@@ -16,6 +16,7 @@ Copiar el `database_id` resultante a `wrangler.jsonc` y luego:
 ```powershell
 npm run db:migrate:remote
 npx wrangler secret put BETTER_AUTH_SECRET
+# Opcionales hasta habilitar Google OAuth / Classroom
 npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
 npm run deploy
@@ -39,9 +40,9 @@ Crear credenciales OAuth Web y autorizar:
 https://testra.becode.com.ar/api/auth/callback/google
 ```
 
-Configurar la pantalla de consentimiento y solicitar verificación para los scopes sensibles de Classroom documentados en `docs/classroom.md`. El login inicial sólo pide `openid`, `email` y `profile`.
+El acceso principal usa correo y contraseña y no depende de Google. Configurar la pantalla de consentimiento y solicitar verificación para los scopes sensibles de Classroom documentados en `docs/classroom.md` antes de habilitar esa integración.
 
-Para habilitar docentes, definir `TEACHER_EMAILS` como variable separada por comas o implementar el aprovisionamiento institucional correspondiente. Sin allowlist, el onboarding sólo puede asignar el rol alumno.
+La primera cuenta que crea un espacio puede elegir el rol docente. En dominios institucionales ya existentes, definir `TEACHER_EMAILS` como variable separada por comas para habilitar docentes adicionales. Los correos personales crean espacios independientes y no se agrupan por dominio.
 
 ## 4. Comprobación posterior
 

@@ -1,5 +1,5 @@
 BETTER_AUTH_SECRET=replace-with-at-least-32-random-characters
-BETTER_AUTH_URL=http://localhost:4321
+BETTER_AUTH_URL=http://127.0.0.1:4321
 GOOGLE_CLIENT_ID=replace-me.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=replace-me
 ALLOW_DEMO_AUTH=true

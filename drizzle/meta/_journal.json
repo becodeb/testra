@@ -15,6 +15,13 @@
       "when": 1787346680987,
       "tag": "0001_happy_nightshade",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787353598099,
+      "tag": "0002_foamy_grim_reaper",
+      "breakpoints": true
     }
   ]
 }

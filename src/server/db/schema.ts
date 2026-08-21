@@ -69,6 +69,7 @@ export const accounts = sqliteTable(
     id: text("id").primaryKey(),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
+    issuer: text("issuer").notNull(),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -83,7 +84,7 @@ export const accounts = sqliteTable(
     updatedAt: timestamp("updated_at"),
   },
   (table) => [
-    uniqueIndex("accounts_provider_account_uq").on(table.providerId, table.accountId),
+    uniqueIndex("accounts_issuer_account_uq").on(table.issuer, table.accountId),
     index("accounts_user_idx").on(table.userId),
   ],
 );

@@ -21,6 +21,13 @@ export const auth = betterAuth({
       verification: verifications,
     },
   }),
+  emailAndPassword: {
+    enabled: true,
+    autoSignIn: true,
+    requireEmailVerification: false,
+    minPasswordLength: 8,
+    maxPasswordLength: 128,
+  },
   socialProviders: {
     google: {
       clientId: runtimeEnv.GOOGLE_CLIENT_ID,

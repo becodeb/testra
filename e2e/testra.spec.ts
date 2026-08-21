@@ -1,6 +1,18 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
+test("a new user can create an account with email and password", async ({ page }) => {
+  const email = `cuenta-${Date.now()}-${Math.random().toString(36).slice(2)}@gmail.com`;
+  await page.goto("/login");
+  await page.getByRole("button", { name: "Crear cuenta" }).click();
+  await page.getByLabel("Nombre y apellido").fill("Cuenta de prueba");
+  await page.getByLabel("Correo electrónico").fill(email);
+  await page.getByLabel("Contraseña").fill("Testra-Prueba-2026");
+  await page.getByRole("button", { name: "Crear mi cuenta" }).click();
+  await expect(page).toHaveURL(/\/onboarding$/, { timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Configurá tu espacio" })).toBeVisible();
+});
+
 test("the teacher editor adds a question from the keyboard shortcut", async ({ page }) => {
   await page.goto("/evaluaciones/nueva");
   await expect(page.getByRole("heading", { name: /Nueva evaluación/i })).toBeVisible();

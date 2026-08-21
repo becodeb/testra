@@ -55,7 +55,7 @@ export function JoinRun() {
         {error ? <FieldError id="run-code-error">{error}</FieldError> : null}
       </Field>
       <Button type="submit" className="mt-5 w-full" disabled={loading}>{loading ? "Ingresando…" : "Continuar"}<ArrowRight data-icon="inline-end" /></Button>
-      <p className="mt-5 border-t pt-4 text-xs leading-relaxed text-muted">Testra usa tu identidad de Google institucional. No te pedirá que escribas tu nombre.</p>
+      <p className="mt-5 border-t pt-4 text-xs leading-relaxed text-muted">Testra usa la identidad de tu cuenta para registrar la entrega. No te pedirá que escribas tu nombre.</p>
     </form>
   );
 }
