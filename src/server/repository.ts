@@ -9,6 +9,7 @@ import {
 import type { Actor } from "@/server/actors";
 import { gradeExam, type AnswerValue } from "@/server/grading";
 import { createRunCode } from "@/server/run-code";
+import { hashGuestToken, readGuestSession } from "@/server/student-access";
 
 const runtimeEnv = env as unknown as CloudflareEnv;
 
@@ -52,11 +53,18 @@ interface RunRow {
 interface ParticipantRow {
   id: string;
   run_id: string;
-  user_id: string;
+  user_id: string | null;
+  display_name: string;
+  guest_token_hash: string | null;
   status: "waiting" | "active" | "submitted" | "disconnected";
   submitted_at: number | null;
   submit_reason: string | null;
   last_seen: number;
+}
+
+export interface StudentAccess {
+  actor: Actor | null;
+  request: Request;
 }
 
 export interface ExamSummary {
@@ -341,70 +349,131 @@ export async function listRuns(actor: Actor): Promise<RunSummary[]> {
   }));
 }
 
-export async function joinRunByCode(actor: Actor, rawCode: string) {
+export async function getJoinableRun(rawCode: string) {
   const code = rawCode.trim().toUpperCase();
   const run = await runtimeEnv.DB.prepare("SELECT * FROM runs WHERE code = ? AND status != 'ended'")
     .bind(code)
     .first<RunRow>();
+  return run;
+}
+
+export async function joinRunByCode(
+  actor: Actor | null,
+  rawCode: string,
+  displayName: string,
+  guestTokenHash?: string,
+) {
+  const run = await getJoinableRun(rawCode);
   if (!run) return null;
-  if (run.org_id && actor.orgId && run.org_id !== actor.orgId) return null;
 
   const participantId = crypto.randomUUID();
   const now = Date.now();
-  await runtimeEnv.DB.prepare(
-    `INSERT INTO participants (id, run_id, user_id, status, joined_at, last_seen, late)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(run_id, user_id) DO UPDATE SET last_seen = excluded.last_seen`,
-  ).bind(
-    participantId,
-    run.id,
-    actor.id,
-    run.status === "running" ? "active" : "waiting",
-    now,
-    now,
-    run.status === "running" ? 1 : 0,
-  ).run();
-  const participant = await runtimeEnv.DB.prepare(
-    "SELECT * FROM participants WHERE run_id = ? AND user_id = ?",
-  ).bind(run.id, actor.id).first<ParticipantRow>();
+  if (actor) {
+    await runtimeEnv.DB.prepare(
+      `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, status, joined_at, last_seen, late)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)
+       ON CONFLICT(run_id, user_id) DO UPDATE SET display_name = excluded.display_name, last_seen = excluded.last_seen`,
+    ).bind(
+      participantId,
+      run.id,
+      actor.id,
+      displayName,
+      run.status === "running" ? "active" : "waiting",
+      now,
+      now,
+      run.status === "running" ? 1 : 0,
+    ).run();
+  } else {
+    if (!guestTokenHash) throw new Error("Falta la sesión temporal del alumno");
+    await runtimeEnv.DB.prepare(
+      `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, status, joined_at, last_seen, late)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      participantId,
+      run.id,
+      displayName,
+      guestTokenHash,
+      run.status === "running" ? "active" : "waiting",
+      now,
+      now,
+      run.status === "running" ? 1 : 0,
+    ).run();
+  }
+  const participant = actor
+    ? await runtimeEnv.DB.prepare("SELECT * FROM participants WHERE run_id = ? AND user_id = ?")
+      .bind(run.id, actor.id).first<ParticipantRow>()
+    : await runtimeEnv.DB.prepare("SELECT * FROM participants WHERE id = ?")
+      .bind(participantId).first<ParticipantRow>();
   if (!participant) throw new Error("No se pudo registrar al alumno");
   await runCommand(run.id, "/join", {
     participantId: participant.id,
-    userId: actor.id,
-    name: actor.name,
+    userId: actor?.id ?? participant.id,
+    name: participant.display_name,
   });
   return { run, participant };
 }
 
-export async function getStudentSession(actor: Actor, code: string) {
-  const joined = await joinRunByCode(actor, code);
-  if (!joined) return null;
+export async function getStudentSession(access: StudentAccess, code: string) {
+  const run = await runtimeEnv.DB.prepare("SELECT * FROM runs WHERE code = ?")
+    .bind(code.trim().toUpperCase()).first<RunRow>();
+  if (!run) return null;
+  let participant: ParticipantRow | null = null;
+  if (access.actor) {
+    participant = await runtimeEnv.DB.prepare(
+      "SELECT * FROM participants WHERE run_id = ? AND user_id = ?",
+    ).bind(run.id, access.actor.id).first<ParticipantRow>();
+  }
+  if (!participant) {
+    const guest = readGuestSession(access.request);
+    if (guest) {
+      const tokenHash = await hashGuestToken(guest.token);
+      participant = await runtimeEnv.DB.prepare(
+        "SELECT * FROM participants WHERE id = ? AND run_id = ? AND guest_token_hash = ?",
+      ).bind(guest.participantId, run.id, tokenHash).first<ParticipantRow>();
+    }
+  }
+  if (!participant) return null;
   const answerResult = await runtimeEnv.DB.prepare(
     "SELECT question_id, value FROM answers WHERE participant_id = ?",
-  ).bind(joined.participant.id).all<{ question_id: string; value: string }>();
-  const fullQuestions = JSON.parse(joined.run.questions_snapshot) as FullQuestion[];
+  ).bind(participant.id).all<{ question_id: string; value: string }>();
+  const fullQuestions = JSON.parse(run.questions_snapshot) as FullQuestion[];
   return {
-    run: joined.run,
-    participant: joined.participant,
+    run,
+    participant,
     questions: toStudentQuestions(fullQuestions),
     answers: Object.fromEntries(answerResult.results.map((row) => [row.question_id, JSON.parse(row.value)])),
   };
 }
 
-export async function participantOwnedBy(participantId: string, actor: Actor) {
+export async function participantOwnedBy(participantId: string, access: StudentAccess) {
+  if (access.actor) {
+    const participant = await runtimeEnv.DB.prepare(
+      `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot
+       FROM participants p JOIN runs r ON r.id = p.run_id
+       WHERE p.id = ? AND p.user_id = ?`,
+    ).bind(participantId, access.actor.id).first<ParticipantRow & {
+      run_status: RunRow["status"];
+      ends_at: number | null;
+      questions_snapshot: string;
+    }>();
+    if (participant) return participant;
+  }
+  const guest = readGuestSession(access.request);
+  if (!guest || guest.participantId !== participantId) return null;
+  const tokenHash = await hashGuestToken(guest.token);
   return runtimeEnv.DB.prepare(
     `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot
      FROM participants p JOIN runs r ON r.id = p.run_id
-     WHERE p.id = ? AND p.user_id = ?`,
-  ).bind(participantId, actor.id).first<ParticipantRow & {
+     WHERE p.id = ? AND p.guest_token_hash = ?`,
+  ).bind(participantId, tokenHash).first<ParticipantRow & {
     run_status: RunRow["status"];
     ends_at: number | null;
     questions_snapshot: string;
   }>();
 }
 
-export async function saveAnswer(actor: Actor, participantId: string, questionId: string, value: AnswerValue) {
-  const participant = await participantOwnedBy(participantId, actor);
+export async function saveAnswer(access: StudentAccess, participantId: string, questionId: string, value: AnswerValue) {
+  const participant = await participantOwnedBy(participantId, access);
   if (!participant || participant.status === "submitted") return null;
   if (participant.run_status !== "running" || (participant.ends_at !== null && participant.ends_at <= Date.now())) {
     throw new Error("La toma ya no acepta respuestas");
@@ -427,8 +496,8 @@ export async function saveAnswer(actor: Actor, participantId: string, questionId
   return { updatedAt: now };
 }
 
-export async function submitParticipant(actor: Actor, participantId: string, reason: "manual" | "timer") {
-  const participant = await participantOwnedBy(participantId, actor);
+export async function submitParticipant(access: StudentAccess, participantId: string, reason: "manual" | "timer") {
+  const participant = await participantOwnedBy(participantId, access);
   if (!participant) return null;
   if (participant.status === "submitted") return { submittedAt: participant.submitted_at };
   const questions = JSON.parse(participant.questions_snapshot) as FullQuestion[];
@@ -471,17 +540,17 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
   const [participantResult, incidentResult, expectedResult] = await Promise.all([
     runtimeEnv.DB.prepare(
       `SELECT p.id, p.status, p.joined_at, p.submitted_at, p.last_seen, p.late,
-       u.name, u.email,
+       p.display_name AS name, u.email,
        (SELECT COUNT(*) FROM answers a WHERE a.participant_id = p.id) AS answered,
        (SELECT SUM(COALESCE(g.points_awarded, 0)) FROM grades g WHERE g.participant_id = p.id) AS score,
        (SELECT COUNT(*) FROM grades g WHERE g.participant_id = p.id AND g.points_awarded IS NULL) AS pending_manual
-       FROM participants p JOIN users u ON u.id = p.user_id
-       WHERE p.run_id = ? ORDER BY u.name`,
+       FROM participants p LEFT JOIN users u ON u.id = p.user_id
+       WHERE p.run_id = ? ORDER BY p.display_name`,
     ).bind(runId).all<Record<string, string | number | null>>(),
     runtimeEnv.DB.prepare(
-      `SELECT i.id, i.participant_id, i.at, i.duration_ms, i.type, i.meta, i.source, u.name
+      `SELECT i.id, i.participant_id, i.at, i.duration_ms, i.type, i.meta, i.source, p.display_name AS name
        FROM incidents i JOIN participants p ON p.id = i.participant_id
-       JOIN users u ON u.id = p.user_id WHERE p.run_id = ? ORDER BY i.at DESC LIMIT 200`,
+       WHERE p.run_id = ? ORDER BY i.at DESC LIMIT 200`,
     ).bind(runId).all<Record<string, string | number>>(),
     runtimeEnv.DB.prepare(
       "SELECT google_user_id, name, email FROM expected_run_students WHERE run_id = ? ORDER BY name",
@@ -503,10 +572,9 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
 
 export async function listPendingCorrections(actor: Actor) {
   const result = await runtimeEnv.DB.prepare(
-    `SELECT p.id AS participant_id, p.run_id, p.submitted_at, u.name, r.title,
+    `SELECT p.id AS participant_id, p.run_id, p.submitted_at, p.display_name AS name, r.title,
       r.questions_snapshot, a.question_id, a.value, g.points_awarded
      FROM participants p
-     JOIN users u ON u.id = p.user_id
      JOIN runs r ON r.id = p.run_id
      LEFT JOIN exams e ON e.id = r.exam_id
      JOIN answers a ON a.participant_id = p.id

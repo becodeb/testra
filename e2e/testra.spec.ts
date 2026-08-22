@@ -1,5 +1,15 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function enterDemoRun(page: Page, name = `Alumno prueba ${Date.now()}`) {
+  await page.goto("/rendir/demo");
+  if (await page.getByRole("heading", { name: "¿Cómo te llamás?" }).isVisible()) {
+    await page.getByLabel("Tu nombre y apellido").fill(name);
+    await page.getByRole("button", { name: "Entrar a la sala" }).click();
+  }
+  await page.locator("[data-student-ready=true]").waitFor();
+  return name;
+}
 
 test("a new user can create an account with email and password", async ({ page }) => {
   const email = `cuenta-${Date.now()}-${Math.random().toString(36).slice(2)}@gmail.com`;
@@ -25,8 +35,7 @@ test("the teacher editor adds a question from the keyboard shortcut", async ({ p
 });
 
 test("student markup never contains answer-key fields", async ({ page }) => {
-  const response = await page.goto("/rendir/demo");
-  expect(response?.status()).toBe(200);
+  await enterDemoRun(page);
   const html = await page.content();
   expect(html).not.toContain("correctOptionId");
   expect(html).not.toContain("correctOptionIds");
@@ -35,14 +44,15 @@ test("student markup never contains answer-key fields", async ({ page }) => {
 
 for (const route of ["/evaluaciones", "/evaluaciones/nueva", "/rendir/demo"]) {
   test(`${route} has no serious axe violations`, async ({ page }) => {
-    await page.goto(route);
+    if (route === "/rendir/demo") await enterDemoRun(page);
+    else await page.goto(route);
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
     expect(results.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
   });
 }
 
 test("student answers survive question navigation", async ({ page }) => {
-  await page.goto("/rendir/demo");
+  await enterDemoRun(page);
   await page.getByText("Fotosíntesis", { exact: true }).click();
   await page.getByRole("button", { name: /Pregunta 2/ }).click();
   await page.getByRole("button", { name: /Pregunta 1/ }).click();
@@ -50,8 +60,7 @@ test("student answers survive question navigation", async ({ page }) => {
 });
 
 test("student answers survive a full reload through D1 autosave", async ({ page }) => {
-  await page.goto("/rendir/demo");
-  await page.locator("[data-student-ready=true]").waitFor();
+  await enterDemoRun(page);
   const photosynthesis = page.getByRole("radio", { name: "Fotosíntesis" });
   const targetName = await photosynthesis.isChecked() ? "Respiración" : "Fotosíntesis";
   const saved = page.waitForResponse((response) =>
@@ -120,16 +129,17 @@ test("manual correction persists on the server", async ({ page, isMobile }) => {
 
 test("an incident reaches teacher state in under one second", async ({ page, isMobile }) => {
   test.skip(Boolean(isMobile), "Realtime latency is covered once on desktop");
-  await page.goto("/rendir/demo");
+  const studentName = await enterDemoRun(page, `Incidente ${Date.now()}`);
   const stateResponse = await page.request.get("/api/runs/run-biology-demo/state");
-  const state = await stateResponse.json() as { participants: Array<{ id: string }> };
-  expect(state.participants.length).toBeGreaterThan(0);
+  const state = await stateResponse.json() as { participants: Array<{ id: string; name: string }> };
+  const participant = state.participants.find((candidate) => candidate.name === studentName);
+  expect(participant).toBeTruthy();
   await page.request.post("/api/student/incident", {
-    data: { participantId: state.participants[0].id, type: "atajo-f12", at: Date.now(), durationMs: 0, meta: { warmup: true } },
+    data: { participantId: participant!.id, type: "atajo-f12", at: Date.now(), durationMs: 0, meta: { warmup: true } },
   });
   const started = Date.now();
   const incident = await page.request.post("/api/student/incident", {
-    data: { participantId: state.participants[0].id, type: "atajo-f12", at: Date.now(), durationMs: 0, meta: {} },
+    data: { participantId: participant!.id, type: "atajo-f12", at: Date.now(), durationMs: 0, meta: {} },
   });
   expect(incident.status()).toBe(202);
   const refreshed = await page.request.get("/api/runs/run-biology-demo/state");
@@ -138,26 +148,39 @@ test("an incident reaches teacher state in under one second", async ({ page, isM
   expect(Date.now() - started).toBeLessThan(1_000);
 });
 
-test("a student can complete and submit an exam using only the keyboard", async ({ page, isMobile }) => {
+test("an anonymous student joins from another browser, waits, and submits", async ({ page, browser, isMobile }) => {
   test.skip(Boolean(isMobile), "Keyboard flow is covered once on desktop");
   const creation = await page.request.post("/api/runs", { data: { examId: "exam-biology-demo" } });
   expect(creation.status()).toBe(201);
   const run = await creation.json() as { id: string; code: string };
 
-  await page.goto(`/rendir/${run.code}`);
-  await expect(page.getByText(new RegExp(`Sala de espera · ${run.code}`))).toBeVisible();
-  const started = await page.request.post(`/api/runs/${run.id}/control`, { data: { action: "start" } });
-  expect(started.ok()).toBe(true);
-  await page.reload();
-  await page.locator("[data-student-ready=true]").waitFor();
+  const studentContext = await browser.newContext({ baseURL: "http://127.0.0.1:4321" });
+  const student = await studentContext.newPage();
+  try {
+    await student.goto("/rendir");
+    await student.getByLabel("Código de la toma").fill(run.code);
+    await student.getByRole("button", { name: "Continuar" }).click();
+    await expect(student.getByRole("heading", { name: "¿Cómo te llamás?" })).toBeVisible();
+    await student.getByLabel("Tu nombre y apellido").fill("Valentina Gerstner");
+    await student.getByRole("button", { name: "Entrar a la sala" }).click();
+    await expect(student.getByText(new RegExp(`Sala de espera · ${run.code}`))).toBeVisible();
 
-  await page.getByRole("radio", { name: "Fotosíntesis" }).press("Space");
-  await expect(page.getByRole("radio", { name: "Fotosíntesis" })).toBeChecked();
-  await page.getByRole("button", { name: /Pregunta 2/ }).press("Enter");
-  await page.getByLabel("Tu respuesta").pressSequentially("clorofila");
-  await page.getByRole("button", { name: /Pregunta 3/ }).press("Enter");
-  await page.getByLabel("Tu desarrollo").pressSequentially("Produce alimento y oxígeno.");
-  await page.getByRole("button", { name: "Entregar evaluación" }).press("Enter");
-  await page.getByRole("button", { name: "Entregar", exact: true }).press("Enter");
-  await expect(page.getByRole("heading", { name: "Entrega recibida" })).toBeVisible({ timeout: 10_000 });
+    await page.goto(`/tomas/${run.id}`);
+    await expect(page.getByText("Valentina Gerstner", { exact: true })).toBeVisible({ timeout: 10_000 });
+    const started = await page.request.post(`/api/runs/${run.id}/control`, { data: { action: "start" } });
+    expect(started.ok()).toBe(true);
+    await student.locator("[data-student-ready=true]").waitFor({ timeout: 10_000 });
+
+    await student.getByRole("radio", { name: "Fotosíntesis" }).press("Space");
+    await expect(student.getByRole("radio", { name: "Fotosíntesis" })).toBeChecked();
+    await student.getByRole("button", { name: /Pregunta 2/ }).press("Enter");
+    await student.getByLabel("Tu respuesta").pressSequentially("clorofila");
+    await student.getByRole("button", { name: /Pregunta 3/ }).press("Enter");
+    await student.getByLabel("Tu desarrollo").pressSequentially("Produce alimento y oxígeno.");
+    await student.getByRole("button", { name: "Entregar evaluación" }).press("Enter");
+    await student.getByRole("button", { name: "Entregar", exact: true }).press("Enter");
+    await expect(student.getByRole("heading", { name: "Entrega recibida" })).toBeVisible({ timeout: 10_000 });
+  } finally {
+    await studentContext.close();
+  }
 });

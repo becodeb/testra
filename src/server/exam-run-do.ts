@@ -386,9 +386,9 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
     }>();
     if (!row) return;
     const participants = await this.env.DB.prepare(
-      `SELECT p.id, p.user_id, p.status, p.last_seen, u.name
-       FROM participants p JOIN users u ON u.id = p.user_id WHERE p.run_id = ?`,
-    ).bind(row.id).all<{ id: string; user_id: string; status: ParticipantState["status"]; last_seen: number; name: string }>();
+      `SELECT p.id, p.user_id, p.status, p.last_seen, p.display_name AS name
+       FROM participants p WHERE p.run_id = ?`,
+    ).bind(row.id).all<{ id: string; user_id: string | null; status: ParticipantState["status"]; last_seen: number; name: string }>();
     this.run = {
       runId: row.id,
       title: row.title,
@@ -398,7 +398,7 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
       endsAt: row.ends_at,
       participants: Object.fromEntries(participants.results.map((participant) => [participant.id, {
         participantId: participant.id,
-        userId: participant.user_id,
+        userId: participant.user_id ?? participant.id,
         name: participant.name,
         status: participant.status,
         lastSeen: participant.last_seen,

@@ -1,28 +1,36 @@
 ---
 import { StudentRuntime } from "@/components/student-runtime";
+import { JoinRun } from "@/components/join-run";
 import StudentLayout from "@/layouts/StudentLayout.astro";
-import { getActor } from "@/server/actors";
-import { getStudentSession } from "@/server/repository";
+import { getAuthenticatedActor } from "@/server/actors";
+import { getJoinableRun, getStudentSession } from "@/server/repository";
 
-const actor = getActor(Astro.locals, "student");
-if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
-const session = await getStudentSession(actor, Astro.params.code!);
-if (!session) return new Response("No encontramos una toma activa con ese código", { status: 404 });
+const actor = getAuthenticatedActor(Astro.locals);
+const code = Astro.params.code!.trim().toUpperCase();
+const session = await getStudentSession({ actor, request: Astro.request }, code);
+const run = session?.run ?? await getJoinableRun(code);
+if (!run) return new Response("No encontramos una toma activa con ese código", { status: 404 });
 ---
 
-<StudentLayout title={session.run.title}>
-  <StudentRuntime
-    client:load
-    runId={session.run.id}
-    code={session.run.code}
-    title={session.run.title}
-    participantId={session.participant.id}
-    studentName={actor.name}
-    questions={session.questions}
-    initialAnswers={session.answers}
-    initialStatus={session.run.status}
-    participantStatus={session.participant.status}
-    serverNow={Date.now()}
-    endsAt={session.run.ends_at}
-  />
+<StudentLayout title={run.title}>
+  {session ? (
+    <StudentRuntime
+      client:load
+      runId={session.run.id}
+      code={session.run.code}
+      title={session.run.title}
+      participantId={session.participant.id}
+      studentName={session.participant.display_name}
+      questions={session.questions}
+      initialAnswers={session.answers}
+      initialStatus={session.run.status}
+      participantStatus={session.participant.status}
+      serverNow={Date.now()}
+      endsAt={session.run.ends_at}
+    />
+  ) : (
+    <main id="contenido" class="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-lg place-items-center px-4 py-12">
+      <JoinRun client:load step="name" code={run.code} runTitle={run.title} defaultName={actor?.name ?? ""} />
+    </main>
+  )}
 </StudentLayout>

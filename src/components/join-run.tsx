@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, KeyRound, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
@@ -7,8 +7,16 @@ import { Input } from "@/components/ui/input";
 
 const CODE_ALPHABET = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
 
-export function JoinRun() {
-  const [code, setCode] = useState("");
+interface JoinRunProps {
+  step?: "code" | "name";
+  code?: string;
+  runTitle?: string;
+  defaultName?: string;
+}
+
+export function JoinRun({ step = "code", code: initialCode = "", runTitle, defaultName = "" }: JoinRunProps) {
+  const [code, setCode] = useState(initialCode);
+  const [name, setName] = useState(defaultName);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -19,12 +27,16 @@ export function JoinRun() {
       setError("Ingresá los 6 caracteres del código. No usa I, O, 0 ni 1.");
       return;
     }
+    if (step === "name" && name.trim().length < 2) {
+      setError("Escribí tu nombre para que el docente pueda reconocerte.");
+      return;
+    }
     setLoading(true);
     setError("");
     const response = await fetch("/api/student/join", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code: normalized }),
+      body: JSON.stringify({ code: normalized, ...(step === "name" ? { name: name.trim() } : {}) }),
     });
     const body = await response.json() as { code?: string; error?: string };
     if (response.ok && body.code) window.location.assign(`/rendir/${encodeURIComponent(body.code)}`);
@@ -34,28 +46,66 @@ export function JoinRun() {
     }
   }
 
+  const isNameStep = step === "name";
+
   return (
-    <form onSubmit={submit} className="w-full rounded-lg border bg-paper p-6 shadow-card sm:p-8">
-      <p className="text-xs font-semibold tracking-[.08em] text-muted uppercase">Ingreso de alumnos</p>
-      <h1 className="mt-2 text-2xl font-semibold text-ink">Entrá a tu evaluación</h1>
-      <p className="mt-2 text-sm leading-relaxed text-muted">Usá el código de seis caracteres que muestra tu docente.</p>
-      <Field className="mt-6" data-invalid={Boolean(error) || undefined}>
-        <FieldLabel htmlFor="run-code">Código de la toma</FieldLabel>
-        <Input
-          id="run-code"
-          value={code}
-          onChange={(event) => setCode(event.target.value.toUpperCase().slice(0, 6))}
-          className="mono-number h-14 text-center text-2xl font-bold tracking-[.2em] uppercase"
-          autoComplete="one-time-code"
-          inputMode="text"
-          aria-invalid={Boolean(error)}
-          aria-describedby={error ? "run-code-error" : undefined}
-          autoFocus
-        />
-        {error ? <FieldError id="run-code-error">{error}</FieldError> : null}
-      </Field>
-      <Button type="submit" className="mt-5 w-full" disabled={loading}>{loading ? "Ingresando…" : "Continuar"}<ArrowRight data-icon="inline-end" /></Button>
-      <p className="mt-5 border-t pt-4 text-xs leading-relaxed text-muted">Testra usa la identidad de tu cuenta para registrar la entrega. No te pedirá que escribas tu nombre.</p>
+    <form onSubmit={submit} className="w-full rounded-xl border bg-paper p-6 shadow-card sm:p-8">
+      <div className="flex size-11 items-center justify-center rounded-lg bg-brand-soft text-brand-deep" aria-hidden="true">
+        {isNameStep ? <UserRound className="size-5" /> : <KeyRound className="size-5" />}
+      </div>
+      <p className="mt-5 text-xs font-semibold tracking-[.08em] text-muted uppercase">
+        {isNameStep ? `Código ${code}` : "Ingreso de alumnos"}
+      </p>
+      <h1 className="mt-2 text-2xl font-semibold text-ink">
+        {isNameStep ? "¿Cómo te llamás?" : "Entrá a tu evaluación"}
+      </h1>
+      <p className="mt-2 text-sm leading-relaxed text-muted">
+        {isNameStep
+          ? <>Vas a ingresar a <strong className="font-semibold text-ink-2">{runTitle}</strong>. Tu docente verá este nombre en la sala.</>
+          : "Usá el código de seis caracteres que muestra tu docente. No necesitás una cuenta."}
+      </p>
+
+      {isNameStep ? (
+        <Field className="mt-6" data-invalid={Boolean(error) || undefined}>
+          <FieldLabel htmlFor="student-name">Tu nombre y apellido</FieldLabel>
+          <Input
+            id="student-name"
+            value={name}
+            onChange={(event) => setName(event.target.value.slice(0, 80))}
+            className="h-12 text-base"
+            autoComplete="name"
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? "join-error" : undefined}
+            autoFocus
+          />
+          {error ? <FieldError id="join-error">{error}</FieldError> : null}
+        </Field>
+      ) : (
+        <Field className="mt-6" data-invalid={Boolean(error) || undefined}>
+          <FieldLabel htmlFor="run-code">Código de la toma</FieldLabel>
+          <Input
+            id="run-code"
+            value={code}
+            onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+            className="mono-number h-14 text-center text-2xl font-bold tracking-[.2em] uppercase"
+            autoComplete="one-time-code"
+            inputMode="text"
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? "join-error" : undefined}
+            autoFocus
+          />
+          {error ? <FieldError id="join-error">{error}</FieldError> : null}
+        </Field>
+      )}
+
+      <Button type="submit" className="mt-5 w-full" disabled={loading}>
+        {loading ? "Ingresando…" : isNameStep ? "Entrar a la sala" : "Continuar"}
+        <ArrowRight data-icon="inline-end" />
+      </Button>
+
+      <p className="mt-5 border-t pt-4 text-center text-xs leading-relaxed text-muted">
+        {isNameStep ? "No hace falta iniciar sesión." : <>¿Querés usar tu cuenta? <a className="font-medium text-brand-deep underline underline-offset-4" href="/login?next=%2Frendir">Iniciá sesión (opcional)</a></>}
+      </p>
     </form>
   );
 }

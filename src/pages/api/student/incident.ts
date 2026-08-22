@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { z } from "zod";
 
-import { getActor, unauthenticated } from "@/server/actors";
+import { getActor } from "@/server/actors";
 import { participantOwnedBy, runCommand } from "@/server/repository";
 
 const incidentSchema = z.object({
@@ -14,10 +14,9 @@ const incidentSchema = z.object({
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const actor = getActor(locals, "student");
-  if (!actor) return unauthenticated();
   const result = incidentSchema.safeParse(await request.json());
   if (!result.success) return Response.json({ error: "Incidente inválido" }, { status: 400 });
-  const participant = await participantOwnedBy(result.data.participantId, actor);
+  const participant = await participantOwnedBy(result.data.participantId, { actor, request });
   if (!participant) return Response.json({ error: "Participante inexistente" }, { status: 404 });
   const response = await runCommand(participant.run_id, "/incident", {
     participantId: result.data.participantId,

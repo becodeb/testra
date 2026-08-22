@@ -24,8 +24,8 @@ WHERE id = 'run-biology-demo';
 INSERT OR IGNORE INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, status, created_at, started_at, ends_at, ended_at) VALUES
   ('run-biology-ended', 'org-demo', 'teacher-demo', 'exam-biology-demo', 'P9XR3A', 'Fotosíntesis y respiración celular', '[{"id":"demo-q1","position":0,"type":"mc","prompt":"¿Qué proceso transforma energía lumínica en química?","points":2,"config":{"options":[{"id":"a","text":"Respiración"},{"id":"b","text":"Fotosíntesis"}],"correctOptionId":"b"}},{"id":"demo-q2","position":1,"type":"sa","prompt":"¿Cuál es el pigmento principal?","points":2,"config":{"accepted":["clorofila"]}},{"id":"demo-q3","position":2,"type":"long","prompt":"Explicá su importancia para el ecosistema.","points":4,"config":{}}]', 2400, 'ended', ((unixepoch() - 86400) * 1000), ((unixepoch() - 86400) * 1000), ((unixepoch() - 84000) * 1000), ((unixepoch() - 84000) * 1000));
 
-INSERT OR IGNORE INTO participants (id, run_id, user_id, status, joined_at, submitted_at, submit_reason, last_seen) VALUES
-  ('participant-ended-demo', 'run-biology-ended', 'student-demo-2', 'submitted', ((unixepoch() - 86400) * 1000), ((unixepoch() - 84060) * 1000), 'manual', ((unixepoch() - 84060) * 1000));
+INSERT OR IGNORE INTO participants (id, run_id, user_id, display_name, status, joined_at, submitted_at, submit_reason, last_seen) VALUES
+  ('participant-ended-demo', 'run-biology-ended', 'student-demo-2', 'Tomás Benítez', 'submitted', ((unixepoch() - 86400) * 1000), ((unixepoch() - 84060) * 1000), 'manual', ((unixepoch() - 84060) * 1000));
 
 INSERT OR IGNORE INTO answers (id, participant_id, question_id, value, updated_at) VALUES
   ('answer-ended-1', 'participant-ended-demo', 'demo-q1', '"b"', ((unixepoch() - 84100) * 1000)),

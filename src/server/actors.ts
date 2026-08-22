@@ -43,6 +43,10 @@ export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor |
   };
 }
 
+export function getAuthenticatedActor(locals: App.Locals): Actor | null {
+  return locals.user ? getActor(locals) : null;
+}
+
 export function isTeacher(actor: Actor | null): actor is Actor & { role: "teacher" } {
   return actor?.role === "teacher";
 }

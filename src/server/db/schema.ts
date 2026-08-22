@@ -184,8 +184,9 @@ export const participants = sqliteTable(
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
     userId: text("user_id")
-      .notNull()
       .references(() => users.id),
+    displayName: text("display_name").notNull(),
+    guestTokenHash: text("guest_token_hash"),
     status: text("status", {
       enum: ["waiting", "active", "submitted", "disconnected"],
     })
@@ -200,6 +201,7 @@ export const participants = sqliteTable(
   },
   (table) => [
     uniqueIndex("participants_run_user_uq").on(table.runId, table.userId),
+    uniqueIndex("participants_guest_token_uq").on(table.guestTokenHash),
     index("participants_run_idx").on(table.runId),
   ],
 );
