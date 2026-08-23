@@ -5,9 +5,24 @@ const CLASSROOM_API = "https://classroom.googleapis.com/v1";
 export const CLASSROOM_SCOPES = {
   courses: "https://www.googleapis.com/auth/classroom.courses.readonly",
   rosters: "https://www.googleapis.com/auth/classroom.rosters.readonly",
-  emails: "https://www.googleapis.com/auth/classroom.profile.emails",
   coursework: "https://www.googleapis.com/auth/classroom.coursework.students",
 } as const;
+
+export function normalizeStudentName(name: string) {
+  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+export function uniqueGoogleUsersByName(rows: Array<{ google_user_id: string; name: string }>) {
+  const users = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  for (const row of rows) {
+    const normalized = normalizeStudentName(row.name);
+    if (users.has(normalized)) ambiguous.add(normalized);
+    else users.set(normalized, row.google_user_id);
+  }
+  for (const normalized of ambiguous) users.delete(normalized);
+  return users;
+}
 
 const courseSchema = z.object({
   id: z.string(),

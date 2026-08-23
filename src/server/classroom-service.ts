@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 
 import type { Actor } from "@/server/actors";
-import { createLinkedCoursework, listCourseStudents, listCourseworkSubmissions, listTeacherCourses, sendGradeToClassroom } from "@/server/classroom";
+import { createLinkedCoursework, listCourseStudents, listCourseworkSubmissions, listTeacherCourses, normalizeStudentName, sendGradeToClassroom, uniqueGoogleUsersByName } from "@/server/classroom";
 import { getRunForTeacher } from "@/server/repository";
 
 const runtimeEnv = env as unknown as CloudflareEnv;
@@ -83,16 +83,18 @@ export async function classroomGradePreview(actor: Actor, runId: string) {
      WHERE p.run_id = ? AND p.status = 'submitted' GROUP BY p.id`,
   ).bind(runId).all<{ participant_id: string; name: string; email: string; grade: number; pending: number }>();
   const expected = await runtimeEnv.DB.prepare(
-    "SELECT google_user_id, email FROM expected_run_students WHERE run_id = ?",
-  ).bind(runId).all<{ google_user_id: string; email: string | null }>();
+    "SELECT google_user_id, name, email FROM expected_run_students WHERE run_id = ?",
+  ).bind(runId).all<{ google_user_id: string; name: string; email: string | null }>();
   const googleByEmail = new Map(expected.results.filter((row) => row.email).map((row) => [row.email!.toLocaleLowerCase(), row.google_user_id]));
+  const googleByName = uniqueGoogleUsersByName(expected.results);
   const submissionByUser = new Map(submissions.map((submission) => [submission.userId, submission]));
   return {
     courseId: run.classroom_course_id,
     courseworkId: run.classroom_coursework_id,
     token,
     rows: result.results.map((row) => {
-      const submission = submissionByUser.get(googleByEmail.get(row.email.toLocaleLowerCase()) ?? "");
+      const googleUserId = googleByEmail.get(row.email.toLocaleLowerCase()) ?? googleByName.get(normalizeStudentName(row.name));
+      const submission = submissionByUser.get(googleUserId ?? "");
       return {
         participantId: row.participant_id,
         name: row.name,
