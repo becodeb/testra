@@ -9,7 +9,7 @@ const actor = getAuthenticatedActor(Astro.locals);
 const code = Astro.params.code!.trim().toUpperCase();
 const session = await getStudentSession({ actor, request: Astro.request }, code);
 const run = session?.run ?? await getJoinableRun(code);
-if (!run) return new Response("No encontramos una toma activa con ese código", { status: 404 });
+if (!run) return new Response("No encontramos una evaluación activa con ese código", { status: 404 });
 ---
 
 <StudentLayout title={run.title}>

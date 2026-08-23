@@ -32,7 +32,11 @@ export const PATCH: APIRoute = async ({ locals, request, params }) => {
 export const DELETE: APIRoute = async ({ locals, params }) => {
   const access = teacher(locals);
   if ("response" in access) return access.response;
-  return (await deleteExam(params.id!, access.actor))
-    ? new Response(null, { status: 204 })
-    : Response.json({ error: "Evaluación inexistente" }, { status: 404 });
+  try {
+    return (await deleteExam(params.id!, access.actor))
+      ? new Response(null, { status: 204 })
+      : Response.json({ error: "Evaluación inexistente" }, { status: 404 });
+  } catch (error) {
+    return apiError(error, "No se pudo borrar la evaluación");
+  }
 };

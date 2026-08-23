@@ -1,0 +1,20 @@
+---
+import { ResultsWorkspace } from "@/components/results-workspace";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getActor, isTeacher } from "@/server/actors";
+import { getMonitorSnapshot, listPendingCorrections, listRuns } from "@/server/repository";
+
+const actor = getActor(Astro.locals, "teacher");
+if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
+if (!isTeacher(actor)) return Astro.redirect("/rendir");
+const sessions = (await listRuns(actor)).filter((session) => session.participantCount > 0 || session.status === "ended");
+const requested = Astro.url.searchParams.get("run");
+const selected = sessions.find((session) => session.id === requested) ?? sessions[0] ?? null;
+const [snapshot, corrections] = selected
+  ? await Promise.all([getMonitorSnapshot(selected.id, actor), listPendingCorrections(actor, selected.id)])
+  : [null, []];
+---
+
+<AppLayout title="Resultados" active="resultados">
+  <ResultsWorkspace client:load sessions={sessions} snapshot={snapshot} corrections={corrections} />
+</AppLayout>

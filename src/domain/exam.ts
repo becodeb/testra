@@ -92,6 +92,8 @@ export const examDraftSchema = z.object({
   subject: z.string().max(80),
   instructions: z.string().trim().max(4000),
   timeLimitS: z.number().int().min(60).max(6 * 60 * 60),
+  shuffleQuestions: z.boolean().default(false),
+  shuffleOptions: z.boolean().default(false),
   status: z.enum(["draft", "ready"]),
   questions: z.array(fullQuestionSchema).min(1, "Agregá al menos una pregunta"),
   updatedAt: z.iso.datetime(),

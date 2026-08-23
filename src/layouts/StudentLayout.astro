@@ -1,7 +1,7 @@
 ---
 import { Image } from "astro:assets";
 
-import testraLogo from "@/assets/testra-logo.png";
+import testraMark from "@/assets/testra-mark.png";
 import "@/styles/global.css";
 
 interface Props { title: string }
@@ -14,13 +14,14 @@ const { title } = Astro.props;
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
     <meta name="theme-color" content="#FFFFFF" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <title>{title} · Testra</title>
   </head>
   <body>
     <a class="skip-link" href="#contenido">Saltar al contenido</a>
     <header class="border-b bg-paper">
       <div class="mx-auto flex h-[3.75rem] max-w-[1020px] items-center justify-between px-4 lg:px-6">
-        <a href="/" class="flex items-center gap-2.5" aria-label="Testra, inicio"><span class="testra-mark" aria-hidden="true"><Image src={testraLogo} alt="" width={260} quality={80} loading="eager" /></span><span class="font-bold tracking-[-.025em] text-brand-deep">Testra</span></a>
+        <a href="/" class="flex items-center gap-2.5" aria-label="Testra, inicio"><span class="testra-mark" aria-hidden="true"><Image src={testraMark} alt="" width={128} quality={90} loading="eager" /></span><span class="font-bold tracking-[-.025em] text-brand-deep">Testra</span></a>
         <a href="/docs/vigilancia" class="text-xs font-medium text-muted underline underline-offset-4 hover:text-ink">Qué se registra</a>
       </div>
     </header>

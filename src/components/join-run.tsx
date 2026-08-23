@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, KeyRound, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -15,10 +15,13 @@ interface JoinRunProps {
 }
 
 export function JoinRun({ step = "code", code: initialCode = "", runTitle, defaultName = "" }: JoinRunProps) {
+  const [ready, setReady] = useState(false);
   const [code, setCode] = useState(initialCode);
   const [name, setName] = useState(defaultName);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => setReady(true), []);
 
   async function submit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,7 +44,7 @@ export function JoinRun({ step = "code", code: initialCode = "", runTitle, defau
     const body = await response.json() as { code?: string; error?: string };
     if (response.ok && body.code) window.location.assign(`/rendir/${encodeURIComponent(body.code)}`);
     else {
-      setError(body.error ?? "No pudimos ingresar a la toma");
+      setError(body.error ?? "No pudimos ingresar a la evaluación");
       setLoading(false);
     }
   }
@@ -49,7 +52,7 @@ export function JoinRun({ step = "code", code: initialCode = "", runTitle, defau
   const isNameStep = step === "name";
 
   return (
-    <form onSubmit={submit} className="w-full rounded-xl border bg-paper p-6 shadow-card sm:p-8">
+    <form onSubmit={submit} className="w-full rounded-xl border bg-paper p-6 shadow-card sm:p-8" data-join-ready={ready} inert={!ready}>
       <div className="flex size-11 items-center justify-center rounded-lg bg-brand-soft text-brand-deep" aria-hidden="true">
         {isNameStep ? <UserRound className="size-5" /> : <KeyRound className="size-5" />}
       </div>
@@ -82,7 +85,7 @@ export function JoinRun({ step = "code", code: initialCode = "", runTitle, defau
         </Field>
       ) : (
         <Field className="mt-6" data-invalid={Boolean(error) || undefined}>
-          <FieldLabel htmlFor="run-code">Código de la toma</FieldLabel>
+          <FieldLabel htmlFor="run-code">Código de la evaluación</FieldLabel>
           <Input
             id="run-code"
             value={code}

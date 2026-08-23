@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Clock3, Maximize2, Send, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Clock3, ListChecks, Maximize2, Send, Users } from "lucide-react";
 
 import type { StudentQuestion } from "@/domain/exam";
 import { useExamMonitoring, type ClientIncident } from "@/hooks/use-exam-monitoring";
@@ -63,6 +63,7 @@ export function StudentRuntime({
 }: StudentRuntimeProps) {
   const [ready, setReady] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [reviewing, setReviewing] = useState(false);
   const [answers, setAnswers] = useState<Record<string, StudentAnswerValue>>(initialAnswers);
   const [saveState, setSaveState] = useState<"loading" | "done">("done");
   const [saveError, setSaveError] = useState("");
@@ -276,9 +277,26 @@ export function StudentRuntime({
 
       <main id="contenido" className="mx-auto flex w-full max-w-[1020px] flex-1 flex-col gap-5 px-4 py-6 lg:px-6">
         {instructions ? <p className="rounded-md border bg-inset px-4 py-3 text-sm leading-relaxed text-ink-2"><strong>Indicaciones:</strong> {instructions}</p> : null}
-        <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-ink-2">Pregunta {activeIndex + 1} de {questions.length} · <span className="mono-number">{active.points} pt{active.points === 1 ? "" : "s"}</span></p><div className="flex items-center gap-2"><span className="text-xs text-muted">{incidentCount} incidente{incidentCount === 1 ? "" : "s"} visible{incidentCount === 1 ? "" : "s"}</span><Button type="button" variant="outline" size="sm" onClick={enterFullscreen}><Maximize2 data-icon="inline-start" /> Pantalla completa</Button></div></div>
-        <section className="rounded-lg border bg-paper p-5 shadow-card md:p-8" aria-labelledby="student-question"><h2 id="student-question" className="max-w-4xl text-lg font-semibold leading-relaxed text-ink">{active.prompt}</h2><div className="mt-7"><StudentAnswer question={active} value={answers[active.id]} onChange={(value) => setAnswer(active.id, value)} /></div></section>
-        <div className="mt-auto rounded-lg border bg-paper p-4 shadow-card"><QuestionNavigator states={states} activeIndex={activeIndex} onSelect={setActiveIndex} mode="student" /><div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4"><p className="text-sm text-muted">{unanswered === 0 ? "Respondiste todas las preguntas." : `Te ${unanswered === 1 ? "falta" : "faltan"} ${unanswered} ${unanswered === 1 ? "pregunta" : "preguntas"}.`}</p><AlertDialog><AlertDialogTrigger asChild><Button type="button" disabled={submitting}><Send data-icon="inline-start" /> {submitting ? "Entregando…" : "Entregar evaluación"}</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Querés entregar ahora?</AlertDialogTitle><AlertDialogDescription>{unanswered === 0 ? "Después de entregar no vas a poder cambiar tus respuestas." : `Todavía ${unanswered === 1 ? "queda" : "quedan"} ${unanswered} ${unanswered === 1 ? "pregunta vacía" : "preguntas vacías"}. Se destacan en la fila inferior.`}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Seguir revisando</AlertDialogCancel><AlertDialogAction onClick={() => void finish("manual")}>Entregar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div></div>
+        {reviewing ? (
+          <section className="rounded-xl border bg-paper p-5 shadow-card md:p-8" aria-labelledby="review-title">
+            <span className="grid size-10 place-items-center rounded-lg bg-brand-soft text-brand"><ListChecks aria-hidden="true" /></span>
+            <h2 id="review-title" className="mt-4 text-2xl font-semibold text-ink">Revisá antes de entregar</h2>
+            <p className="mt-2 text-sm text-muted">{unanswered === 0 ? "Respondiste todas las preguntas." : `Todavía te ${unanswered === 1 ? "falta" : "faltan"} ${unanswered} ${unanswered === 1 ? "pregunta" : "preguntas"}. Podés volver a cualquiera.`}</p>
+            <div className="mt-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {questions.map((question, index) => <button key={question.id} type="button" onClick={() => { setActiveIndex(index); setReviewing(false); }} className="flex items-center justify-between rounded-md border px-4 py-3 text-left text-sm font-semibold text-ink-2 transition-colors hover:border-brand hover:bg-brand-soft"><span>Pregunta {index + 1}</span><span className={states[index] === "complete" ? "text-ok" : "text-warn"}>{states[index] === "complete" ? "Respondida" : "Falta"}</span></button>)}
+            </div>
+            <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t pt-5">
+              <Button type="button" variant="outline" onClick={() => setReviewing(false)}><ArrowLeft data-icon="inline-start" />Volver a responder</Button>
+              <AlertDialog><AlertDialogTrigger asChild><Button type="button" disabled={submitting}><Send data-icon="inline-start" />{submitting ? "Entregando…" : "Entregar evaluación"}</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Confirmás la entrega?</AlertDialogTitle><AlertDialogDescription>{unanswered === 0 ? "Después de entregar no vas a poder cambiar tus respuestas." : `Vas a entregar con ${unanswered} ${unanswered === 1 ? "pregunta vacía" : "preguntas vacías"}.`}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Seguir revisando</AlertDialogCancel><AlertDialogAction onClick={() => void finish("manual")}>Entregar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+            </div>
+          </section>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-ink-2">Pregunta {activeIndex + 1} de {questions.length} · <span className="mono-number">{active.points} pt{active.points === 1 ? "" : "s"}</span></p><div className="flex items-center gap-2"><span className="text-xs text-muted">{incidentCount} aviso{incidentCount === 1 ? "" : "s"} visible{incidentCount === 1 ? "" : "s"}</span><Button type="button" variant="outline" size="sm" onClick={enterFullscreen}><Maximize2 data-icon="inline-start" /> Pantalla completa</Button></div></div>
+            <section className="rounded-lg border bg-paper p-5 shadow-card md:p-8" aria-labelledby="student-question"><h2 id="student-question" className="max-w-4xl text-lg font-semibold leading-relaxed text-ink">{active.prompt}</h2><div className="mt-7"><StudentAnswer question={active} value={answers[active.id]} onChange={(value) => setAnswer(active.id, value)} /></div></section>
+            <div className="mt-auto rounded-lg border bg-paper p-4 shadow-card"><QuestionNavigator states={states} activeIndex={activeIndex} onSelect={(index) => { setActiveIndex(index); setReviewing(false); }} mode="student" /><div className="mt-4 flex items-center justify-between gap-3 border-t pt-4"><Button type="button" variant="outline" disabled={activeIndex === 0} onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}><ArrowLeft data-icon="inline-start" />Anterior</Button><Button type="button" onClick={() => activeIndex === questions.length - 1 ? setReviewing(true) : setActiveIndex((index) => index + 1)}>{activeIndex === questions.length - 1 ? "Revisar" : "Siguiente"}<ArrowRight data-icon="inline-end" /></Button></div></div>
+          </>
+        )}
       </main>
 
       <div id="time-announcement" className="sr-only" aria-live="polite" />

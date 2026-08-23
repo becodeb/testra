@@ -18,6 +18,7 @@ export function ExamLibrary({ initialExams, subjects }: ExamLibraryProps) {
   const [subject, setSubject] = useState("");
   const [workingId, setWorkingId] = useState("");
   const [deleteId, setDeleteId] = useState("");
+  const [actionError, setActionError] = useState("");
   const [ready, setReady] = useState(false);
   const deferredQuery = useDeferredValue(query);
 
@@ -39,8 +40,8 @@ export function ExamLibrary({ initialExams, subjects }: ExamLibraryProps) {
       body: JSON.stringify({ examId }),
     });
     const body = await response.json() as { id?: string; error?: string };
-    if (response.ok && body.id) window.location.assign(`/tomas/${encodeURIComponent(body.id)}`);
-    else window.alert(body.error ?? "No se pudo crear la toma");
+    if (response.ok && body.id) window.location.assign(`/sesiones/${encodeURIComponent(body.id)}`);
+    else setActionError(body.error ?? "No se pudo abrir la sala de espera");
     setWorkingId("");
   }
 
@@ -49,7 +50,7 @@ export function ExamLibrary({ initialExams, subjects }: ExamLibraryProps) {
     const response = await fetch(`/api/exams/${encodeURIComponent(examId)}/duplicate`, { method: "POST" });
     const body = await response.json() as { id?: string; error?: string };
     if (response.ok && body.id) window.location.assign(`/evaluaciones/${encodeURIComponent(body.id)}`);
-    else window.alert(body.error ?? "No se pudo duplicar la evaluación");
+    else setActionError(body.error ?? "No se pudo duplicar la evaluación");
     setWorkingId("");
   }
 
@@ -61,13 +62,17 @@ export function ExamLibrary({ initialExams, subjects }: ExamLibraryProps) {
     setWorkingId(examId);
     const response = await fetch(`/api/exams/${encodeURIComponent(examId)}`, { method: "DELETE" });
     if (response.ok) setExams((current) => current.filter((exam) => exam.id !== examId));
-    else window.alert("No se pudo borrar la evaluación");
+    else {
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      setActionError(body.error ?? "No se pudo borrar la evaluación");
+    }
     setWorkingId("");
     setDeleteId("");
   }
 
   return (
     <div className="contents" data-library-ready={ready}>
+      {actionError ? <div className="flex items-center justify-between gap-3 rounded-md border border-alert/30 bg-paper px-4 py-3 text-sm text-alert" role="alert"><span>{actionError}</span><button type="button" className="font-semibold underline" onClick={() => setActionError("")}>Cerrar</button></div> : null}
       <div className="grid gap-3 rounded-lg border bg-paper p-4 shadow-card sm:grid-cols-[1fr_14rem]" role="search">
         <label className="flex flex-col gap-1.5 text-sm font-medium text-ink-2">
           Buscar por título
@@ -98,14 +103,14 @@ export function ExamLibrary({ initialExams, subjects }: ExamLibraryProps) {
               <dl className="mt-4 grid grid-cols-3 gap-3 border-y py-3">
                 <div><dt className="text-[.7rem] text-muted">Preguntas</dt><dd className="mono-number mt-0.5 text-sm font-semibold">{exam.questionCount}</dd></div>
                 <div><dt className="text-[.7rem] text-muted">Puntaje</dt><dd className="mono-number mt-0.5 text-sm font-semibold">{exam.totalPoints}</dd></div>
-                <div><dt className="text-[.7rem] text-muted">Tomas</dt><dd className="mono-number mt-0.5 text-sm font-semibold">{exam.runCount}</dd></div>
+                <div><dt className="text-[.7rem] text-muted">Sesiones</dt><dd className="mono-number mt-0.5 text-sm font-semibold">{exam.runCount}</dd></div>
               </dl>
-              <p className="mt-3 text-xs text-muted">Última toma: <span className="tabular text-ink-2">{exam.lastRunAt ? dateFormatter.format(exam.lastRunAt) : "Nunca"}</span></p>
+              <p className="mt-3 text-xs text-muted">Última sesión: <span className="tabular text-ink-2">{exam.lastRunAt ? dateFormatter.format(exam.lastRunAt) : "Nunca"}</span></p>
               <div className="mt-auto flex flex-wrap items-center gap-1 pt-5">
-                <Button type="button" size="sm" disabled={exam.status !== "ready" || workingId === exam.id} onClick={() => createRun(exam.id)}><Play data-icon="inline-start" /> Tomar</Button>
+                <Button type="button" size="sm" disabled={exam.status !== "ready" || workingId === exam.id} onClick={() => createRun(exam.id)}><Play data-icon="inline-start" /> Abrir sala</Button>
                 <Button asChild variant="outline" size="sm"><a href={`/evaluaciones/${encodeURIComponent(exam.id)}`}><Pencil data-icon="inline-start" /> Editar</a></Button>
                 <Button type="button" variant="ghost" size="icon-sm" disabled={workingId === exam.id} aria-label={`Duplicar ${exam.title}`} onClick={() => duplicate(exam.id)}><Copy /></Button>
-                <Button type="button" variant={deleteId === exam.id ? "destructive" : "ghost"} size={deleteId === exam.id ? "sm" : "icon-sm"} disabled={workingId === exam.id} aria-label={`Borrar ${exam.title}`} onBlur={() => setDeleteId("")} onClick={() => remove(exam.id)}><Trash2 />{deleteId === exam.id ? "Confirmar" : null}</Button>
+                <Button type="button" variant={deleteId === exam.id ? "destructive" : "ghost"} size={deleteId === exam.id ? "sm" : "icon-sm"} disabled={workingId === exam.id} aria-label={`Borrar ${exam.title}`} onClick={() => remove(exam.id)}><Trash2 />{deleteId === exam.id ? "Confirmar borrado" : null}</Button>
               </div>
             </article>
           ))}

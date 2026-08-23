@@ -1,0 +1,18 @@
+---
+import { LiveRunMonitor } from "@/components/live-run-monitor";
+import { ClassroomPanel } from "@/components/classroom-panel";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getActor, isTeacher } from "@/server/actors";
+import { getMonitorSnapshot } from "@/server/repository";
+
+const actor = getActor(Astro.locals, "teacher");
+if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
+if (!isTeacher(actor)) return Astro.redirect("/rendir");
+const snapshot = await getMonitorSnapshot(Astro.params.id!, actor);
+if (!snapshot) return new Response("Sesión inexistente", { status: 404 });
+---
+
+<AppLayout title={String(snapshot.run.title)} active="sesiones">
+  <LiveRunMonitor client:load runId={Astro.params.id!} initialSnapshot={snapshot} />
+  <div class="mt-5"><ClassroomPanel client:load runId={Astro.params.id!} linked={Boolean(snapshot.run.classroom_course_id && snapshot.run.classroom_coursework_id)} ended={snapshot.run.status === "ended"} /></div>
+</AppLayout>

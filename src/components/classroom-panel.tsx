@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, ExternalLink, Send } from "lucide-react";
+import { BookOpen, ExternalLink, RefreshCw, Send } from "lucide-react";
 
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
@@ -11,12 +11,7 @@ const CLASSROOM_SCOPES = [
   "https://www.googleapis.com/auth/classroom.coursework.students",
 ] as const;
 
-interface ClassroomPanelProps {
-  runId: string;
-  linked: boolean;
-  ended: boolean;
-}
-
+interface ClassroomPanelProps { runId: string; linked: boolean; ended: boolean }
 interface Course { id: string; name: string; section?: string }
 interface GradeRow { name: string; email: string; grade: number; pendingManual: number; submissionState: string | null; canSend: boolean }
 
@@ -30,9 +25,9 @@ export function ClassroomPanel({ runId, linked: initialLinked, ended }: Classroo
 
   async function connect() {
     setLoading(true);
-    await authClient.signIn.social({
+    await authClient.linkSocial({
       provider: "google",
-      callbackURL: window.location.pathname,
+      callbackURL: `${window.location.pathname}?classroom=connected`,
       scopes: [...CLASSROOM_SCOPES],
     });
     setLoading(false);
@@ -40,11 +35,13 @@ export function ClassroomPanel({ runId, linked: initialLinked, ended }: Classroo
 
   async function loadCourses() {
     setLoading(true);
+    setMessage("");
     const response = await fetch("/api/classroom/courses");
     const body = await response.json() as { courses?: Course[]; error?: string };
     if (response.ok) {
       setCourses(body.courses ?? []);
       setCourseId(body.courses?.[0]?.id ?? "");
+      if (!body.courses?.length) setMessage("Google no devolvió cursos activos para esta cuenta docente.");
     } else setMessage(body.error ?? "No se pudieron cargar los cursos");
     setLoading(false);
   }
@@ -53,8 +50,10 @@ export function ClassroomPanel({ runId, linked: initialLinked, ended }: Classroo
     setLoading(true);
     const response = await fetch("/api/classroom/publish", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId, courseId }) });
     const body = await response.json() as { studentCount?: number; error?: string };
-    if (response.ok) { setLinked(true); setMessage(`Tarea publicada. Se cargó el roster de ${body.studentCount ?? 0} alumnos.`); }
-    else setMessage(body.error ?? "No se pudo publicar");
+    if (response.ok) {
+      setLinked(true);
+      setMessage(`Tarea publicada. Se cargó la lista de ${body.studentCount ?? 0} alumnos.`);
+    } else setMessage(body.error ?? "No se pudo publicar la tarea");
     setLoading(false);
   }
 
@@ -76,8 +75,23 @@ export function ClassroomPanel({ runId, linked: initialLinked, ended }: Classroo
   }
 
   useEffect(() => {
-    if (linked && ended) void loadGrades();
-  }, [ended, linked]);
+    if (new URLSearchParams(window.location.search).get("classroom") === "connected" && !linked) {
+      window.history.replaceState(null, "", window.location.pathname);
+      void loadCourses();
+    }
+  }, [linked]);
 
-  return <section className="rounded-lg border bg-paper p-5 shadow-card" aria-labelledby="classroom-title"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-semibold tracking-[.08em] text-muted uppercase">Integración opcional</p><h2 id="classroom-title" className="mt-1 flex items-center gap-2 font-semibold text-ink"><BookOpen className="size-4 text-brand" aria-hidden="true" />Google Classroom</h2><p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted">Publicá un link a la toma y usá el roster real. Los permisos se piden recién ahora.</p></div>{!linked ? <Button type="button" variant="outline" disabled={loading} onClick={courses.length ? undefined : loadCourses}>{courses.length ? "Cursos cargados" : "Cargar mis cursos"}<ExternalLink data-icon="inline-end" /></Button> : <span className="rounded-sm border border-ok/25 px-2 py-1 text-xs font-semibold text-ok">Vinculada</span>}</div>{message ? <p className="mt-4 rounded-md bg-inset px-3 py-2 text-sm text-ink-2" role="status">{message}</p> : null}{!linked && courses.length ? <div className="mt-4 flex flex-wrap items-end gap-2"><label className="flex min-w-64 flex-1 flex-col gap-1.5 text-sm font-semibold text-ink-2">Curso<select value={courseId} onChange={(event) => setCourseId(event.target.value)} className="h-9 rounded-md border bg-white px-3 font-normal">{courses.map((course) => <option value={course.id} key={course.id}>{course.name}{course.section ? ` · ${course.section}` : ""}</option>)}</select></label><Button type="button" disabled={!courseId || loading} onClick={publish}>Publicar tarea</Button></div> : null}{!linked && message.includes("Conectá") ? <Button type="button" className="mt-3" onClick={connect} disabled={loading}>Autorizar Classroom</Button> : null}{linked && ended && grades ? <div className="mt-5"><div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[620px] text-left text-sm"><thead className="bg-inset text-xs"><tr><th className="px-3 py-2">Alumno</th><th className="px-3 py-2 text-right">Nota</th><th className="px-3 py-2">Entrega</th><th className="px-3 py-2">Resultado</th></tr></thead><tbody className="divide-y">{grades.map((row) => <tr key={row.email}><th scope="row" className="px-3 py-2.5 font-medium">{row.name}</th><td className="mono-number px-3 py-2.5 text-right">{row.grade}</td><td className="px-3 py-2.5 text-xs">{row.submissionState ?? "No encontrada"}</td><td className="px-3 py-2.5 text-xs">{row.canSend ? "Lista para enviar" : row.pendingManual ? "Falta corrección manual" : "El alumno aún no entregó en Classroom"}</td></tr>)}</tbody></table></div><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-muted">Se escribirán draftGrade y assignedGrade sólo para entregas elegibles.</p><Button type="button" disabled={loading || !grades.some((row) => row.canSend)} onClick={sendGrades}><Send data-icon="inline-start" />Enviar notas a Classroom</Button></div></div> : null}</section>;
+  useEffect(() => { if (linked && ended) void loadGrades(); }, [ended, linked]);
+
+  return (
+    <section className="rounded-lg border bg-paper p-5 shadow-card" aria-labelledby="classroom-title">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div><p className="text-xs font-semibold tracking-[.08em] text-muted uppercase">Integración opcional</p><h2 id="classroom-title" className="mt-1 flex items-center gap-2 font-semibold text-ink"><BookOpen className="size-4 text-brand" aria-hidden="true" />Google Classroom</h2><p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted">Publicá un enlace a esta evaluación y cargá automáticamente la lista de alumnos.</p></div>
+        {!linked ? <div className="flex gap-2"><Button type="button" variant="outline" disabled={loading} onClick={() => void connect()}><ExternalLink data-icon="inline-start" />Autorizar Google</Button><Button type="button" disabled={loading} onClick={() => void loadCourses()}><RefreshCw data-icon="inline-start" />Cargar cursos</Button></div> : <span className="rounded-sm border border-ok/25 px-2 py-1 text-xs font-semibold text-ok">Vinculada</span>}
+      </div>
+      {message ? <p className="mt-4 rounded-md bg-inset px-3 py-2 text-sm text-ink-2" role="status">{message}</p> : null}
+      {!linked && courses.length ? <div className="mt-4 flex flex-wrap items-end gap-2"><label className="flex min-w-64 flex-1 flex-col gap-1.5 text-sm font-semibold text-ink-2">Curso<select value={courseId} onChange={(event) => setCourseId(event.target.value)} className="h-9 rounded-md border bg-white px-3 font-normal">{courses.map((course) => <option value={course.id} key={course.id}>{course.name}{course.section ? ` · ${course.section}` : ""}</option>)}</select></label><Button type="button" disabled={!courseId || loading} onClick={() => void publish()}>Publicar tarea</Button></div> : null}
+      {linked && ended && grades ? <div className="mt-5"><div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[620px] text-left text-sm"><thead className="bg-inset text-xs"><tr><th className="px-3 py-2">Alumno</th><th className="px-3 py-2 text-right">Nota</th><th className="px-3 py-2">Entrega</th><th className="px-3 py-2">Resultado</th></tr></thead><tbody className="divide-y">{grades.map((row) => <tr key={row.email}><th scope="row" className="px-3 py-2.5 font-medium">{row.name}</th><td className="mono-number px-3 py-2.5 text-right">{row.grade}</td><td className="px-3 py-2.5 text-xs">{row.submissionState ?? "No encontrada"}</td><td className="px-3 py-2.5 text-xs">{row.canSend ? "Lista para enviar" : row.pendingManual ? "Falta corrección manual" : "El alumno aún no entregó en Classroom"}</td></tr>)}</tbody></table></div><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-muted">Las notas se envían sólo después de tu confirmación.</p><Button type="button" disabled={loading || !grades.some((row) => row.canSend)} onClick={() => void sendGrades()}><Send data-icon="inline-start" />Enviar notas a Classroom</Button></div></div> : null}
+    </section>
+  );
 }

@@ -116,6 +116,8 @@ export const exams = sqliteTable(
     subject: text("subject").notNull(),
     instructions: text("instructions").notNull().default(""),
     timeLimitS: integer("time_limit_s").notNull(),
+    shuffleQuestions: integer("shuffle_questions", { mode: "boolean" }).notNull().default(false),
+    shuffleOptions: integer("shuffle_options", { mode: "boolean" }).notNull().default(false),
     status: text("status", { enum: ["draft", "ready"] }).notNull().default("draft"),
     createdAt: timestamp("created_at"),
     updatedAt: timestamp("updated_at"),
@@ -157,6 +159,8 @@ export const runs = sqliteTable(
     title: text("title").notNull(),
     questionsSnapshot: text("questions_snapshot", { mode: "json" }).notNull(),
     timeLimitS: integer("time_limit_s").notNull(),
+    shuffleQuestions: integer("shuffle_questions", { mode: "boolean" }).notNull().default(false),
+    shuffleOptions: integer("shuffle_options", { mode: "boolean" }).notNull().default(false),
     status: text("status", { enum: ["lobby", "running", "ended"] })
       .notNull()
       .default("lobby"),

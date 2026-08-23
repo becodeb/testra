@@ -50,7 +50,7 @@ export async function publishRunToClassroom(actor: Actor, runId: string, courseI
     createLinkedCoursework(token, {
       courseId,
       title: run.title,
-      description: "Ingresá a Testra con tu cuenta institucional para rendir la evaluación.",
+      description: "Ingresá a Testra con el código y escribí tu nombre para rendir la evaluación.",
       runUrl: `${origin}/rendir/${run.code}`,
       maxPoints: (JSON.parse(run.questions_snapshot) as Array<{ points: number }>).reduce((sum, question) => sum + question.points, 0),
     }),
@@ -71,7 +71,7 @@ export async function publishRunToClassroom(actor: Actor, runId: string, courseI
 export async function classroomGradePreview(actor: Actor, runId: string) {
   const run = await getRunForTeacher(runId, actor);
   if (!run) return null;
-  if (!run.classroom_course_id || !run.classroom_coursework_id) throw new Error("Esta toma no está vinculada con Classroom");
+  if (!run.classroom_course_id || !run.classroom_coursework_id) throw new Error("Esta sesión no está vinculada con Classroom");
   const token = await googleAccessToken(actor);
   const { submissions } = await listCourseworkSubmissions(token, run.classroom_course_id, run.classroom_coursework_id);
   const result = await runtimeEnv.DB.prepare(

@@ -33,8 +33,15 @@ export const auth = betterAuth({
       clientId: runtimeEnv.GOOGLE_CLIENT_ID,
       clientSecret: runtimeEnv.GOOGLE_CLIENT_SECRET,
       accessType: "offline",
-      prompt: "select_account",
+      prompt: "select_account consent",
       scope: ["openid", "email", "profile"],
+    },
+  },
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: ["google"],
+      allowDifferentEmails: true,
     },
   },
   user: {

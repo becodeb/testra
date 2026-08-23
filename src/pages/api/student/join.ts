@@ -22,7 +22,7 @@ export const POST: APIRoute = async ({ cookies, locals, request, url }) => {
     const { code: rawCode, name } = inputSchema.parse(await readJson(request));
     const code = rawCode.toUpperCase();
     const run = await getJoinableRun(code);
-    if (!run) return Response.json({ error: "No encontramos una toma activa con ese código" }, { status: 404 });
+    if (!run) return Response.json({ error: "No encontramos una evaluación activa con ese código" }, { status: 404 });
     if (!name) return Response.json({ code: run.code, title: run.title });
 
     const access = { actor, request };
@@ -51,7 +51,7 @@ export const POST: APIRoute = async ({ cookies, locals, request, url }) => {
     }
     return joined
       ? Response.json({ code: joined.run.code, status: joined.run.status })
-      : Response.json({ error: "No encontramos una toma activa con ese código" }, { status: 404 });
+      : Response.json({ error: "No encontramos una evaluación activa con ese código" }, { status: 404 });
   } catch (error) {
     return apiError(error);
   }

@@ -73,7 +73,7 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({})) as { error?: string };
-      window.alert(body.error ?? "No se pudo actualizar la toma");
+      window.alert(body.error ?? "No se pudo actualizar la sesión");
     }
     await refresh();
     setWorking(false);
@@ -84,7 +84,7 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
       <section className="rounded-lg border bg-paper p-5 shadow-card" aria-labelledby="run-title">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div>
-            <p className="text-xs font-semibold tracking-[.08em] text-muted uppercase">{snapshot.run.status === "lobby" ? "Sala de espera" : snapshot.run.status === "running" ? "Toma en vivo" : "Toma finalizada"}</p>
+            <p className="text-xs font-semibold tracking-[.08em] text-muted uppercase">{snapshot.run.status === "lobby" ? "Sala de espera" : snapshot.run.status === "running" ? "Evaluación en vivo" : "Evaluación finalizada"}</p>
             <h1 id="run-title" className="mt-1 text-2xl font-semibold text-ink">{snapshot.run.title}</h1>
             <p className="mt-3 text-sm text-muted">Código de ingreso</p>
             <p className="mono-number mt-1 text-3xl font-bold tracking-[.18em] text-brand" aria-label={`Código ${snapshot.run.code.split("").join(" ")}`}>{snapshot.run.code}</p>
@@ -105,9 +105,9 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
             <>
               <Button type="button" variant="outline" disabled={working} onClick={() => control("adjust-time", -300)}><Minus data-icon="inline-start" /> 5 min</Button>
               <Button type="button" variant="outline" disabled={working} onClick={() => control("adjust-time", 300)}><Plus data-icon="inline-start" /> 5 min</Button>
-              <Button type="button" variant="destructive" className="ms-auto" disabled={working} onClick={() => control("end")}><Square data-icon="inline-start" /> Cerrar toma</Button>
+              <Button type="button" variant="destructive" className="ms-auto" disabled={working} onClick={() => control("end")}><Square data-icon="inline-start" /> Finalizar evaluación</Button>
             </>
-          ) : <a href="/correcciones" className="text-sm font-semibold text-brand hover:underline">Revisar correcciones</a>}
+          ) : <a href={`/resultados?run=${encodeURIComponent(runId)}`} className="text-sm font-semibold text-brand hover:underline">Ver notas y corregir</a>}
         </div>
       </section>
 
@@ -127,15 +127,15 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
         </section>
 
         <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="incidents-title">
-          <div className="flex items-center justify-between border-b px-4 py-3"><h2 id="incidents-title" className="font-semibold text-ink">Incidentes</h2><span className="mono-number text-sm text-warn">{snapshot.incidents.length}</span></div>
+          <div className="flex items-center justify-between border-b px-4 py-3"><div><h2 id="incidents-title" className="font-semibold text-ink">Avisos de actividad</h2><p className="mt-0.5 text-xs text-muted">Señales para revisar; no prueban una conducta por sí solas.</p></div><span className="mono-number text-sm text-warn">{snapshot.incidents.length}</span></div>
           <div className="max-h-[32rem] divide-y overflow-auto">
-            {snapshot.incidents.map((incident) => <article key={String(incident.id)} className="p-4"><div className="flex items-start gap-2"><AlertTriangle className={`mt-0.5 size-4 shrink-0 ${incident.source === "server" ? "text-alert" : "text-warn"}`} aria-hidden="true" /><div><p className="text-sm font-semibold text-ink">{String(incident.name)}</p><p className="mt-0.5 text-sm text-ink-2">{incidentLabel(String(incident.type), Number(incident.duration_ms))}</p><p className="mt-1 text-xs text-muted">{incident.source === "server" ? "Observado por el servidor" : "Reportado por el navegador"} · {timeFormatter.format(Number(incident.at))}</p></div></div></article>)}
-            {!snapshot.incidents.length ? <p className="p-6 text-center text-sm text-muted">No hay incidentes registrados.</p> : null}
+            {snapshot.incidents.map((incident) => <article key={String(incident.id)} className="p-4"><div className="flex items-start gap-2"><AlertTriangle className={`mt-0.5 size-4 shrink-0 ${incident.source === "server" ? "text-alert" : "text-warn"}`} aria-hidden="true" /><div><p className="text-sm font-semibold text-ink">{String(incident.name)}</p><p className="mt-0.5 text-sm text-ink-2">{incidentLabel(String(incident.type), Number(incident.duration_ms))}</p><p className="mt-1 text-xs text-muted">{incident.source === "server" ? "Detectado automáticamente" : "Informado por el navegador"} · {timeFormatter.format(Number(incident.at))}</p></div></div></article>)}
+            {!snapshot.incidents.length ? <p className="p-6 text-center text-sm text-muted">No hay avisos registrados.</p> : null}
           </div>
         </section>
       </div>
 
-      <aside className="rounded-md border border-warn/25 bg-paper p-4 text-sm leading-relaxed text-ink-2"><strong className="text-ink">La vigilancia es disuasión, no proctoring.</strong> Las señales del navegador son autorreportadas y pueden falsificarse. Nunca modifican la nota automáticamente. <a href="/docs/vigilancia" className="font-semibold text-brand underline-offset-2 hover:underline">Ver límites y señales registradas</a>.</aside>
+      <aside className="rounded-md border border-warn/25 bg-paper p-4 text-sm leading-relaxed text-ink-2"><strong className="text-ink">Los avisos necesitan contexto.</strong> Cambiar de Wi-Fi, perder conexión o alternar ventanas puede generar señales legítimas. Testra nunca cambia una nota automáticamente por estos eventos. <a href="/docs/vigilancia" className="font-semibold text-brand underline-offset-2 hover:underline">Qué significa cada aviso</a>.</aside>
     </div>
   );
 }
@@ -160,10 +160,10 @@ function incidentLabel(type: string, durationMs: number) {
     "atajo-copiar-pegar": "Usó el portapapeles",
     "salida-pantalla-completa": "Salió de pantalla completa",
     "cierre-pestana": "Cerró u ocultó la pestaña",
-    desconexion: "El servidor dejó de recibir heartbeats",
+    desconexion: "Se perdió la conexión por unos segundos",
     "sesion-duplicada": "Abrió una segunda sesión",
-    "cambio-ip": "Cambió la dirección IP",
-    "cambio-user-agent": "Cambió de navegador o dispositivo",
+    "cambio-ip": "Cambió de red o conexión (por ejemplo, Wi-Fi a datos)",
+    "cambio-user-agent": "Volvió a entrar desde otro navegador o dispositivo",
     "cadencia-respuestas": "Cadencia de respuestas inusual",
   };
   const duration = durationMs > 0 ? ` (${(durationMs / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} s)` : "";

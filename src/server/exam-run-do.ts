@@ -100,7 +100,7 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
     }
 
     if (url.pathname === "/start") {
-      if (this.run.status !== "lobby") return Response.json({ error: "La toma ya fue iniciada" }, { status: 409 });
+      if (this.run.status !== "lobby") return Response.json({ error: "La sesión ya fue iniciada" }, { status: 409 });
       const now = Date.now();
       this.run.status = "running";
       this.run.startedAt = now;
@@ -120,7 +120,7 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
     if (url.pathname === "/adjust-time") {
       const { deltaS } = (await request.json()) as { deltaS: number };
       if (this.run.status !== "running" || this.run.endsAt === null) {
-        return Response.json({ error: "La toma no está en curso" }, { status: 409 });
+        return Response.json({ error: "La sesión no está en curso" }, { status: 409 });
       }
       this.run.endsAt = Math.max(Date.now(), this.run.endsAt + Math.trunc(deltaS) * 1000);
       await this.env.DB.prepare("UPDATE runs SET ends_at = ? WHERE id = ?")

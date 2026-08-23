@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -8,6 +8,8 @@ import {
   Copy,
   GripVertical,
   Plus,
+  Save,
+  Shuffle,
   Trash2,
 } from "lucide-react";
 
@@ -178,14 +180,18 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
   const [subject, setSubject] = useState(initialExam.subject);
   const [instructions, setInstructions] = useState(initialExam.instructions);
   const [timeLimit, setTimeLimit] = useState(initialExam.timeLimitS / 60);
+  const [shuffleQuestions, setShuffleQuestions] = useState(initialExam.shuffleQuestions);
+  const [shuffleOptions, setShuffleOptions] = useState(initialExam.shuffleOptions);
   const [status, setStatus] = useState<"draft" | "ready">(initialExam.status);
   const [questions, setQuestions] = useState<FullQuestion[]>(initialExam.questions);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [saveState, setSaveState] = useState<"loading" | "done">("done");
+  const [saveState, setSaveState] = useState<"pending" | "loading" | "done">("done");
   const [saveError, setSaveError] = useState("");
   const [ready, setReady] = useState(false);
   const [importText, setImportText] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const firstAutosave = useRef(true);
 
   const active = questions[activeIndex];
   const completionStates = useMemo(() => questions.map(getQuestionCompletion), [questions]);
@@ -220,50 +226,73 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [addQuestion]);
 
-  useEffect(() => {
+  const saveNow = useCallback(async (nextStatus = status) => {
     setSaveState("loading");
     setSaveError("");
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      try {
-        const response = await fetch(`/api/exams/${encodeURIComponent(initialExam.id)}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            id: initialExam.id,
-            title,
-            subject,
-            instructions,
-            timeLimitS: Math.max(60, Math.round(timeLimit * 60)),
-            status,
-            questions,
-            updatedAt: new Date().toISOString(),
-          }),
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({})) as { error?: string };
-          throw new Error(body.error ?? "No se pudo guardar");
-        }
-        if (window.location.pathname === "/evaluaciones/nueva") {
-          window.history.replaceState(null, "", `/evaluaciones/${encodeURIComponent(initialExam.id)}`);
-        }
-        setSaveState("done");
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setSaveError(error instanceof Error ? error.message : "No se pudo guardar");
-        setSaveState("done");
+    try {
+      const response = await fetch(`/api/exams/${encodeURIComponent(initialExam.id)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: initialExam.id,
+          title,
+          subject,
+          instructions,
+          timeLimitS: Math.max(60, Math.round(timeLimit * 60)),
+          shuffleQuestions,
+          shuffleOptions,
+          status: nextStatus,
+          questions,
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? "No se pudo guardar");
       }
-    }, 650);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [initialExam.id, instructions, questions, status, subject, timeLimit, title]);
+      if (window.location.pathname === "/evaluaciones/nueva") {
+        window.history.replaceState(null, "", `/evaluaciones/${encodeURIComponent(initialExam.id)}`);
+      }
+      setSaveState("done");
+      return true;
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "No se pudo guardar");
+      setSaveState("done");
+      return false;
+    }
+  }, [initialExam.id, instructions, questions, shuffleOptions, shuffleQuestions, status, subject, timeLimit, title]);
 
-  function markReady() {
-    if (!canReady) return;
+  useEffect(() => {
+    if (firstAutosave.current) {
+      firstAutosave.current = false;
+      return;
+    }
+    setSaveState("pending");
+    setSaveError("");
+    const timer = window.setTimeout(() => void saveNow(), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [saveNow]);
+
+  async function prepareRun() {
+    if (!canReady || preparing) return;
+    setPreparing(true);
+    const saved = await saveNow("ready");
+    if (!saved) {
+      setPreparing(false);
+      return;
+    }
     setStatus("ready");
+    const response = await fetch("/api/runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ examId: initialExam.id }),
+    });
+    const body = await response.json().catch(() => ({})) as { id?: string; error?: string };
+    if (response.ok && body.id) window.location.assign(`/sesiones/${encodeURIComponent(body.id)}`);
+    else {
+      setSaveError(body.error ?? "No se pudo abrir la sala de espera");
+      setPreparing(false);
+    }
   }
 
   function updateActive(updater: (question: FullQuestion) => FullQuestion) {
@@ -359,11 +388,12 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
             </div>
             <div className="flex items-center gap-4">
               <span className={`inline-flex items-center gap-2 text-sm ${saveError ? "text-alert" : "text-ink-2"}`} aria-live="polite">
-                <StatusBadge state={saveState} />
-                {saveError || (saveState === "loading" ? "Guardando…" : "Guardado")}
+                {saveState === "pending" ? <span className="size-2 rounded-full bg-warn" aria-hidden="true" /> : <StatusBadge state={saveState} />}
+                {saveError || (saveState === "pending" ? "Cambios sin guardar" : saveState === "loading" ? "Guardando…" : "Guardado")}
               </span>
-              <Button type="button" disabled={!canReady || status === "ready"} onClick={markReady}>
-                Dejar lista
+              {saveState === "pending" ? <Button type="button" variant="outline" size="sm" onClick={() => void saveNow()}><Save data-icon="inline-start" />Guardar ahora</Button> : null}
+              <Button type="button" disabled={!canReady || preparing} onClick={() => void prepareRun()}>
+                {preparing ? "Preparando sala…" : "Preparar para el curso"}
                 <ArrowRight data-icon="inline-end" />
               </Button>
             </div>
@@ -404,6 +434,14 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
               placeholder="Ej.: Leé cada consigna antes de responder."
             />
           </Field>
+          <FieldSet className="rounded-md border bg-inset px-4 py-3">
+            <FieldLegend className="flex items-center gap-2 text-sm"><Shuffle className="size-4 text-brand" aria-hidden="true" />Orden diferente para cada alumno</FieldLegend>
+            <FieldDescription>Reduce la copia sin cambiar las claves de corrección.</FieldDescription>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <FieldLabel className="bg-white"><Field orientation="horizontal"><Checkbox aria-label="Mezclar preguntas" checked={shuffleQuestions} onCheckedChange={(checked) => setShuffleQuestions(Boolean(checked))} /><span>Mezclar preguntas</span></Field></FieldLabel>
+              <FieldLabel className="bg-white"><Field orientation="horizontal"><Checkbox aria-label="Mezclar respuestas" checked={shuffleOptions} onCheckedChange={(checked) => setShuffleOptions(Boolean(checked))} /><span>Mezclar respuestas</span></Field></FieldLabel>
+            </div>
+          </FieldSet>
         </div>
       </div>
 
@@ -499,10 +537,10 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
             <CircleAlert className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden="true" />
             <span>
               {!title.trim() || !subject.trim()
-                ? "Completá el título y la materia antes de dejar la evaluación lista."
+                ? "Completá el título y la materia antes de preparar la evaluación."
                 : optionsIncomplete
-                  ? "Completá el texto de todas las opciones antes de dejar la evaluación lista."
-                  : blockingCount === 1 ? "Falta completar 1 pregunta" : `Faltan completar ${blockingCount} preguntas`} {title.trim() && subject.trim() && !optionsIncomplete ? "antes de dejar la evaluación lista." : ""}
+                  ? "Completá el texto de todas las opciones antes de preparar la evaluación."
+                  : blockingCount === 1 ? "Falta completar 1 pregunta" : `Faltan completar ${blockingCount} preguntas`} {title.trim() && subject.trim() && !optionsIncomplete ? "antes de abrir la sala." : ""}
             </span>
           </div>
         ) : (

@@ -19,6 +19,8 @@ interface ExamRow {
   subject: string;
   instructions: string;
   time_limit_s: number;
+  shuffle_questions: number;
+  shuffle_options: number;
   status: "draft" | "ready";
   updated_at: number;
 }
@@ -41,6 +43,8 @@ interface RunRow {
   title: string;
   questions_snapshot: string;
   time_limit_s: number;
+  shuffle_questions: number;
+  shuffle_options: number;
   status: "lobby" | "running" | "ended";
   classroom_course_id: string | null;
   classroom_coursework_id: string | null;
@@ -163,7 +167,7 @@ export async function listSubjects(actor: Actor): Promise<string[]> {
 export async function getExam(examId: string, actor: Actor): Promise<ExamDraft | null> {
   const [exam, questionResult] = await Promise.all([
     runtimeEnv.DB.prepare(
-      "SELECT id, title, subject, instructions, time_limit_s, status, updated_at FROM exams WHERE id = ? AND author_id = ?",
+      "SELECT id, title, subject, instructions, time_limit_s, shuffle_questions, shuffle_options, status, updated_at FROM exams WHERE id = ? AND author_id = ?",
     ).bind(examId, actor.id).first<ExamRow>(),
     runtimeEnv.DB.prepare(
       "SELECT id, position, type, prompt, points, config FROM questions WHERE exam_id = ? ORDER BY position",
@@ -176,6 +180,8 @@ export async function getExam(examId: string, actor: Actor): Promise<ExamDraft |
     subject: exam.subject,
     instructions: exam.instructions,
     timeLimitS: exam.time_limit_s,
+    shuffleQuestions: Boolean(exam.shuffle_questions),
+    shuffleOptions: Boolean(exam.shuffle_options),
     status: exam.status,
     updatedAt: new Date(exam.updated_at).toISOString(),
     questions: questionResult.results.map(parseQuestion),
@@ -193,10 +199,11 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
   const now = Date.now();
   const statements: D1PreparedStatement[] = [
     runtimeEnv.DB.prepare(
-      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, shuffle_questions, shuffle_options, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET title = excluded.title, subject = excluded.subject,
        instructions = excluded.instructions, time_limit_s = excluded.time_limit_s,
+       shuffle_questions = excluded.shuffle_questions, shuffle_options = excluded.shuffle_options,
        status = excluded.status, updated_at = excluded.updated_at`,
     ).bind(
       draft.id,
@@ -206,6 +213,8 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
       draft.subject,
       draft.instructions,
       draft.timeLimitS,
+      draft.shuffleQuestions ? 1 : 0,
+      draft.shuffleOptions ? 1 : 0,
       draft.status,
       now,
       now,
@@ -250,16 +259,20 @@ export async function duplicateExam(examId: string, actor: Actor): Promise<ExamD
 }
 
 export async function deleteExam(examId: string, actor: Actor): Promise<boolean> {
-  const result = await runtimeEnv.DB.prepare("DELETE FROM exams WHERE id = ? AND author_id = ?")
-    .bind(examId, actor.id)
-    .run();
-  return Boolean(result.meta.changes);
+  const owned = await runtimeEnv.DB.prepare("SELECT id FROM exams WHERE id = ? AND author_id = ?")
+    .bind(examId, actor.id).first<{ id: string }>();
+  if (!owned) return false;
+  await runtimeEnv.DB.batch([
+    runtimeEnv.DB.prepare("UPDATE runs SET exam_id = NULL WHERE exam_id = ?").bind(examId),
+    runtimeEnv.DB.prepare("DELETE FROM exams WHERE id = ? AND author_id = ?").bind(examId, actor.id),
+  ]);
+  return true;
 }
 
 export async function createRun(actor: Actor, examId: string) {
   const exam = await getExam(examId, actor);
   if (!exam) return null;
-  if (exam.status !== "ready") throw new Error("La evaluación debe estar lista antes de tomarla");
+  if (exam.status !== "ready") throw new Error("La evaluación debe estar preparada antes de abrir la sala");
 
   const runId = crypto.randomUUID();
   let code = "";
@@ -275,8 +288,8 @@ export async function createRun(actor: Actor, examId: string) {
 
   const now = Date.now();
   await runtimeEnv.DB.prepare(
-    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
+    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, shuffle_questions, shuffle_options, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
   ).bind(
     runId,
     actor.orgId,
@@ -286,6 +299,8 @@ export async function createRun(actor: Actor, examId: string) {
     exam.title,
     JSON.stringify(exam.questions),
     exam.timeLimitS,
+    exam.shuffleQuestions ? 1 : 0,
+    exam.shuffleOptions ? 1 : 0,
     now,
   ).run();
   const response = await runCommand(runId, "/initialize", {
@@ -293,7 +308,7 @@ export async function createRun(actor: Actor, examId: string) {
     title: exam.title,
     timeLimitS: exam.timeLimitS,
   });
-  if (!response.ok) throw new Error("No se pudo inicializar la toma en vivo");
+  if (!response.ok) throw new Error("No se pudo inicializar la sesión en vivo");
   return { id: runId, code };
 }
 
@@ -436,13 +451,54 @@ export async function getStudentSession(access: StudentAccess, code: string) {
   const answerResult = await runtimeEnv.DB.prepare(
     "SELECT question_id, value FROM answers WHERE participant_id = ?",
   ).bind(participant.id).all<{ question_id: string; value: string }>();
-  const fullQuestions = JSON.parse(run.questions_snapshot) as FullQuestion[];
+  const fullQuestions = personalizeQuestions(
+    JSON.parse(run.questions_snapshot) as FullQuestion[],
+    `${run.id}:${participant.id}`,
+    Boolean(run.shuffle_questions),
+    Boolean(run.shuffle_options),
+  );
   return {
     run,
     participant,
     questions: toStudentQuestions(fullQuestions),
     answers: Object.fromEntries(answerResult.results.map((row) => [row.question_id, JSON.parse(row.value)])),
   };
+}
+
+function personalizeQuestions(
+  source: FullQuestion[],
+  seed: string,
+  shuffleQuestions: boolean,
+  shuffleOptions: boolean,
+) {
+  const questions = structuredClone(source);
+  const ordered = shuffleQuestions ? seededShuffle(questions, `${seed}:questions`) : questions;
+  return ordered.map((question, position) => {
+    const next = { ...question, position } as FullQuestion;
+    if (shuffleOptions && (next.type === "mc" || next.type === "ms")) {
+      next.config.options = seededShuffle(next.config.options, `${seed}:${next.id}:options`);
+    }
+    return next;
+  });
+}
+
+function seededShuffle<T>(source: T[], seed: string) {
+  let state = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    state ^= seed.charCodeAt(index);
+    state = Math.imul(state, 16777619);
+  }
+  const next = [...source];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    const random = ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    const target = Math.floor(random * (index + 1));
+    [next[index], next[target]] = [next[target], next[index]];
+  }
+  return next;
 }
 
 export async function participantOwnedBy(participantId: string, access: StudentAccess) {
@@ -476,11 +532,11 @@ export async function saveAnswer(access: StudentAccess, participantId: string, q
   const participant = await participantOwnedBy(participantId, access);
   if (!participant || participant.status === "submitted") return null;
   if (participant.run_status !== "running" || (participant.ends_at !== null && participant.ends_at <= Date.now())) {
-    throw new Error("La toma ya no acepta respuestas");
+    throw new Error("La sesión ya no acepta respuestas");
   }
   const questions = JSON.parse(participant.questions_snapshot) as FullQuestion[];
   const question = questions.find((candidate) => candidate.id === questionId);
-  if (!question) throw new Error("La pregunta no pertenece a esta toma");
+  if (!question) throw new Error("La pregunta no pertenece a esta sesión");
   const now = Date.now();
   await runtimeEnv.DB.prepare(
     `INSERT INTO answers (id, participant_id, question_id, value, updated_at)
@@ -557,9 +613,11 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
     ).bind(runId).all<Record<string, string | null>>(),
   ]);
   const questionCount = (JSON.parse(run.questions_snapshot) as FullQuestion[]).length;
+  const totalPoints = (JSON.parse(run.questions_snapshot) as FullQuestion[]).reduce((sum, question) => sum + question.points, 0);
   return {
     run: { ...run, questions_snapshot: undefined },
     questionCount,
+    totalPoints,
     participants: participantResult.results,
     incidents: incidentResult.results.map((row) => ({
       ...row,
@@ -570,7 +628,7 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
   };
 }
 
-export async function listPendingCorrections(actor: Actor) {
+export async function listPendingCorrections(actor: Actor, runId?: string) {
   const result = await runtimeEnv.DB.prepare(
     `SELECT p.id AS participant_id, p.run_id, p.submitted_at, p.display_name AS name, r.title,
       r.questions_snapshot, a.question_id, a.value, g.points_awarded
@@ -580,8 +638,9 @@ export async function listPendingCorrections(actor: Actor) {
      JOIN answers a ON a.participant_id = p.id
      LEFT JOIN grades g ON g.participant_id = p.id AND g.question_id = a.question_id
      WHERE p.status = 'submitted' AND COALESCE(r.author_id, e.author_id) = ?
+       AND (? = '' OR p.run_id = ?)
      ORDER BY p.submitted_at DESC`,
-  ).bind(actor.id).all<{
+  ).bind(actor.id, runId ?? "", runId ?? "").all<{
     participant_id: string;
     run_id: string;
     submitted_at: number;

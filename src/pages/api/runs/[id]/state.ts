@@ -8,5 +8,5 @@ export const GET: APIRoute = async ({ locals, params }) => {
   if (!actor) return unauthenticated();
   if (!isTeacher(actor)) return forbidden();
   const snapshot = await getMonitorSnapshot(params.id!, actor);
-  return snapshot ? Response.json(snapshot) : Response.json({ error: "Toma inexistente" }, { status: 404 });
+  return snapshot ? Response.json(snapshot) : Response.json({ error: "Sesión inexistente" }, { status: 404 });
 };
