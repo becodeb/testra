@@ -1,0 +1,34 @@
+---
+import StudentLayout from "@/layouts/StudentLayout.astro";
+---
+
+<StudentLayout title="Acerca de Testra">
+  <main id="contenido" class="mx-auto max-w-3xl px-4 py-10 lg:px-6">
+    <article class="rounded-lg border bg-paper p-6 shadow-card md:p-9">
+      <p class="text-xs font-semibold tracking-[.08em] text-muted uppercase">Acerca de Testra</p>
+      <h1 class="mt-2 text-3xl font-semibold tracking-[-.035em] text-ink">Evaluaciones claras para docentes y alumnos</h1>
+      <p class="mt-4 text-base leading-relaxed text-ink-2">Testra permite crear evaluaciones, abrir una sala con un código simple, recibir respuestas y corregir resultados desde un mismo espacio. Los alumnos pueden participar como invitados sin crear una cuenta.</p>
+
+      <section class="mt-8 grid gap-4 sm:grid-cols-2">
+        <div class="rounded-md bg-inset p-4">
+          <h2 class="font-semibold text-ink">Para docentes</h2>
+          <p class="mt-2 text-sm leading-relaxed text-ink-2">Creación de preguntas, orden aleatorio, seguimiento de la sala, corrección manual y publicación opcional en Google Classroom.</p>
+        </div>
+        <div class="rounded-md bg-inset p-4">
+          <h2 class="font-semibold text-ink">Para alumnos</h2>
+          <p class="mt-2 text-sm leading-relaxed text-ink-2">Ingreso con código y nombre, navegación simple entre preguntas y revisión antes de entregar.</p>
+        </div>
+      </section>
+
+      <section class="mt-8">
+        <h2 class="text-lg font-semibold text-ink">Integración con Google</h2>
+        <p class="mt-3 text-sm leading-relaxed text-ink-2">El inicio de sesión con Google es opcional. Si un docente decide conectar Google Classroom, Testra puede mostrar sus cursos, cargar la lista de alumnos, publicar el enlace de una evaluación y enviar calificaciones únicamente cuando el docente lo confirma.</p>
+      </section>
+
+      <div class="mt-8 flex flex-wrap gap-3">
+        <a href="/login" class="inline-flex h-9 items-center rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-deep">Entrar a Testra</a>
+        <a href="/privacidad" class="inline-flex h-9 items-center rounded-md border bg-white px-4 text-sm font-semibold text-ink-2 hover:bg-inset">Política de privacidad</a>
+      </div>
+    </article>
+  </main>
+</StudentLayout>
