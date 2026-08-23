@@ -8,19 +8,21 @@ export interface Actor {
   name: string;
   role: ActorRole;
   orgId: string | null;
+  orgAdmin: boolean;
 }
 
 const runtimeEnv = env as unknown as CloudflareEnv;
 
 export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor | null {
   if (locals.user) {
-    const user = locals.user as typeof locals.user & { role?: ActorRole; orgId?: string | null };
+    const user = locals.user as typeof locals.user & { role?: ActorRole; orgId?: string | null; orgAdmin?: boolean };
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       role: user.role ?? "student",
       orgId: user.orgId ?? null,
+      orgAdmin: user.orgAdmin ?? false,
     };
   }
 
@@ -32,6 +34,7 @@ export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor |
       name: "Sofía Álvarez",
       role: "student",
       orgId: "org-demo",
+      orgAdmin: false,
     };
   }
   return {
@@ -40,6 +43,7 @@ export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor |
     name: "Mariana Costa",
     role: "teacher",
     orgId: "org-demo",
+    orgAdmin: true,
   };
 }
 

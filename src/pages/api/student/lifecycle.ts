@@ -8,6 +8,7 @@ const payloadSchema = z.object({
   participantId: z.string().min(1),
   event: z.enum(["hidden", "pagehide"]),
   at: z.number().int().nonnegative(),
+  questionId: z.string().min(1).optional(),
 });
 
 export const POST: APIRoute = async ({ request, locals }) => {

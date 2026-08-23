@@ -3,6 +3,8 @@ import { OnboardingForm } from "@/components/onboarding-form";
 import StudentLayout from "@/layouts/StudentLayout.astro";
 
 if (!Astro.locals.user) return Astro.redirect("/login?next=/onboarding");
+const rawNext = Astro.url.searchParams.get("next") ?? "/";
+const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
 ---
 
-<StudentLayout title="Configurar cuenta"><main id="contenido" class="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-lg place-items-center px-4 py-12"><OnboardingForm client:load /></main></StudentLayout>
+<StudentLayout title="Configurar cuenta"><main id="contenido" class="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-lg place-items-center px-4 py-12"><OnboardingForm client:load next={next} /></main></StudentLayout>

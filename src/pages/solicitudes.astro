@@ -1,0 +1,13 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getActor } from "@/server/actors";
+import { env } from "cloudflare:workers";
+const actor = getActor(Astro.locals, "teacher");
+if (!actor) return Astro.redirect("/login?next=/solicitudes");
+if (!actor.orgAdmin || !actor.orgId) return Astro.redirect("/evaluaciones");
+const runtimeEnv = env as unknown as CloudflareEnv;
+const requests = await runtimeEnv.DB.prepare(
+  "SELECT ar.id, ar.email, ar.status, ar.requested_at, u.name FROM access_requests ar JOIN users u ON u.id = ar.requester_user_id WHERE ar.organization_id = ? ORDER BY ar.status = 'pending' DESC, ar.requested_at DESC",
+).bind(actor.orgId).all<{ id: string; email: string; name: string; status: string; requested_at: number }>();
+---
+<AppLayout title="Solicitudes" active="solicitudes"><header><p class="text-xs font-semibold tracking-[.08em] text-muted uppercase">Administración</p><h1 class="mt-1 text-2xl font-semibold text-ink">Solicitudes de docentes</h1><p class="mt-2 text-sm text-muted">Aprobá solamente a personas que reconozcas como parte de tu institución.</p></header><section class="mt-6 overflow-hidden rounded-lg border bg-paper shadow-card"><div class="divide-y">{requests.results.map((request) => <article class="flex flex-wrap items-center justify-between gap-4 p-5"><div><h2 class="font-semibold text-ink">{request.name}</h2><p class="text-sm text-muted">{request.email} · {new Date(request.requested_at).toLocaleDateString("es-AR")}</p></div>{request.status === "pending" ? <form method="post" action={`/api/access-requests/${request.id}`} class="flex gap-2"><button name="action" value="reject" class="h-9 rounded-md border px-3 text-sm font-semibold">Rechazar</button><button name="action" value="approve" class="h-9 rounded-md bg-brand px-3 text-sm font-semibold text-white">Aprobar docente</button></form> : <span class="text-sm font-semibold text-muted">{request.status === "approved" ? "Aprobada" : "Rechazada"}</span>}</article>)}{!requests.results.length ? <p class="p-8 text-center text-sm text-muted">No hay solicitudes todavía.</p> : null}</div></section></AppLayout>

@@ -9,6 +9,7 @@ interface CloudflareEnv {
   BETTER_AUTH_URL: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
+  OPENROUTER_API_KEY: string;
   ALLOW_DEMO_AUTH?: string;
   TEACHER_EMAILS?: string;
 }

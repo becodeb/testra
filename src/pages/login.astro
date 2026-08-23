@@ -1,42 +1,38 @@
 ---
 import { Image } from "astro:assets";
 
-import testraLogo from "@/assets/testra-logo.png";
+import testraMark from "@/assets/testra-mark.png";
 import { AuthForm } from "@/components/auth-form";
 import StudentLayout from "@/layouts/StudentLayout.astro";
 
 const rawNext = Astro.url.searchParams.get("next") ?? "/";
 const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+const callbackURL = `/?next=${encodeURIComponent(next)}`;
 ---
 
 <StudentLayout title="Iniciar sesión">
   <main id="contenido" class="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-[1040px] place-items-center px-4 py-10 lg:px-6">
     <section class="grid w-full overflow-hidden rounded-xl border bg-paper shadow-[0_22px_60px_rgba(5,24,81,.12)] md:grid-cols-[1.05fr_.95fr]" aria-labelledby="login-title">
-      <div class="relative hidden min-h-[620px] overflow-hidden border-r bg-[#f4f8ff] p-10 md:flex md:flex-col">
-        <div class="absolute -top-24 -left-24 size-72 rounded-full bg-brand-soft" aria-hidden="true"></div>
-        <div class="absolute -right-20 bottom-8 size-48 rounded-full border-[28px] border-[#09c7c5]/15" aria-hidden="true"></div>
-        <div class="testra-logo-lockup relative z-10" aria-hidden="true">
-          <Image src={testraLogo} alt="" width={480} quality={82} loading="eager" />
+      <div class="hidden min-h-[560px] border-r bg-white p-10 md:flex md:flex-col">
+        <div class="flex items-center gap-4" aria-hidden="true">
+          <span class="testra-mark size-14"><Image src={testraMark} alt="" width={128} quality={90} loading="eager" /></span>
+          <span class="text-4xl font-bold tracking-[-.045em] text-brand-deep">Testra</span>
         </div>
         <div class="relative z-10 mt-auto max-w-sm">
           <p class="text-xs font-bold tracking-[.17em] text-[#087e89] uppercase">Evaluaciones con criterio</p>
           <h2 class="mt-4 text-[2.35rem] leading-[1.05] font-semibold tracking-[-.045em] text-brand-deep">Creá, tomá y corregí sin perder el foco.</h2>
           <p class="mt-5 max-w-xs text-sm leading-6 text-ink-2">Una identidad clara para cada persona y una experiencia segura para cada evaluación.</p>
-          <div class="mt-8 flex items-center gap-3 text-xs font-semibold text-brand-deep">
-            <span class="h-px w-10 bg-[#09c7c5]"></span>
-            Focus · Integrity · Secure every test
-          </div>
         </div>
       </div>
 
       <div class="p-6 sm:p-10 lg:p-12">
-        <div class="testra-logo-lockup mb-8 max-w-[250px] md:hidden" aria-hidden="true">
-          <Image src={testraLogo} alt="" width={420} quality={82} loading="eager" />
+        <div class="mb-8 flex items-center gap-3 md:hidden" aria-hidden="true">
+          <span class="testra-mark size-11"><Image src={testraMark} alt="" width={128} quality={90} loading="eager" /></span><span class="text-2xl font-bold text-brand-deep">Testra</span>
         </div>
         <p class="text-xs font-bold tracking-[.12em] text-[#087e89] uppercase">Acceso seguro</p>
         <h1 id="login-title" class="mt-3 text-3xl font-semibold tracking-[-.035em] text-ink">Entrá a Testra</h1>
         <p class="mt-3 text-sm leading-6 text-muted">Usá tu correo y una contraseña. Si es tu primera vez, creá la cuenta acá mismo.</p>
-        <div class="mt-7"><AuthForm client:load callbackURL={next} /></div>
+        <div class="mt-7"><AuthForm client:load callbackURL={callbackURL} /></div>
       </div>
     </section>
   </main>

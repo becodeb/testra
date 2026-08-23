@@ -29,6 +29,14 @@ interface StudentRuntimeProps {
   participantStatus?: "waiting" | "active" | "submitted" | "disconnected";
   serverNow: number;
   endsAt: number | null;
+  allowBackwards?: boolean;
+  showProgress?: boolean;
+  autoSubmit?: boolean;
+  allowReconnect?: boolean;
+  requireFullscreen?: boolean;
+  detectFocusLoss?: boolean;
+  blockClipboard?: boolean;
+  violationAction?: "warn_and_record" | "record_only";
 }
 
 function formatTime(seconds: number) {
@@ -60,6 +68,14 @@ export function StudentRuntime({
   participantStatus = "waiting",
   serverNow,
   endsAt: initialEndsAt,
+  allowBackwards = true,
+  showProgress = true,
+  autoSubmit = true,
+  allowReconnect = true,
+  requireFullscreen = false,
+  detectFocusLoss = true,
+  blockClipboard = false,
+  violationAction = "warn_and_record",
 }: StudentRuntimeProps) {
   const [ready, setReady] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -74,6 +90,7 @@ export function StudentRuntime({
   const [incidentCount, setIncidentCount] = useState(0);
   const [submitted, setSubmitted] = useState(participantStatus === "submitted" || initialStatus === "ended");
   const [submitting, setSubmitting] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== "undefined" && Boolean(document.fullscreenElement));
   const announcedRef = useRef(new Set<number>());
   const clockOffset = useRef(serverNow - Date.now());
   const answersRef = useRef(answers);
@@ -86,21 +103,27 @@ export function StudentRuntime({
   }, []);
 
   useEffect(() => {
+    const update = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", update);
+    return () => document.removeEventListener("fullscreenchange", update);
+  }, []);
+
+  useEffect(() => {
     answersRef.current = answers;
   }, [answers]);
 
   const onIncident = useCallback((nextIncident: ClientIncident) => {
     setIncidentCount((count) => count + 1);
-    setIncident(nextIncident);
+    if (violationAction === "warn_and_record") setIncident(nextIncident);
     void fetch("/api/student/incident", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ participantId, ...nextIncident }),
       keepalive: true,
     });
-  }, [participantId]);
+  }, [participantId, violationAction]);
 
-  useExamMonitoring({ active: runStatus === "running" && !submitted, participantId, onIncident });
+  useExamMonitoring({ active: runStatus === "running" && !submitted, participantId, activeQuestionId: active.id, detectFocusLoss, blockClipboard, requireFullscreen, onIncident });
 
   const persistAnswer = useCallback(async (questionId: string, value: StudentAnswerValue) => {
     setSaveState("loading");
@@ -152,10 +175,10 @@ export function StudentRuntime({
     const timer = window.setInterval(() => {
       const next = Math.max(0, Math.ceil((endsAt - (Date.now() + clockOffset.current)) / 1000));
       setRemaining(next);
-      if (next === 0) void finish("timer");
+      if (next === 0 && autoSubmit) void finish("timer");
     }, 1_000);
     return () => window.clearInterval(timer);
-  }, [endsAt, finish, runStatus, submitted]);
+  }, [autoSubmit, endsAt, finish, runStatus, submitted]);
 
   useEffect(() => {
     if (runStatus !== "running" || submitted) return;
@@ -163,7 +186,7 @@ export function StudentRuntime({
       const response = await fetch("/api/student/heartbeat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ participantId }),
+        body: JSON.stringify({ participantId, questionId: active.id }),
         keepalive: true,
       });
       if (!response.ok) return;
@@ -176,7 +199,7 @@ export function StudentRuntime({
     void sendHeartbeat();
     const heartbeat = window.setInterval(() => void sendHeartbeat(), 5_000);
     return () => window.clearInterval(heartbeat);
-  }, [finish, participantId, runStatus, submitted]);
+  }, [active.id, finish, participantId, runStatus, submitted]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -199,7 +222,7 @@ export function StudentRuntime({
         if (payload.type === "run-ended") void finish("timer");
       });
       socket.addEventListener("close", () => {
-        if (disposed || submitted) return;
+        if (disposed || submitted || !allowReconnect) return;
         retry += 1;
         retryTimer = window.setTimeout(connect, Math.min(5_000, 500 * 2 ** retry));
       });
@@ -210,7 +233,7 @@ export function StudentRuntime({
       window.clearTimeout(retryTimer);
       socket?.close();
     };
-  }, [finish, participantId, runId, submitted]);
+  }, [allowReconnect, finish, participantId, runId, submitted]);
 
   useEffect(() => {
     if (!(remaining === 300 || remaining === 60) || announcedRef.current.has(remaining)) return;
@@ -271,6 +294,10 @@ export function StudentRuntime({
     );
   }
 
+  if (runStatus === "running" && requireFullscreen && !isFullscreen) {
+    return <main id="contenido" className="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-xl place-items-center px-4 py-12"><section className="w-full rounded-xl border bg-paper p-8 text-center shadow-card"><Maximize2 className="mx-auto size-8 text-brand" /><h1 className="mt-4 text-xl font-semibold text-ink">Entrá en pantalla completa</h1><p className="mt-2 text-sm leading-6 text-muted">Esta evaluación usa supervisión estricta. Podés continuar cuando actives la pantalla completa.</p><Button type="button" className="mt-6" onClick={enterFullscreen}><Maximize2 data-icon="inline-start" />Activar pantalla completa</Button></section></main>;
+  }
+
   return (
     <div className="flex min-h-[calc(100dvh-3.75rem)] flex-col" data-student-ready={ready} inert={!ready}>
       <div className="border-b bg-paper"><div className="mx-auto flex max-w-[1020px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6"><div className="min-w-0"><p className="text-xs text-muted">{studentName}</p><h1 className="truncate font-semibold text-ink">{title}</h1></div><div className="flex items-center gap-4"><span className={`inline-flex items-center gap-2 text-sm ${saveError ? "text-alert" : "text-ink-2"}`} aria-live="polite"><StatusBadge state={saveState} /> {saveError || (saveState === "loading" ? "Guardando…" : "Guardado")}</span><div className="flex items-center gap-2 rounded-md border bg-inset px-3 py-1.5"><Clock3 className="size-4 text-muted" aria-hidden="true" /><span role="timer" aria-live="off" aria-label={`${remaining} segundos restantes`} className="mono-number font-semibold text-ink">{formatTime(remaining)}</span></div></div></div></div>
@@ -292,9 +319,9 @@ export function StudentRuntime({
           </section>
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-ink-2">Pregunta {activeIndex + 1} de {questions.length} · <span className="mono-number">{active.points} pt{active.points === 1 ? "" : "s"}</span></p><div className="flex items-center gap-2"><span className="text-xs text-muted">{incidentCount} aviso{incidentCount === 1 ? "" : "s"} visible{incidentCount === 1 ? "" : "s"}</span><Button type="button" variant="outline" size="sm" onClick={enterFullscreen}><Maximize2 data-icon="inline-start" /> Pantalla completa</Button></div></div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-ink-2">Pregunta {activeIndex + 1} de {questions.length} · <span className="mono-number">{active.points} pt{active.points === 1 ? "" : "s"}</span></p><div className="flex items-center gap-2"><span className="text-xs text-muted">{incidentCount} aviso{incidentCount === 1 ? "" : "s"} visible{incidentCount === 1 ? "" : "s"}</span>{requireFullscreen ? <Button type="button" variant="outline" size="sm" onClick={enterFullscreen}><Maximize2 data-icon="inline-start" /> Pantalla completa</Button> : null}</div></div>
             <section className="rounded-lg border bg-paper p-5 shadow-card md:p-8" aria-labelledby="student-question"><h2 id="student-question" className="max-w-4xl text-lg font-semibold leading-relaxed text-ink">{active.prompt}</h2><div className="mt-7"><StudentAnswer question={active} value={answers[active.id]} onChange={(value) => setAnswer(active.id, value)} /></div></section>
-            <div className="mt-auto rounded-lg border bg-paper p-4 shadow-card"><QuestionNavigator states={states} activeIndex={activeIndex} onSelect={(index) => { setActiveIndex(index); setReviewing(false); }} mode="student" /><div className="mt-4 flex items-center justify-between gap-3 border-t pt-4"><Button type="button" variant="outline" disabled={activeIndex === 0} onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}><ArrowLeft data-icon="inline-start" />Anterior</Button><Button type="button" onClick={() => activeIndex === questions.length - 1 ? setReviewing(true) : setActiveIndex((index) => index + 1)}>{activeIndex === questions.length - 1 ? "Revisar" : "Siguiente"}<ArrowRight data-icon="inline-end" /></Button></div></div>
+            <div className="mt-auto rounded-lg border bg-paper p-4 shadow-card">{showProgress ? <QuestionNavigator states={states} activeIndex={activeIndex} onSelect={(index) => { if (allowBackwards || index >= activeIndex) { setActiveIndex(index); setReviewing(false); } }} mode="student" /> : null}<div className={`${showProgress ? "mt-4 border-t pt-4" : ""} flex items-center justify-between gap-3`}><Button type="button" variant="outline" disabled={!allowBackwards || activeIndex === 0} onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}><ArrowLeft data-icon="inline-start" />Anterior</Button><Button type="button" onClick={() => activeIndex === questions.length - 1 ? setReviewing(true) : setActiveIndex((index) => index + 1)}>{activeIndex === questions.length - 1 ? "Revisar" : "Siguiente"}<ArrowRight data-icon="inline-end" /></Button></div></div>
           </>
         )}
       </main>

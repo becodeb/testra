@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
 import type { FullQuestion } from "@/domain/exam";
+import { shouldCompareConnectionValue } from "@/server/connection-signals";
 import { gradeExam } from "@/server/grading";
 
 const CLIENT_INCIDENT_TYPES = new Set([
@@ -25,6 +26,7 @@ interface ParticipantState {
   lastSeen: number;
   ip: string;
   userAgent: string;
+  currentQuestionId?: string;
 }
 
 interface LiveRunState {
@@ -34,6 +36,7 @@ interface LiveRunState {
   timeLimitS: number;
   startedAt: number | null;
   endsAt: number | null;
+  recordDisconnects: boolean;
   participants: Record<string, ParticipantState>;
 }
 
@@ -49,6 +52,7 @@ const emptyRun = (): LiveRunState => ({
   timeLimitS: 0,
   startedAt: null,
   endsAt: null,
+  recordDisconnects: true,
   participants: {},
 });
 
@@ -132,10 +136,11 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
     }
 
     if (url.pathname === "/heartbeat") {
-      const { participantId } = (await request.json()) as { participantId: string };
+      const { participantId, questionId } = (await request.json()) as { participantId: string; questionId?: string };
       const participant = this.run.participants[participantId];
       if (!participant) return Response.json({ error: "Participante inexistente" }, { status: 404 });
       participant.lastSeen = Date.now();
+      if (questionId) participant.currentQuestionId = questionId;
       if (participant.status === "disconnected") {
         participant.status = "active";
         this.broadcast({ type: "participant-reconnected", participantId });
@@ -166,10 +171,11 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
     }
 
     if (url.pathname === "/lifecycle") {
-      const payload = (await request.json()) as { participantId: string; event: "hidden" | "pagehide"; at: number };
+      const payload = (await request.json()) as { participantId: string; event: "hidden" | "pagehide"; at: number; questionId?: string };
       if (!this.run.participants[payload.participantId]) {
         return Response.json({ error: "Participante inexistente" }, { status: 404 });
       }
+      if (payload.questionId) this.run.participants[payload.participantId].currentQuestionId = payload.questionId;
       await this.ctx.storage.put(`lifecycle:${payload.participantId}`, { event: payload.event, at: payload.at });
       if (payload.event === "pagehide") {
         const dedupeKey = `pagehide-recorded:${payload.participantId}`;
@@ -188,6 +194,7 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
       const participant = this.run.participants[payload.participantId];
       if (!participant) return Response.json({ error: "Participante inexistente" }, { status: 404 });
       participant.lastSeen = Date.now();
+      participant.currentQuestionId = payload.questionId;
       const key = `answer-times:${payload.participantId}`;
       const existing = (await this.ctx.storage.get<number[]>(key)) ?? [];
       const recent = [...existing.filter((time) => payload.at - time <= 11_000), payload.at].slice(-5);
@@ -234,7 +241,7 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
     for (const participant of Object.values(this.run.participants)) {
       if (participant.status === "active" && now - participant.lastSeen >= HEARTBEAT_TIMEOUT_MS) {
         participant.status = "disconnected";
-        await this.recordIncident(participant.participantId, "desconexion", 0, {
+        if (this.run.recordDisconnects) await this.recordIncident(participant.participantId, "desconexion", 0, {
           lastSeen: participant.lastSeen,
         });
         await this.env.DB.prepare("UPDATE participants SET status = 'disconnected' WHERE id = ? AND status = 'active'")
@@ -334,10 +341,10 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
       };
 
       if (duplicate) await this.recordIncident(participantId, "sesion-duplicada", 0, {});
-      if (prior && prior.ip !== ip) await this.recordIncident(participantId, "cambio-ip", 0, { from: prior.ip, to: ip });
-      if (prior && prior.userAgent !== userAgent) {
+      if (shouldCompareConnectionValue(prior?.ip) && prior!.ip !== ip) await this.recordIncident(participantId, "cambio-ip", 0, { from: prior!.ip, to: ip });
+      if (shouldCompareConnectionValue(prior?.userAgent) && prior!.userAgent !== userAgent) {
         await this.recordIncident(participantId, "cambio-user-agent", 0, {
-          from: prior.userAgent,
+          from: prior!.userAgent,
           to: userAgent,
         });
       }
@@ -375,7 +382,7 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
   private async hydrateFromDatabase(runId: string | null) {
     if (!runId) return;
     const row = await this.env.DB.prepare(
-      "SELECT id, title, status, time_limit_s, started_at, ends_at FROM runs WHERE id = ?",
+      "SELECT id, title, status, time_limit_s, started_at, ends_at, record_disconnects FROM runs WHERE id = ?",
     ).bind(runId).first<{
       id: string;
       title: string;
@@ -383,6 +390,7 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
       time_limit_s: number;
       started_at: number | null;
       ends_at: number | null;
+      record_disconnects: number;
     }>();
     if (!row) return;
     const participants = await this.env.DB.prepare(
@@ -396,6 +404,7 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
       timeLimitS: row.time_limit_s,
       startedAt: row.started_at,
       endsAt: row.ends_at,
+      recordDisconnects: Boolean(row.record_disconnects),
       participants: Object.fromEntries(participants.results.map((participant) => [participant.id, {
         participantId: participant.id,
         userId: participant.user_id ?? participant.id,
@@ -442,10 +451,13 @@ export class ExamRunDO extends DurableObject<CloudflareEnv> {
     meta: unknown,
     source: "client" | "server" = "server",
   ) {
+    const participant = this.run.participants[participantId];
+    const receivedMeta = typeof meta === "object" && meta ? meta as Record<string, unknown> : {};
+    const questionId = typeof receivedMeta.questionId === "string" ? receivedMeta.questionId : participant?.currentQuestionId ?? null;
     await this.env.DB.prepare(
-      "INSERT INTO incidents (id, participant_id, at, duration_ms, type, meta, source) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO incidents (id, participant_id, at, duration_ms, type, question_id, meta, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
-      .bind(crypto.randomUUID(), participantId, Date.now(), durationMs, type, JSON.stringify(meta), source)
+      .bind(crypto.randomUUID(), participantId, Date.now(), durationMs, type, questionId, JSON.stringify({ ...receivedMeta, questionId }), source)
       .run();
   }
 

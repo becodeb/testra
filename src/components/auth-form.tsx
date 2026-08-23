@@ -103,9 +103,9 @@ export function AuthForm({ callbackURL }: { callbackURL: string }) {
         </button>
       </div>
 
-      <form onSubmit={submit} className="mt-6 space-y-4">
-        {mode === "signup" ? (
-          <Field>
+      <form onSubmit={submit} className="mt-6 space-y-4 transition-[height] duration-500 ease-in-out">
+        <div className={`grid transition-[grid-template-rows,opacity] duration-500 ease-in-out ${mode === "signup" ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`} aria-hidden={mode !== "signup"}>
+          <div className="overflow-hidden"><Field className="pb-4">
             <FieldLabel htmlFor="auth-name">Nombre y apellido</FieldLabel>
             <Input
               id="auth-name"
@@ -113,13 +113,13 @@ export function AuthForm({ callbackURL }: { callbackURL: string }) {
               autoComplete="name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              required
+              required={mode === "signup"}
               minLength={2}
               maxLength={80}
               disabled={loading}
             />
-          </Field>
-        ) : null}
+          </Field></div>
+        </div>
 
         <Field>
           <FieldLabel htmlFor="auth-email">Correo electrónico</FieldLabel>

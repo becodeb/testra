@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getActor } from "@/server/actors";
 import { participantOwnedBy, runCommand } from "@/server/repository";
 
-const payloadSchema = z.object({ participantId: z.string().min(1) });
+const payloadSchema = z.object({ participantId: z.string().min(1), questionId: z.string().min(1).optional() });
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const actor = getActor(locals, "student");

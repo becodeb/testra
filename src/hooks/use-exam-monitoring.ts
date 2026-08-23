@@ -18,6 +18,10 @@ interface UseExamMonitoringOptions {
   active: boolean;
   participantId: string;
   onIncident: (incident: ClientIncident) => void;
+  activeQuestionId: string;
+  detectFocusLoss?: boolean;
+  blockClipboard?: boolean;
+  requireFullscreen?: boolean;
 }
 
 interface Absence {
@@ -25,27 +29,29 @@ interface Absence {
   sawHidden: boolean;
 }
 
-export function useExamMonitoring({ active, participantId, onIncident }: UseExamMonitoringOptions) {
+export function useExamMonitoring({ active, participantId, onIncident, activeQuestionId, detectFocusLoss = true, blockClipboard = false, requireFullscreen = false }: UseExamMonitoringOptions) {
   const activeRef = useRef(active);
   const callbackRef = useRef(onIncident);
   const absenceRef = useRef<Absence | null>(null);
   const wasFullscreenRef = useRef(false);
+  const questionRef = useRef(activeQuestionId);
 
   useEffect(() => {
     activeRef.current = active;
     callbackRef.current = onIncident;
-  }, [active, onIncident]);
+    questionRef.current = activeQuestionId;
+  }, [active, activeQuestionId, onIncident]);
 
   useEffect(() => {
     const watching = () => activeRef.current;
     const emit = (incident: ClientIncident) => {
       if (!watching()) return;
-      callbackRef.current(incident);
+      callbackRef.current({ ...incident, meta: { ...incident.meta, questionId: questionRef.current } });
     };
 
     const sendLifecycle = (event: "hidden" | "pagehide") => {
       if (!watching()) return;
-      const body = JSON.stringify({ participantId, event, at: Date.now() });
+      const body = JSON.stringify({ participantId, event, at: Date.now(), questionId: questionRef.current });
       navigator.sendBeacon("/api/student/lifecycle", new Blob([body], { type: "application/json" }));
     };
 
@@ -57,7 +63,7 @@ export function useExamMonitoring({ active, participantId, onIncident }: UseExam
 
       const hidden = document.visibilityState === "hidden";
       const unfocused = !document.hasFocus();
-      if (hidden || unfocused) {
+      if (detectFocusLoss && (hidden || unfocused)) {
         if (!absenceRef.current) absenceRef.current = { startedAt: Date.now(), sawHidden: hidden };
         if (hidden) absenceRef.current.sawHidden = true;
         return;
@@ -81,6 +87,8 @@ export function useExamMonitoring({ active, participantId, onIncident }: UseExam
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (!watching()) return;
+      if (!blockClipboard) return;
+      event.preventDefault();
       if (event.key === "F12") {
         emit({ type: "atajo-f12", at: Date.now(), durationMs: 0, meta: {} });
       }
@@ -100,7 +108,7 @@ export function useExamMonitoring({ active, participantId, onIncident }: UseExam
         wasFullscreenRef.current = true;
         return;
       }
-      if (watching() && wasFullscreenRef.current) {
+      if (watching() && requireFullscreen && wasFullscreenRef.current) {
         wasFullscreenRef.current = false;
         emit({ type: "salida-pantalla-completa", at: Date.now(), durationMs: 0, meta: {} });
       }
@@ -128,5 +136,5 @@ export function useExamMonitoring({ active, participantId, onIncident }: UseExam
       document.removeEventListener("fullscreenchange", onFullscreen);
       window.removeEventListener("pagehide", onPageHide);
     };
-  }, [participantId]);
+  }, [blockClipboard, detectFocusLoss, participantId, requireFullscreen]);
 }

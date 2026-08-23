@@ -9,7 +9,7 @@ import {
   GripVertical,
   Plus,
   Save,
-  Shuffle,
+  Settings2,
   Trash2,
 } from "lucide-react";
 
@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -175,6 +176,10 @@ interface ExamEditorProps {
   initialExam: ExamDraft;
 }
 
+function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return <FieldLabel className="bg-white"><Field orientation="horizontal"><Checkbox aria-label={label} checked={checked} onCheckedChange={(value) => onChange(Boolean(value))} /><span>{label}</span></Field></FieldLabel>;
+}
+
 export function ExamEditor({ initialExam }: ExamEditorProps) {
   const [title, setTitle] = useState(initialExam.title);
   const [subject, setSubject] = useState(initialExam.subject);
@@ -182,6 +187,18 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
   const [timeLimit, setTimeLimit] = useState(initialExam.timeLimitS / 60);
   const [shuffleQuestions, setShuffleQuestions] = useState(initialExam.shuffleQuestions);
   const [shuffleOptions, setShuffleOptions] = useState(initialExam.shuffleOptions);
+  const [allowBackwards, setAllowBackwards] = useState(initialExam.allowBackwards);
+  const [showProgress, setShowProgress] = useState(initialExam.showProgress);
+  const [autoSubmit, setAutoSubmit] = useState(initialExam.autoSubmit);
+  const [allowReconnect, setAllowReconnect] = useState(initialExam.allowReconnect);
+  const [supervisionLevel, setSupervisionLevel] = useState(initialExam.supervisionLevel);
+  const [requireFullscreen, setRequireFullscreen] = useState(initialExam.requireFullscreen);
+  const [detectFocusLoss, setDetectFocusLoss] = useState(initialExam.detectFocusLoss);
+  const [blockClipboard, setBlockClipboard] = useState(initialExam.blockClipboard);
+  const [recordDisconnects, setRecordDisconnects] = useState(initialExam.recordDisconnects);
+  const [violationAction, setViolationAction] = useState(initialExam.violationAction);
+  const [resultsDisplay, setResultsDisplay] = useState(initialExam.resultsDisplay);
+  const [resultsWhen, setResultsWhen] = useState(initialExam.resultsWhen);
   const [status, setStatus] = useState<"draft" | "ready">(initialExam.status);
   const [questions, setQuestions] = useState<FullQuestion[]>(initialExam.questions);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -241,6 +258,18 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
           timeLimitS: Math.max(60, Math.round(timeLimit * 60)),
           shuffleQuestions,
           shuffleOptions,
+          allowBackwards,
+          showProgress,
+          autoSubmit,
+          allowReconnect,
+          supervisionLevel,
+          requireFullscreen,
+          detectFocusLoss,
+          blockClipboard,
+          recordDisconnects,
+          violationAction,
+          resultsDisplay,
+          resultsWhen,
           status: nextStatus,
           questions,
           updatedAt: new Date().toISOString(),
@@ -260,7 +289,7 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
       setSaveState("done");
       return false;
     }
-  }, [initialExam.id, instructions, questions, shuffleOptions, shuffleQuestions, status, subject, timeLimit, title]);
+  }, [allowBackwards, allowReconnect, autoSubmit, blockClipboard, detectFocusLoss, initialExam.id, instructions, questions, recordDisconnects, requireFullscreen, resultsDisplay, resultsWhen, showProgress, shuffleOptions, shuffleQuestions, status, subject, supervisionLevel, timeLimit, title, violationAction]);
 
   useEffect(() => {
     if (firstAutosave.current) {
@@ -372,6 +401,12 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
     setImportText("");
   }
 
+  function applySupervisionPreset(level: "normal" | "strict") {
+    setSupervisionLevel(level);
+    if (level === "normal") { setRequireFullscreen(false); setDetectFocusLoss(true); setBlockClipboard(false); setRecordDisconnects(true); setViolationAction("warn_and_record"); }
+    else { setRequireFullscreen(true); setDetectFocusLoss(true); setBlockClipboard(true); setRecordDisconnects(true); setViolationAction("warn_and_record"); }
+  }
+
   return (
     <div className="flex min-h-[calc(100dvh-3.75rem)] flex-col bg-canvas" data-editor-ready={ready} inert={!ready}>
       <div className="border-b bg-paper">
@@ -392,6 +427,13 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
                 {saveError || (saveState === "pending" ? "Cambios sin guardar" : saveState === "loading" ? "Guardando…" : "Guardado")}
               </span>
               {saveState === "pending" ? <Button type="button" variant="outline" size="sm" onClick={() => void saveNow()}><Save data-icon="inline-start" />Guardar ahora</Button> : null}
+              <Dialog><DialogTrigger asChild><Button type="button" variant="outline" size="sm"><Settings2 data-icon="inline-start" />Configuración</Button></DialogTrigger><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Configuración de la evaluación</DialogTitle><DialogDescription>Definí navegación, tiempo, supervisión y publicación de resultados.</DialogDescription></DialogHeader><div className="grid gap-6 py-2">
+                <FieldGroup className="grid gap-3 sm:grid-cols-[1fr_10rem_8rem]"><Field><FieldLabel htmlFor="exam-title">Título</FieldLabel><Input id="exam-title" value={title} onChange={(event) => setTitle(event.target.value)} /></Field><Field><FieldLabel htmlFor="exam-subject">Materia</FieldLabel><Input id="exam-subject" value={subject} onChange={(event) => setSubject(event.target.value)} /></Field><Field><FieldLabel htmlFor="exam-time">Duración</FieldLabel><Input id="exam-time" type="number" min={1} max={360} value={timeLimit} onChange={(event) => setTimeLimit(Number(event.target.value))} /></Field></FieldGroup>
+                <section><h3 className="text-sm font-semibold text-ink">Orden y navegación</h3><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Mezclar preguntas" checked={shuffleQuestions} onChange={setShuffleQuestions} /><Toggle label="Mezclar respuestas" checked={shuffleOptions} onChange={setShuffleOptions} /><Toggle label="Permitir volver atrás" checked={allowBackwards} onChange={setAllowBackwards} /><Toggle label="Mostrar progreso" checked={showProgress} onChange={setShowProgress} /></div></section>
+                <section><h3 className="text-sm font-semibold text-ink">Tiempo y entrega</h3><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Entregar automáticamente al finalizar" checked={autoSubmit} onChange={setAutoSubmit} /><Toggle label="Permitir reconexión" checked={allowReconnect} onChange={setAllowReconnect} /></div></section>
+                <section><h3 className="text-sm font-semibold text-ink">Supervisión</h3><div className="mt-3 flex flex-wrap gap-2"><Button type="button" size="sm" variant={supervisionLevel === "normal" ? "default" : "outline"} onClick={() => applySupervisionPreset("normal")}>Normal</Button><Button type="button" size="sm" variant={supervisionLevel === "strict" ? "default" : "outline"} onClick={() => applySupervisionPreset("strict")}>Estricto</Button><Button type="button" size="sm" variant={supervisionLevel === "custom" ? "default" : "outline"} onClick={() => setSupervisionLevel("custom")}>Personalizado</Button></div><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Requerir pantalla completa" checked={requireFullscreen} onChange={(value) => { setRequireFullscreen(value); setSupervisionLevel("custom"); }} /><Toggle label="Detectar cambio de pestaña/ventana" checked={detectFocusLoss} onChange={(value) => { setDetectFocusLoss(value); setSupervisionLevel("custom"); }} /><Toggle label="Bloquear copiar y pegar" checked={blockClipboard} onChange={(value) => { setBlockClipboard(value); setSupervisionLevel("custom"); }} /><Toggle label="Registrar desconexiones" checked={recordDisconnects} onChange={(value) => { setRecordDisconnects(value); setSupervisionLevel("custom"); }} /></div><Field className="mt-3"><FieldLabel>Al detectar una infracción</FieldLabel><Select value={violationAction} onValueChange={(value) => setViolationAction(value as typeof violationAction)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="warn_and_record">Advertir y registrar</SelectItem><SelectItem value="record_only">Solo registrar</SelectItem></SelectContent></Select></Field></section>
+                <section><h3 className="text-sm font-semibold text-ink">Resultados</h3><div className="mt-3 grid gap-3 sm:grid-cols-2"><Field><FieldLabel>Mostrar</FieldLabel><Select value={resultsDisplay} onValueChange={(value) => setResultsDisplay(value as typeof resultsDisplay)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="score_only">Solo puntaje</SelectItem><SelectItem value="score_and_answers">Puntaje y respuestas</SelectItem><SelectItem value="hidden">No mostrar</SelectItem></SelectContent></Select></Field><Field><FieldLabel>Cuándo</FieldLabel><Select value={resultsWhen} onValueChange={(value) => setResultsWhen(value as typeof resultsWhen)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="teacher_publishes">Cuando el docente publique</SelectItem><SelectItem value="after_submit">Al entregar</SelectItem><SelectItem value="after_run">Al terminar la sesión</SelectItem></SelectContent></Select></Field></div></section>
+              </div><DialogFooter><DialogClose asChild><Button type="button">Listo</Button></DialogClose></DialogFooter></DialogContent></Dialog>
               <Button type="button" disabled={!canReady || preparing} onClick={() => void prepareRun()}>
                 {preparing ? "Preparando sala…" : "Preparar para el curso"}
                 <ArrowRight data-icon="inline-end" />
@@ -399,31 +441,6 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
             </div>
           </div>
 
-          <FieldGroup className="grid gap-3 md:grid-cols-[1fr_12rem_8rem]">
-            <Field>
-              <FieldLabel htmlFor="exam-title">Título</FieldLabel>
-              <Input id="exam-title" value={title} onChange={(event) => setTitle(event.target.value)} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="exam-subject">Materia</FieldLabel>
-              <Input id="exam-subject" value={subject} onChange={(event) => setSubject(event.target.value)} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="exam-time">Duración</FieldLabel>
-              <div className="relative">
-                <Input
-                  id="exam-time"
-                  className="pe-12 tabular"
-                  type="number"
-                  min={1}
-                  max={360}
-                  value={timeLimit}
-                  onChange={(event) => setTimeLimit(Number(event.target.value))}
-                />
-                <span className="pointer-events-none absolute inset-y-0 right-3 grid place-items-center text-xs text-muted">min</span>
-              </div>
-            </Field>
-          </FieldGroup>
           <Field>
             <FieldLabel htmlFor="exam-instructions">Indicaciones para el alumno</FieldLabel>
             <Textarea
@@ -434,14 +451,6 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
               placeholder="Ej.: Leé cada consigna antes de responder."
             />
           </Field>
-          <FieldSet className="rounded-md border bg-inset px-4 py-3">
-            <FieldLegend className="flex items-center gap-2 text-sm"><Shuffle className="size-4 text-brand" aria-hidden="true" />Orden diferente para cada alumno</FieldLegend>
-            <FieldDescription>Reduce la copia sin cambiar las claves de corrección.</FieldDescription>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <FieldLabel className="bg-white"><Field orientation="horizontal"><Checkbox aria-label="Mezclar preguntas" checked={shuffleQuestions} onCheckedChange={(checked) => setShuffleQuestions(Boolean(checked))} /><span>Mezclar preguntas</span></Field></FieldLabel>
-              <FieldLabel className="bg-white"><Field orientation="horizontal"><Checkbox aria-label="Mezclar respuestas" checked={shuffleOptions} onCheckedChange={(checked) => setShuffleOptions(Boolean(checked))} /><span>Mezclar respuestas</span></Field></FieldLabel>
-            </div>
-          </FieldSet>
         </div>
       </div>
 

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
-export function OnboardingForm() {
+export function OnboardingForm({ next = "/" }: { next?: string }) {
   const [school, setSchool] = useState("");
   const [role, setRole] = useState<"teacher" | "student">("teacher");
   const [error, setError] = useState("");
@@ -16,8 +16,8 @@ export function OnboardingForm() {
     setLoading(true);
     setError("");
     const response = await fetch("/api/onboarding", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ school, role }) });
-    const body = await response.json().catch(() => ({})) as { redirect?: string; error?: string };
-    if (response.ok) window.location.assign(body.redirect ?? (role === "teacher" ? "/evaluaciones" : "/rendir"));
+    const body = await response.json().catch(() => ({})) as { redirect?: string; error?: string; pending?: boolean };
+    if (response.ok) window.location.assign(body.redirect ?? (role === "teacher" ? "/evaluaciones" : (next === "/" ? "/rendir" : next)));
     else { setError(body.error ?? "No se pudo configurar la cuenta"); setLoading(false); }
   }
 

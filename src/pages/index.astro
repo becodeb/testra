@@ -3,6 +3,8 @@ import { getActor } from "@/server/actors";
 
 const actor = getActor(Astro.locals);
 if (!actor) return Astro.redirect("/rendir");
-if (!actor.orgId) return Astro.redirect("/onboarding");
-return Astro.redirect(actor.role === "teacher" ? "/evaluaciones" : "/rendir");
+const rawNext = Astro.url.searchParams.get("next") ?? "/";
+const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+if (!actor.orgId) return Astro.redirect(`/onboarding?next=${encodeURIComponent(next)}`);
+return Astro.redirect(actor.role === "teacher" ? "/evaluaciones" : (next === "/" ? "/rendir" : next));
 ---

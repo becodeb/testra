@@ -58,6 +58,12 @@ export const auth = betterAuth({
         required: false,
         input: false,
       },
+      orgAdmin: {
+        type: "boolean",
+        required: true,
+        defaultValue: false,
+        input: false,
+      },
       googleSub: {
         type: "string",
         required: false,

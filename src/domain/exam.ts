@@ -86,6 +86,11 @@ export const fullQuestionSchema = z.discriminatedUnion("type", [
 
 export type FullQuestion = z.infer<typeof fullQuestionSchema>;
 
+export const supervisionLevelSchema = z.enum(["normal", "strict", "custom"]);
+export const violationActionSchema = z.enum(["warn_and_record", "record_only"]);
+export const resultsDisplaySchema = z.enum(["score_only", "score_and_answers", "hidden"]);
+export const resultsWhenSchema = z.enum(["teacher_publishes", "after_submit", "after_run"]);
+
 export const examDraftSchema = z.object({
   id: z.string().min(1),
   title: z.string().max(120),
@@ -94,6 +99,18 @@ export const examDraftSchema = z.object({
   timeLimitS: z.number().int().min(60).max(6 * 60 * 60),
   shuffleQuestions: z.boolean().default(false),
   shuffleOptions: z.boolean().default(false),
+  allowBackwards: z.boolean().default(true),
+  showProgress: z.boolean().default(true),
+  autoSubmit: z.boolean().default(true),
+  allowReconnect: z.boolean().default(true),
+  supervisionLevel: supervisionLevelSchema.default("normal"),
+  requireFullscreen: z.boolean().default(false),
+  detectFocusLoss: z.boolean().default(true),
+  blockClipboard: z.boolean().default(false),
+  recordDisconnects: z.boolean().default(true),
+  violationAction: violationActionSchema.default("warn_and_record"),
+  resultsDisplay: resultsDisplaySchema.default("score_only"),
+  resultsWhen: resultsWhenSchema.default("teacher_publishes"),
   status: z.enum(["draft", "ready"]),
   questions: z.array(fullQuestionSchema).min(1, "Agregá al menos una pregunta"),
   updatedAt: z.iso.datetime(),

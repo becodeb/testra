@@ -2,10 +2,13 @@
 import { Image } from "astro:assets";
 
 import testraMark from "@/assets/testra-mark.png";
+import { SignOutButton } from "@/components/sign-out-button";
 import "@/styles/global.css";
+import { getAuthenticatedActor } from "@/server/actors";
 
 interface Props { title: string }
 const { title } = Astro.props;
+const actor = getAuthenticatedActor(Astro.locals);
 ---
 
 <!doctype html>
@@ -22,9 +25,12 @@ const { title } = Astro.props;
     <header class="border-b bg-paper">
       <div class="mx-auto flex h-[3.75rem] max-w-[1020px] items-center justify-between px-4 lg:px-6">
         <a href="/" class="flex items-center gap-2.5" aria-label="Testra, inicio"><span class="testra-mark" aria-hidden="true"><Image src={testraMark} alt="" width={128} quality={90} loading="eager" /></span><span class="font-bold tracking-[-.025em] text-brand-deep">Testra</span></a>
-        <nav class="flex items-center gap-4 text-xs font-medium text-muted" aria-label="Información pública">
+        <nav class="flex items-center gap-4 text-xs font-medium text-muted" aria-label="Navegación">
+          {actor?.role === "teacher" ? <a href="/evaluaciones" class="font-semibold text-brand hover:underline">Panel docente</a> : null}
+          {actor ? <a href="/rendir" class="hover:text-ink">Ingresar código</a> : null}
           <a href="/acerca" class="hover:text-ink">Acerca de</a>
           <a href="/docs/vigilancia" class="hover:text-ink">Qué se registra</a>
+          {actor ? <SignOutButton client:load /> : null}
         </nav>
       </div>
     </header>

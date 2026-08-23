@@ -27,14 +27,24 @@ export const POST: APIRoute = async ({ locals, request }) => {
 
     if (input.role === "teacher" && organization) {
       const allowlist = (runtimeEnv.TEACHER_EMAILS ?? "").split(",").map((value) => value.trim().toLocaleLowerCase()).filter(Boolean);
-      if (!allowlist.includes(locals.user.email.toLocaleLowerCase())) throw new Error("La institución ya existe. Pedile al administrador que habilite tu correo como docente.");
+      if (!allowlist.includes(locals.user.email.toLocaleLowerCase())) {
+        const existing = await runtimeEnv.DB.prepare("SELECT id FROM access_requests WHERE requester_user_id = ? AND organization_id = ? AND status = 'pending'")
+          .bind(locals.user.id, organization.id).first<{ id: string }>();
+        if (!existing) await runtimeEnv.DB.prepare(
+          "INSERT INTO access_requests (id, organization_id, requester_user_id, email, status, requested_at) VALUES (?, ?, ?, ?, 'pending', ?)",
+        ).bind(crypto.randomUUID(), organization.id, locals.user.id, locals.user.email, Date.now()).run();
+        return Response.json({ pending: true, redirect: "/solicitud-pendiente" }, { status: 202 });
+      }
     }
 
     if (!organization) {
       organization = { id: crypto.randomUUID() };
       await runtimeEnv.DB.prepare("INSERT INTO organizations (id, name, google_domain) VALUES (?, ?, ?)").bind(organization.id, input.school, reusableDomain ? domain : null).run();
     }
-    await runtimeEnv.DB.prepare("UPDATE users SET org_id = ?, role = ?, updated_at = ? WHERE id = ?").bind(organization.id, input.role, Date.now(), locals.user.id).run();
+    const firstAdmin = input.role === "teacher" && !reusableDomain
+      ? 1
+      : input.role === "teacher" && !(await runtimeEnv.DB.prepare("SELECT 1 FROM users WHERE org_id = ? AND role = 'teacher'").bind(organization.id).first()) ? 1 : 0;
+    await runtimeEnv.DB.prepare("UPDATE users SET org_id = ?, role = ?, org_admin = ?, updated_at = ? WHERE id = ?").bind(organization.id, input.role, firstAdmin, Date.now(), locals.user.id).run();
     return Response.json({ redirect: input.role === "teacher" ? "/evaluaciones" : "/rendir" });
   } catch (error) {
     return apiError(error);

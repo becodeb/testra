@@ -40,6 +40,14 @@ async function enterDemoRun(page: Page, name = `Alumno prueba ${Date.now()}`) {
   return name;
 }
 
+async function createExamFromSetup(page: Page, title: string, subject = "Ciencias") {
+  await page.goto("/evaluaciones/nueva");
+  await page.getByLabel("Título").fill(title);
+  await page.getByLabel("Materia").fill(subject);
+  await page.getByRole("button", { name: "Crear y agregar preguntas" }).click();
+  await page.locator("[data-editor-ready=true]").waitFor();
+}
+
 test("a new user can create an account with email and password", async ({ page }) => {
   const email = `cuenta-${Date.now()}-${Math.random().toString(36).slice(2)}@gmail.com`;
   await page.goto("/login");
@@ -48,14 +56,12 @@ test("a new user can create an account with email and password", async ({ page }
   await page.getByLabel("Correo electrónico").fill(email);
   await page.getByLabel("Contraseña").fill("Testra-Prueba-2026");
   await page.getByRole("button", { name: "Crear mi cuenta" }).click();
-  await expect(page).toHaveURL(/\/onboarding$/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/onboarding(?:\?|$)/, { timeout: 15_000 });
   await expect(page.getByRole("heading", { name: "Configurá tu espacio" })).toBeVisible();
 });
 
 test("the teacher editor adds a question from the keyboard shortcut", async ({ page }) => {
-  await page.goto("/evaluaciones/nueva");
-  await expect(page.getByRole("heading", { name: /Nueva evaluación/i })).toBeVisible();
-  await page.locator("[data-editor-ready=true]").waitFor({ state: "visible" });
+  await createExamFromSetup(page, `Atajo ${Date.now()}`);
   const bubbles = page.getByRole("button", { name: /^Pregunta \d/ });
   await expect(bubbles).toHaveCount(1);
   await page.getByRole("textbox", { name: "Enunciado" }).press("Control+Enter");
@@ -82,10 +88,11 @@ for (const route of ["/evaluaciones", "/evaluaciones/nueva", "/rendir/demo"]) {
 
 test("student answers survive question navigation", async ({ page }) => {
   await enterDemoRun(page);
-  await page.getByText("Fotosíntesis", { exact: true }).click();
-  await page.getByRole("button", { name: /Pregunta 2/ }).click();
-  await page.getByRole("button", { name: /Pregunta 1/ }).click();
-  await expect(page.getByText("Fotosíntesis", { exact: true })).toBeVisible();
+  const answer = page.getByRole("radio", { name: "Fotosíntesis" });
+  await answer.click();
+  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Anterior" }).click();
+  await expect(answer).toBeChecked();
 });
 
 test("student answers survive a full reload through D1 autosave", async ({ page }) => {
@@ -130,18 +137,17 @@ test("teacher monitoring is backed by the persisted demo run", async ({ page }) 
 test("teacher drafts persist and reopen from their canonical URL", async ({ page, isMobile }) => {
   test.skip(Boolean(isMobile), "Persistence flow is covered once on desktop");
   const title = `Evaluación persistente ${Date.now()}`;
-  await page.goto("/evaluaciones/nueva");
-  await page.locator("[data-editor-ready=true]").waitFor();
-  await page.getByLabel("Título").fill(title);
-  await page.getByLabel("Materia").fill("Ciencias");
+  await createExamFromSetup(page, title);
   await page.getByRole("textbox", { name: "Enunciado" }).fill("¿Qué propiedad demuestra este guardado?");
   await expect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Guardar ahora" }).click();
   await expect(page).toHaveURL(/\/evaluaciones\/[0-9a-f-]+$/i, { timeout: 10_000 });
   await expect(page.getByText("Guardado", { exact: true })).toBeVisible({ timeout: 10_000 });
   await page.reload();
+  await page.getByRole("button", { name: "Configuración" }).click();
   await expect(page.getByLabel("Título")).toHaveValue(title);
   await expect(page.getByLabel("Materia")).toHaveValue("Ciencias");
+  await page.getByRole("button", { name: "Listo" }).click();
   await expect(page.getByRole("textbox", { name: "Enunciado" })).toHaveValue("¿Qué propiedad demuestra este guardado?");
 });
 
@@ -265,8 +271,18 @@ test("manual correction persists on the server", async ({ page, isMobile }) => {
 
 test("an incident reaches teacher state in under one second", async ({ page, isMobile }) => {
   test.skip(Boolean(isMobile), "Realtime latency is covered once on desktop");
-  const studentName = await enterDemoRun(page, `Incidente ${Date.now()}`);
-  const stateResponse = await page.request.get("/api/runs/run-biology-demo/state");
+  const examCreation = await page.request.post("/api/exams", { data: examPayload(`Incidentes ${Date.now()}`) });
+  const exam = await examCreation.json() as { id: string };
+  const runCreation = await page.request.post("/api/runs", { data: { examId: exam.id } });
+  const run = await runCreation.json() as { id: string; code: string };
+  const studentName = `Incidente ${Date.now()}`;
+  await page.goto(`/rendir/${run.code}`);
+  await page.getByLabel("Tu nombre y apellido").fill(studentName);
+  await page.getByRole("button", { name: "Entrar a la sala" }).click();
+  await page.request.post(`/api/runs/${run.id}/control`, { data: { action: "start" } });
+  await page.reload();
+  await page.locator("[data-student-ready=true]").waitFor();
+  const stateResponse = await page.request.get(`/api/runs/${run.id}/state`);
   const state = await stateResponse.json() as { participants: Array<{ id: string; name: string }> };
   const participant = state.participants.find((candidate) => candidate.name === studentName);
   expect(participant).toBeTruthy();
@@ -278,7 +294,7 @@ test("an incident reaches teacher state in under one second", async ({ page, isM
     data: { participantId: participant!.id, type: "atajo-f12", at: Date.now(), durationMs: 0, meta: {} },
   });
   expect(incident.status()).toBe(202);
-  const refreshed = await page.request.get("/api/runs/run-biology-demo/state");
+  const refreshed = await page.request.get(`/api/runs/${run.id}/state`);
   const body = await refreshed.json() as { incidents: Array<{ type: string }> };
   expect(body.incidents.some((item) => item.type === "atajo-f12")).toBe(true);
   expect(Date.now() - started).toBeLessThan(1_000);

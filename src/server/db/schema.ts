@@ -33,6 +33,7 @@ export const users = sqliteTable(
     role: text("role", { enum: ["teacher", "student"] }).notNull(),
     googleSub: text("google_sub"),
     orgId: text("org_id").references(() => organizations.id),
+    orgAdmin: integer("org_admin", { mode: "boolean" }).notNull().default(false),
     createdAt: timestamp("created_at"),
     updatedAt: timestamp("updated_at"),
   },
@@ -118,6 +119,18 @@ export const exams = sqliteTable(
     timeLimitS: integer("time_limit_s").notNull(),
     shuffleQuestions: integer("shuffle_questions", { mode: "boolean" }).notNull().default(false),
     shuffleOptions: integer("shuffle_options", { mode: "boolean" }).notNull().default(false),
+    allowBackwards: integer("allow_backwards", { mode: "boolean" }).notNull().default(true),
+    showProgress: integer("show_progress", { mode: "boolean" }).notNull().default(true),
+    autoSubmit: integer("auto_submit", { mode: "boolean" }).notNull().default(true),
+    allowReconnect: integer("allow_reconnect", { mode: "boolean" }).notNull().default(true),
+    supervisionLevel: text("supervision_level", { enum: ["normal", "strict", "custom"] }).notNull().default("normal"),
+    requireFullscreen: integer("require_fullscreen", { mode: "boolean" }).notNull().default(false),
+    detectFocusLoss: integer("detect_focus_loss", { mode: "boolean" }).notNull().default(true),
+    blockClipboard: integer("block_clipboard", { mode: "boolean" }).notNull().default(false),
+    recordDisconnects: integer("record_disconnects", { mode: "boolean" }).notNull().default(true),
+    violationAction: text("violation_action", { enum: ["warn_and_record", "record_only"] }).notNull().default("warn_and_record"),
+    resultsDisplay: text("results_display", { enum: ["score_only", "score_and_answers", "hidden"] }).notNull().default("score_only"),
+    resultsWhen: text("results_when", { enum: ["teacher_publishes", "after_submit", "after_run"] }).notNull().default("teacher_publishes"),
     status: text("status", { enum: ["draft", "ready"] }).notNull().default("draft"),
     createdAt: timestamp("created_at"),
     updatedAt: timestamp("updated_at"),
@@ -161,6 +174,18 @@ export const runs = sqliteTable(
     timeLimitS: integer("time_limit_s").notNull(),
     shuffleQuestions: integer("shuffle_questions", { mode: "boolean" }).notNull().default(false),
     shuffleOptions: integer("shuffle_options", { mode: "boolean" }).notNull().default(false),
+    allowBackwards: integer("allow_backwards", { mode: "boolean" }).notNull().default(true),
+    showProgress: integer("show_progress", { mode: "boolean" }).notNull().default(true),
+    autoSubmit: integer("auto_submit", { mode: "boolean" }).notNull().default(true),
+    allowReconnect: integer("allow_reconnect", { mode: "boolean" }).notNull().default(true),
+    supervisionLevel: text("supervision_level", { enum: ["normal", "strict", "custom"] }).notNull().default("normal"),
+    requireFullscreen: integer("require_fullscreen", { mode: "boolean" }).notNull().default(false),
+    detectFocusLoss: integer("detect_focus_loss", { mode: "boolean" }).notNull().default(true),
+    blockClipboard: integer("block_clipboard", { mode: "boolean" }).notNull().default(false),
+    recordDisconnects: integer("record_disconnects", { mode: "boolean" }).notNull().default(true),
+    violationAction: text("violation_action", { enum: ["warn_and_record", "record_only"] }).notNull().default("warn_and_record"),
+    resultsDisplay: text("results_display", { enum: ["score_only", "score_and_answers", "hidden"] }).notNull().default("score_only"),
+    resultsWhen: text("results_when", { enum: ["teacher_publishes", "after_submit", "after_run"] }).notNull().default("teacher_publishes"),
     status: text("status", { enum: ["lobby", "running", "ended"] })
       .notNull()
       .default("lobby"),
@@ -260,6 +285,7 @@ export const incidents = sqliteTable(
     at: integer("at", { mode: "timestamp_ms" }).notNull(),
     durationMs: integer("duration_ms").notNull().default(0),
     type: text("type").notNull(),
+    questionId: text("question_id"),
     meta: text("meta", { mode: "json" }).notNull().default({}),
     source: text("source", { enum: ["client", "server"] }).notNull(),
   },
@@ -267,6 +293,36 @@ export const incidents = sqliteTable(
     index("incidents_participant_idx").on(table.participantId),
     index("incidents_at_idx").on(table.at),
   ],
+);
+
+export const accessRequests = sqliteTable(
+  "access_requests",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    requesterUserId: text("requester_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    status: text("status", { enum: ["pending", "approved", "rejected"] }).notNull().default("pending"),
+    requestedAt: timestamp("requested_at"),
+    reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }),
+    reviewedBy: text("reviewed_by").references(() => users.id),
+  },
+  (table) => [index("access_requests_org_status_idx").on(table.organizationId, table.status), index("access_requests_user_idx").on(table.requesterUserId)],
+);
+
+export const aiReports = sqliteTable(
+  "ai_reports",
+  {
+    id: text("id").primaryKey(),
+    scopeType: text("scope_type", { enum: ["run", "participant"] }).notNull(),
+    scopeId: text("scope_id").notNull(),
+    runId: text("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+    content: text("content", { mode: "json" }).notNull(),
+    model: text("model").notNull(),
+    inputHash: text("input_hash").notNull(),
+    generatedAt: timestamp("generated_at"),
+  },
+  (table) => [uniqueIndex("ai_reports_scope_uq").on(table.scopeType, table.scopeId), index("ai_reports_run_idx").on(table.runId)],
 );
 
 export const expectedRunStudents = sqliteTable(

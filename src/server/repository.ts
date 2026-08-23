@@ -21,6 +21,18 @@ interface ExamRow {
   time_limit_s: number;
   shuffle_questions: number;
   shuffle_options: number;
+  allow_backwards: number;
+  show_progress: number;
+  auto_submit: number;
+  allow_reconnect: number;
+  supervision_level: ExamDraft["supervisionLevel"];
+  require_fullscreen: number;
+  detect_focus_loss: number;
+  block_clipboard: number;
+  record_disconnects: number;
+  violation_action: ExamDraft["violationAction"];
+  results_display: ExamDraft["resultsDisplay"];
+  results_when: ExamDraft["resultsWhen"];
   status: "draft" | "ready";
   updated_at: number;
 }
@@ -45,6 +57,18 @@ interface RunRow {
   time_limit_s: number;
   shuffle_questions: number;
   shuffle_options: number;
+  allow_backwards: number;
+  show_progress: number;
+  auto_submit: number;
+  allow_reconnect: number;
+  supervision_level: ExamDraft["supervisionLevel"];
+  require_fullscreen: number;
+  detect_focus_loss: number;
+  block_clipboard: number;
+  record_disconnects: number;
+  violation_action: ExamDraft["violationAction"];
+  results_display: ExamDraft["resultsDisplay"];
+  results_when: ExamDraft["resultsWhen"];
   status: "lobby" | "running" | "ended";
   classroom_course_id: string | null;
   classroom_coursework_id: string | null;
@@ -167,7 +191,7 @@ export async function listSubjects(actor: Actor): Promise<string[]> {
 export async function getExam(examId: string, actor: Actor): Promise<ExamDraft | null> {
   const [exam, questionResult] = await Promise.all([
     runtimeEnv.DB.prepare(
-      "SELECT id, title, subject, instructions, time_limit_s, shuffle_questions, shuffle_options, status, updated_at FROM exams WHERE id = ? AND author_id = ?",
+      "SELECT * FROM exams WHERE id = ? AND author_id = ?",
     ).bind(examId, actor.id).first<ExamRow>(),
     runtimeEnv.DB.prepare(
       "SELECT id, position, type, prompt, points, config FROM questions WHERE exam_id = ? ORDER BY position",
@@ -182,6 +206,18 @@ export async function getExam(examId: string, actor: Actor): Promise<ExamDraft |
     timeLimitS: exam.time_limit_s,
     shuffleQuestions: Boolean(exam.shuffle_questions),
     shuffleOptions: Boolean(exam.shuffle_options),
+    allowBackwards: Boolean(exam.allow_backwards),
+    showProgress: Boolean(exam.show_progress),
+    autoSubmit: Boolean(exam.auto_submit),
+    allowReconnect: Boolean(exam.allow_reconnect),
+    supervisionLevel: exam.supervision_level,
+    requireFullscreen: Boolean(exam.require_fullscreen),
+    detectFocusLoss: Boolean(exam.detect_focus_loss),
+    blockClipboard: Boolean(exam.block_clipboard),
+    recordDisconnects: Boolean(exam.record_disconnects),
+    violationAction: exam.violation_action,
+    resultsDisplay: exam.results_display,
+    resultsWhen: exam.results_when,
     status: exam.status,
     updatedAt: new Date(exam.updated_at).toISOString(),
     questions: questionResult.results.map(parseQuestion),
@@ -199,11 +235,19 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
   const now = Date.now();
   const statements: D1PreparedStatement[] = [
     runtimeEnv.DB.prepare(
-      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, shuffle_questions, shuffle_options, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, shuffle_questions, shuffle_options,
+       allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
+       block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET title = excluded.title, subject = excluded.subject,
        instructions = excluded.instructions, time_limit_s = excluded.time_limit_s,
        shuffle_questions = excluded.shuffle_questions, shuffle_options = excluded.shuffle_options,
+       allow_backwards = excluded.allow_backwards, show_progress = excluded.show_progress,
+       auto_submit = excluded.auto_submit, allow_reconnect = excluded.allow_reconnect,
+       supervision_level = excluded.supervision_level, require_fullscreen = excluded.require_fullscreen,
+       detect_focus_loss = excluded.detect_focus_loss, block_clipboard = excluded.block_clipboard,
+       record_disconnects = excluded.record_disconnects, violation_action = excluded.violation_action,
+       results_display = excluded.results_display, results_when = excluded.results_when,
        status = excluded.status, updated_at = excluded.updated_at`,
     ).bind(
       draft.id,
@@ -215,6 +259,18 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
       draft.timeLimitS,
       draft.shuffleQuestions ? 1 : 0,
       draft.shuffleOptions ? 1 : 0,
+      draft.allowBackwards ? 1 : 0,
+      draft.showProgress ? 1 : 0,
+      draft.autoSubmit ? 1 : 0,
+      draft.allowReconnect ? 1 : 0,
+      draft.supervisionLevel,
+      draft.requireFullscreen ? 1 : 0,
+      draft.detectFocusLoss ? 1 : 0,
+      draft.blockClipboard ? 1 : 0,
+      draft.recordDisconnects ? 1 : 0,
+      draft.violationAction,
+      draft.resultsDisplay,
+      draft.resultsWhen,
       draft.status,
       now,
       now,
@@ -288,8 +344,10 @@ export async function createRun(actor: Actor, examId: string) {
 
   const now = Date.now();
   await runtimeEnv.DB.prepare(
-    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, shuffle_questions, shuffle_options, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
+    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, shuffle_questions, shuffle_options,
+     allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
+     block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
   ).bind(
     runId,
     actor.orgId,
@@ -301,12 +359,25 @@ export async function createRun(actor: Actor, examId: string) {
     exam.timeLimitS,
     exam.shuffleQuestions ? 1 : 0,
     exam.shuffleOptions ? 1 : 0,
+    exam.allowBackwards ? 1 : 0,
+    exam.showProgress ? 1 : 0,
+    exam.autoSubmit ? 1 : 0,
+    exam.allowReconnect ? 1 : 0,
+    exam.supervisionLevel,
+    exam.requireFullscreen ? 1 : 0,
+    exam.detectFocusLoss ? 1 : 0,
+    exam.blockClipboard ? 1 : 0,
+    exam.recordDisconnects ? 1 : 0,
+    exam.violationAction,
+    exam.resultsDisplay,
+    exam.resultsWhen,
     now,
   ).run();
   const response = await runCommand(runId, "/initialize", {
     runId,
     title: exam.title,
     timeLimitS: exam.timeLimitS,
+    recordDisconnects: exam.recordDisconnects,
   });
   if (!response.ok) throw new Error("No se pudo inicializar la sesión en vivo");
   return { id: runId, code };
@@ -628,6 +699,66 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
   };
 }
 
+export async function getParticipantDetail(participantId: string, actor: Actor) {
+  const participant = await runtimeEnv.DB.prepare(
+    `SELECT p.*, r.id AS run_id, r.title, r.questions_snapshot
+     FROM participants p JOIN runs r ON r.id = p.run_id
+     LEFT JOIN exams e ON e.id = r.exam_id
+     WHERE p.id = ? AND COALESCE(r.author_id, e.author_id) = ?`,
+  ).bind(participantId, actor.id).first<ParticipantRow & { title: string; questions_snapshot: string }>();
+  if (!participant) return null;
+
+  const [answerResult, gradeResult, incidentResult] = await Promise.all([
+    runtimeEnv.DB.prepare("SELECT question_id, value, updated_at FROM answers WHERE participant_id = ?")
+      .bind(participantId).all<{ question_id: string; value: string; updated_at: number }>(),
+    runtimeEnv.DB.prepare("SELECT question_id, auto, override, points_awarded FROM grades WHERE participant_id = ?")
+      .bind(participantId).all<{ question_id: string; auto: number | null; override: number | null; points_awarded: number | null }>(),
+    runtimeEnv.DB.prepare("SELECT id, at, duration_ms, type, meta, source, question_id FROM incidents WHERE participant_id = ? ORDER BY at")
+      .bind(participantId).all<{ id: string; at: number; duration_ms: number; type: string; meta: string; source: string; question_id: string | null }>(),
+  ]);
+  const questions = JSON.parse(participant.questions_snapshot) as FullQuestion[];
+  const answersByQuestion = new Map(answerResult.results.map((answer) => [answer.question_id, answer]));
+  const gradesByQuestion = new Map(gradeResult.results.map((grade) => [grade.question_id, grade]));
+  const questionById = new Map(questions.map((question, index) => [question.id, { ...question, number: index + 1 }]));
+
+  return {
+    participant: { id: participant.id, name: participant.display_name, status: participant.status, submittedAt: participant.submitted_at },
+    run: { id: participant.run_id, title: participant.title },
+    questions: questions.map((question, index) => {
+      const answer = answersByQuestion.get(question.id);
+      const grade = gradesByQuestion.get(question.id);
+      return {
+        id: question.id,
+        number: index + 1,
+        prompt: question.prompt,
+        type: question.type,
+        points: question.points,
+        answer: answer ? JSON.parse(answer.value) : null,
+        answerText: answer ? formatAnswer(question, JSON.parse(answer.value)) : "Sin responder",
+        correctAnswer: formatCorrectAnswer(question),
+        answeredAt: answer?.updated_at ?? null,
+        pointsAwarded: grade?.points_awarded ?? null,
+        manuallyOverridden: Boolean(grade?.override),
+      };
+    }),
+    incidents: incidentResult.results.map((incident) => {
+      const meta = typeof incident.meta === "string" ? JSON.parse(incident.meta) as Record<string, unknown> : {};
+      const questionId = incident.question_id ?? (typeof meta.questionId === "string" ? meta.questionId : null);
+      const question = questionId ? questionById.get(questionId) : null;
+      return { ...incident, meta, questionId, questionNumber: question?.number ?? null, questionPrompt: question?.prompt ?? null };
+    }),
+  };
+}
+
+export async function getRunAnalysisData(runId: string, actor: Actor) {
+  const run = await getRunForTeacher(runId, actor);
+  if (!run) return null;
+  const participants = await runtimeEnv.DB.prepare("SELECT id FROM participants WHERE run_id = ? ORDER BY display_name")
+    .bind(runId).all<{ id: string }>();
+  const details = await Promise.all(participants.results.map((row) => getParticipantDetail(row.id, actor)));
+  return { run: { id: run.id, title: run.title, code: run.code }, participants: details.filter(Boolean) };
+}
+
 export async function listPendingCorrections(actor: Actor, runId?: string) {
   const result = await runtimeEnv.DB.prepare(
     `SELECT p.id AS participant_id, p.run_id, p.submitted_at, p.display_name AS name, r.title,
@@ -704,4 +835,22 @@ function parseQuestion(row: QuestionRow): FullQuestion {
     points: row.points,
     config: JSON.parse(row.config),
   } as FullQuestion;
+}
+
+function formatAnswer(question: FullQuestion, value: AnswerValue): string {
+  if (question.type === "mc") return question.config.options.find((option) => option.id === value)?.text ?? String(value ?? "");
+  if (question.type === "ms") {
+    const selected = Array.isArray(value) ? value : [];
+    return question.config.options.filter((option) => selected.includes(option.id)).map((option) => option.text).join(", ") || "Sin responder";
+  }
+  if (question.type === "tf") return value === true ? "Verdadero" : value === false ? "Falso" : "Sin responder";
+  return String(value ?? "Sin responder");
+}
+
+function formatCorrectAnswer(question: FullQuestion): string | null {
+  if (question.type === "mc") return question.config.options.find((option) => option.id === question.config.correctOptionId)?.text ?? null;
+  if (question.type === "ms") return question.config.options.filter((option) => question.config.correctOptionIds.includes(option.id)).map((option) => option.text).join(", ");
+  if (question.type === "tf") return question.config.correct ? "Verdadero" : "Falso";
+  if (question.type === "sa") return question.config.accepted.join(" / ");
+  return null;
 }
