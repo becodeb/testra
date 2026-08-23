@@ -279,8 +279,8 @@ test("an incident reaches teacher state in under one second", async ({ page, isM
   await page.goto(`/rendir/${run.code}`);
   await page.getByLabel("Tu nombre y apellido").fill(studentName);
   await page.getByRole("button", { name: "Entrar a la sala" }).click();
+  await expect(page.getByText(new RegExp(`Sala de espera · ${run.code}`))).toBeVisible();
   await page.request.post(`/api/runs/${run.id}/control`, { data: { action: "start" } });
-  await page.reload();
   await page.locator("[data-student-ready=true]").waitFor();
   const stateResponse = await page.request.get(`/api/runs/${run.id}/state`);
   const state = await stateResponse.json() as { participants: Array<{ id: string; name: string }> };
