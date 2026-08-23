@@ -181,7 +181,7 @@ export function StudentRuntime({
   }, [autoSubmit, endsAt, finish, runStatus, submitted]);
 
   useEffect(() => {
-    if (runStatus !== "running" || submitted) return;
+    if (submitted) return;
     const sendHeartbeat = async () => {
       const response = await fetch("/api/student/heartbeat", {
         method: "POST",
@@ -197,7 +197,7 @@ export function StudentRuntime({
       if (body.status === "ended") void finish("timer");
     };
     void sendHeartbeat();
-    const heartbeat = window.setInterval(() => void sendHeartbeat(), 5_000);
+    const heartbeat = window.setInterval(() => void sendHeartbeat(), runStatus === "lobby" ? 1_500 : 5_000);
     return () => window.clearInterval(heartbeat);
   }, [active.id, finish, participantId, runStatus, submitted]);
 
