@@ -1,0 +1,1 @@
+ALTER TABLE "runs" ADD COLUMN "results_published_at" bigint;

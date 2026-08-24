@@ -226,6 +226,10 @@ export const runs = pgTable(
       .default("lobby"),
     classroomCourseId: text("classroom_course_id"),
     classroomCourseworkId: text("classroom_coursework_id"),
+    // Momento en que el docente dio los resultados por cerrados. Hasta que esto
+    // tiene valor, la toma sigue en corrección: es el "listo" que habilita
+    // mostrar la nota y devolverla a Classroom.
+    resultsPublishedAt: epochMs("results_published_at"),
     createdAt: createdAtMs("created_at"),
     startedAt: epochMs("started_at"),
     endsAt: epochMs("ends_at"),

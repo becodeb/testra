@@ -2,7 +2,7 @@
 import { db, type PgStatement } from "@/server/db/client";
 import { serverEnv } from "@/server/env";
 import type { Actor } from "@/server/actors";
-import { createLinkedCoursework, listCourseStudents, listCourseworkSubmissions, listTeacherCourses, normalizeStudentName, sendGradeToClassroom, uniqueGoogleUsersByName } from "@/server/classroom";
+import { createLinkedCoursework, listCourseStudents, listCourseworkSubmissions, listTeacherCourses, normalizeStudentName, returnSubmission, sendGradeToClassroom, uniqueGoogleUsersByName } from "@/server/classroom";
 import { getRunForTeacher } from "@/server/repository";
 
 
@@ -52,7 +52,14 @@ export async function publishRunToClassroom(actor: Actor, runId: string, courseI
     createLinkedCoursework(token, {
       courseId,
       title: run.title,
-      description: "Ingresá a Testra con el código y escribí tu nombre para rendir la evaluación.",
+      // El enlace alcanza para entrar, pero el código va igual en el texto: si
+      // el alumno abre Classroom desde el celular y rinde en otra máquina,
+      // tiene que poder escribirlo a mano.
+      description: [
+        "Entrá al enlace de abajo para rendir la evaluación en Testra.",
+        `Si preferís entrar a mano, el código de la sala es ${run.code}.`,
+        "Escribí tu nombre y apellido tal como figuran en Classroom para que la nota vuelva a esta tarea.",
+      ].join("\n\n"),
       runUrl: `${origin}/rendir/${run.code}`,
       maxPoints: (JSON.parse(run.questions_snapshot) as Array<{ points: number }>).reduce((sum, question) => sum + question.points, 0),
     }),
@@ -105,7 +112,10 @@ export async function classroomGradePreview(actor: Actor, runId: string) {
         pendingManual: Number(row.pending),
         submissionId: submission?.id ?? null,
         submissionState: submission?.state ?? null,
-        canSend: Boolean(submission && row.pending === 0 && (submission.state === "TURNED_IN" || submission.state === "RETURNED")),
+        // Alcanza con que exista la entrega en Classroom y que no queden
+        // desarrollos sin corregir. No se pide TURNED_IN: ver el comentario de
+        // sendGradeToClassroom.
+        canSend: Boolean(submission && row.pending === 0),
       };
     }),
   };
@@ -114,16 +124,41 @@ export async function classroomGradePreview(actor: Actor, runId: string) {
 export async function sendRunGrades(actor: Actor, runId: string) {
   const preview = await classroomGradePreview(actor, runId);
   if (!preview) return null;
-  const eligible = preview.rows.filter((row) => row.canSend && row.submissionId && row.submissionState);
+  const eligible = preview.rows.filter((row) => row.canSend && row.submissionId);
+
+  let sent = 0;
+  const failures: Array<{ name: string; reason: string }> = [];
+
   for (const row of eligible) {
-    await sendGradeToClassroom(preview.token, {
-      courseId: preview.courseId,
-      courseworkId: preview.courseworkId,
-      submissionId: row.submissionId!,
-      grade: row.grade,
-      submissionState: row.submissionState!,
-    });
-    await db.prepare("UPDATE participants SET classroom_submission_id = ? WHERE id = ?").bind(row.submissionId, row.participantId).run();
+    try {
+      // Escribir la nota y devolver la entrega son dos pasos distintos de la
+      // API. Si sólo se escribe, el alumno no ve nada.
+      await sendGradeToClassroom(preview.token, {
+        courseId: preview.courseId,
+        courseworkId: preview.courseworkId,
+        submissionId: row.submissionId!,
+        grade: row.grade,
+      });
+      if (row.submissionState !== "RETURNED") {
+        await returnSubmission(preview.token, {
+          courseId: preview.courseId,
+          courseworkId: preview.courseworkId,
+          submissionId: row.submissionId!,
+        });
+      }
+      await db.prepare("UPDATE participants SET classroom_submission_id = ? WHERE id = ?")
+        .bind(row.submissionId, row.participantId).run();
+      sent += 1;
+    } catch (error) {
+      // Un alumno que falla no puede dejar sin nota a los demás.
+      failures.push({ name: row.name, reason: error instanceof Error ? error.message.slice(0, 200) : "error desconocido" });
+    }
   }
-  return { sent: eligible.length, skipped: preview.rows.length - eligible.length, rows: preview.rows };
+
+  return {
+    sent,
+    skipped: preview.rows.length - eligible.length,
+    failures,
+    rows: preview.rows,
+  };
 }

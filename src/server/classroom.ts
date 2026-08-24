@@ -137,33 +137,50 @@ export async function createLinkedCoursework(
   );
 }
 
+function submissionPath(courseId: string, courseworkId: string, submissionId: string) {
+  return [
+    "/courses/",
+    encodeURIComponent(courseId),
+    "/courseWork/",
+    encodeURIComponent(courseworkId),
+    "/studentSubmissions/",
+    encodeURIComponent(submissionId),
+  ].join("");
+}
+
+/**
+ * Escribe la nota. `draftGrade` sólo la ve el docente; `assignedGrade` es la
+ * definitiva, y recién se le muestra al alumno cuando la entrega se devuelve
+ * con `returnSubmission`. Por eso las dos llamadas van siempre juntas.
+ *
+ * No se exige que el alumno haya entregado en Classroom. Un alumno que rinde en
+ * Testra entra por el enlace y nunca toca el botón de entregar, así que su
+ * entrega se queda en CREATED para siempre: exigir TURNED_IN dejaba a todo el
+ * curso sin nota. La API de Classroom no pone esa restricción para escribir
+ * notas, solamente para transferir archivos adjuntos, que acá no hay.
+ */
 export async function sendGradeToClassroom(
   accessToken: string,
-  input: {
-    courseId: string;
-    courseworkId: string;
-    submissionId: string;
-    grade: number;
-    submissionState: string;
-  },
+  input: { courseId: string; courseworkId: string; submissionId: string; grade: number },
 ) {
-  if (input.submissionState !== "TURNED_IN" && input.submissionState !== "RETURNED") {
-    throw new Error("Classroom sólo permite devolver una entrega que el alumno ya entregó");
-  }
+  const schema = z.object({ id: z.string(), draftGrade: z.number().optional(), assignedGrade: z.number().optional() });
+  return classroomFetch(
+    accessToken,
+    `${submissionPath(input.courseId, input.courseworkId, input.submissionId)}?updateMask=draftGrade,assignedGrade`,
+    schema,
+    { method: "PATCH", body: JSON.stringify({ draftGrade: input.grade, assignedGrade: input.grade }) },
+  );
+}
 
-  const schema = z.object({ id: z.string(), draftGrade: z.number(), assignedGrade: z.number() });
-  const path = [
-    "/courses/",
-    encodeURIComponent(input.courseId),
-    "/courseWork/",
-    encodeURIComponent(input.courseworkId),
-    "/studentSubmissions/",
-    encodeURIComponent(input.submissionId),
-    "?updateMask=draftGrade,assignedGrade",
-  ].join("");
-
-  return classroomFetch(accessToken, path, schema, {
-    method: "PATCH",
-    body: JSON.stringify({ draftGrade: input.grade, assignedGrade: input.grade }),
-  });
+/** Devuelve la entrega al alumno. Sin esto la nota queda invisible para él. */
+export async function returnSubmission(
+  accessToken: string,
+  input: { courseId: string; courseworkId: string; submissionId: string },
+) {
+  return classroomFetch(
+    accessToken,
+    `${submissionPath(input.courseId, input.courseworkId, input.submissionId)}:return`,
+    z.object({}).loose(),
+    { method: "POST", body: "{}" },
+  );
 }

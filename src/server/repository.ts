@@ -74,6 +74,7 @@ interface RunRow {
   status: "lobby" | "running" | "ended";
   classroom_course_id: string | null;
   classroom_coursework_id: string | null;
+  results_published_at: number | null;
   created_at: number;
   started_at: number | null;
   ends_at: number | null;
@@ -923,6 +924,43 @@ export async function saveManualGrade(
      ON CONFLICT(participant_id, question_id) DO UPDATE SET override = 1, points_awarded = excluded.points_awarded`,
   ).bind(crypto.randomUUID(), input.participantId, input.questionId, input.pointsAwarded).run();
   return true;
+}
+
+/** Cuántas respuestas de desarrollo siguen sin nota en esta toma. */
+export async function pendingManualCount(runId: string): Promise<number> {
+  const row = await db.prepare(
+    `SELECT COUNT(*) AS pending
+     FROM participants p JOIN grades g ON g.participant_id = p.id
+     WHERE p.run_id = ? AND g.points_awarded IS NULL`,
+  ).bind(runId).first<{ pending: number }>();
+  return Number(row?.pending ?? 0);
+}
+
+/**
+ * El "listo" del docente: da la corrección por cerrada. Es lo que habilita
+ * mostrarle la nota al alumno y devolverla a Classroom, y por eso exige que no
+ * queden desarrollos sin corregir: publicar a medias deja notas que después
+ * cambian, y en Classroom eso ya quedó asentado.
+ */
+export async function publishRunResults(actor: Actor, runId: string) {
+  const run = await getRunForTeacher(runId, actor);
+  if (!run) return null;
+  if (run.status !== "ended") throw new Error("La sesión todavía está en curso");
+
+  const pending = await pendingManualCount(runId);
+  if (pending > 0) {
+    throw new Error(`Faltan corregir ${pending} respuesta${pending === 1 ? "" : "s"} de desarrollo`);
+  }
+
+  const now = run.results_published_at ?? Date.now();
+  if (!run.results_published_at) {
+    await db.prepare("UPDATE runs SET results_published_at = ? WHERE id = ?").bind(now, runId).run();
+  }
+  return {
+    publishedAt: now,
+    alreadyPublished: Boolean(run.results_published_at),
+    classroomLinked: Boolean(run.classroom_course_id && run.classroom_coursework_id),
+  };
 }
 
 function parseQuestion(row: QuestionRow): FullQuestion {
