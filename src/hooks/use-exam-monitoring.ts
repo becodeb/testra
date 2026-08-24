@@ -88,10 +88,17 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
     const onKeyDown = (event: KeyboardEvent) => {
       if (!watching()) return;
       if (!blockClipboard) return;
-      event.preventDefault();
+      // Solo se cancelan los atajos que se quieren bloquear. Cancelar el evento
+      // para cualquier tecla dejaba al alumno sin poder escribir las respuestas
+      // de desarrollo y las de respuesta corta.
       if (event.key === "F12") {
+        event.preventDefault();
         emit({ type: "atajo-f12", at: Date.now(), durationMs: 0, meta: {} });
+        return;
       }
+      const esAtajoDePortapapeles = (event.ctrlKey || event.metaKey)
+        && ["c", "v", "x"].includes(event.key.toLowerCase());
+      if (esAtajoDePortapapeles) event.preventDefault();
     };
     const onClipboard = (event: ClipboardEvent) => {
       if (!watching()) return;

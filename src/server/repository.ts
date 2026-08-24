@@ -20,6 +20,7 @@ interface ExamRow {
   instructions: string;
   time_limit_s: number;
   questions_to_serve: number | null;
+  long_to_serve: number;
   shuffle_questions: number;
   shuffle_options: number;
   allow_backwards: number;
@@ -57,6 +58,7 @@ interface RunRow {
   questions_snapshot: string;
   time_limit_s: number;
   questions_to_serve: number | null;
+  long_to_serve: number;
   shuffle_questions: number;
   shuffle_options: number;
   allow_backwards: number;
@@ -207,6 +209,7 @@ export async function getExam(examId: string, actor: Actor): Promise<ExamDraft |
     instructions: exam.instructions,
     timeLimitS: exam.time_limit_s,
     questionsToServe: exam.questions_to_serve,
+    longToServe: exam.long_to_serve,
     shuffleQuestions: Boolean(exam.shuffle_questions),
     shuffleOptions: Boolean(exam.shuffle_options),
     allowBackwards: Boolean(exam.allow_backwards),
@@ -238,13 +241,13 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
   const now = Date.now();
   const statements: D1PreparedStatement[] = [
     runtimeEnv.DB.prepare(
-      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, questions_to_serve, shuffle_questions, shuffle_options,
+      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, questions_to_serve, long_to_serve, shuffle_questions, shuffle_options,
        allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
        block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET title = excluded.title, subject = excluded.subject,
        instructions = excluded.instructions, time_limit_s = excluded.time_limit_s,
-       questions_to_serve = excluded.questions_to_serve,
+       questions_to_serve = excluded.questions_to_serve, long_to_serve = excluded.long_to_serve,
        shuffle_questions = excluded.shuffle_questions, shuffle_options = excluded.shuffle_options,
        allow_backwards = excluded.allow_backwards, show_progress = excluded.show_progress,
        auto_submit = excluded.auto_submit, allow_reconnect = excluded.allow_reconnect,
@@ -262,6 +265,7 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
       draft.instructions,
       draft.timeLimitS,
       draft.questionsToServe,
+      draft.longToServe,
       draft.shuffleQuestions ? 1 : 0,
       draft.shuffleOptions ? 1 : 0,
       draft.allowBackwards ? 1 : 0,
@@ -349,10 +353,10 @@ export async function createRun(actor: Actor, examId: string) {
 
   const now = Date.now();
   await runtimeEnv.DB.prepare(
-    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, questions_to_serve, shuffle_questions, shuffle_options,
+    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, questions_to_serve, long_to_serve, shuffle_questions, shuffle_options,
      allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
      block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
   ).bind(
     runId,
     actor.orgId,
@@ -363,6 +367,7 @@ export async function createRun(actor: Actor, examId: string) {
     JSON.stringify(exam.questions),
     exam.timeLimitS,
     exam.questionsToServe,
+    exam.longToServe,
     exam.shuffleQuestions ? 1 : 0,
     exam.shuffleOptions ? 1 : 0,
     exam.allowBackwards ? 1 : 0,
@@ -550,6 +555,7 @@ export function questionsForParticipant(
     shuffle_questions: number;
     shuffle_options: number;
     questions_to_serve: number | null;
+    long_to_serve?: number;
   },
   participantId: string,
 ): FullQuestion[] {
@@ -559,7 +565,39 @@ export function questionsForParticipant(
     Boolean(run.shuffle_questions),
     Boolean(run.shuffle_options),
     run.questions_to_serve,
+    run.long_to_serve ?? 2,
   );
+}
+
+/**
+ * Elige las preguntas que recibe un alumno garantizando la cuota de desarrollo.
+ *
+ * Un sorteo plano sobre el pozo puede dejar a un alumno sin ninguna pregunta para
+ * justificar por escrito y a otro con seis. Acá se sortea por separado el grupo de
+ * desarrollo y el resto, y después se arma el conjunto final. Si el pozo no tiene
+ * suficientes de desarrollo se toman las que haya y se completa con el resto, sin
+ * devolver nunca menos preguntas de las pedidas.
+ */
+function elegirSubconjunto(
+  questions: FullQuestion[],
+  seed: string,
+  total: number,
+  longToServe: number,
+): FullQuestion[] {
+  const desarrollo = questions.filter((question) => question.type === "long");
+  const resto = questions.filter((question) => question.type !== "long");
+
+  const cuotaDesarrollo = Math.max(0, Math.min(longToServe, desarrollo.length, total));
+  const elegidasDesarrollo = seededShuffle(desarrollo, `${seed}:pool:long`).slice(0, cuotaDesarrollo);
+  const elegidasResto = seededShuffle(resto, `${seed}:pool:resto`).slice(0, total - cuotaDesarrollo);
+
+  // Si el resto no alcanza para llenar el cupo, se completa con más de desarrollo.
+  const faltan = total - elegidasDesarrollo.length - elegidasResto.length;
+  const relleno = faltan > 0
+    ? desarrollo.filter((q) => !elegidasDesarrollo.includes(q)).slice(0, faltan)
+    : [];
+
+  return [...elegidasDesarrollo, ...elegidasResto, ...relleno];
 }
 
 function personalizeQuestions(
@@ -568,12 +606,13 @@ function personalizeQuestions(
   shuffleQuestions: boolean,
   shuffleOptions: boolean,
   questionsToServe?: number | null,
+  longToServe = 2,
 ) {
   const questions = structuredClone(source);
   // El subconjunto se sortea siempre por alumno, aunque el docente no haya pedido
   // mezclar: es justamente lo que evita que dos alumnos reciban las mismas preguntas.
   const pool = questionsToServe && questionsToServe > 0 && questionsToServe < questions.length
-    ? seededShuffle(questions, `${seed}:pool`).slice(0, questionsToServe)
+    ? elegirSubconjunto(questions, seed, questionsToServe, longToServe)
     : questions;
   const ordered = shuffleQuestions ? seededShuffle(pool, `${seed}:questions`) : pool;
   return ordered.map((question, position) => {
@@ -608,7 +647,7 @@ export async function participantOwnedBy(participantId: string, access: StudentA
   if (access.actor) {
     const participant = await runtimeEnv.DB.prepare(
       `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot,
-            r.shuffle_questions, r.shuffle_options, r.questions_to_serve
+            r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve
        FROM participants p JOIN runs r ON r.id = p.run_id
        WHERE p.id = ? AND p.user_id = ?`,
     ).bind(participantId, access.actor.id).first<ParticipantRow & {
@@ -618,6 +657,7 @@ export async function participantOwnedBy(participantId: string, access: StudentA
       shuffle_questions: number;
       shuffle_options: number;
       questions_to_serve: number | null;
+      long_to_serve: number;
     }>();
     if (participant) return participant;
   }
@@ -626,7 +666,7 @@ export async function participantOwnedBy(participantId: string, access: StudentA
   const tokenHash = await hashGuestToken(guest.token);
   return runtimeEnv.DB.prepare(
     `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot,
-            r.shuffle_questions, r.shuffle_options, r.questions_to_serve
+            r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve
      FROM participants p JOIN runs r ON r.id = p.run_id
      WHERE p.id = ? AND p.guest_token_hash = ?`,
   ).bind(participantId, tokenHash).first<ParticipantRow & {
@@ -636,6 +676,7 @@ export async function participantOwnedBy(participantId: string, access: StudentA
     shuffle_questions: number;
     shuffle_options: number;
     questions_to_serve: number | null;
+    long_to_serve: number;
   }>();
 }
 
@@ -765,7 +806,7 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
 export async function getParticipantDetail(participantId: string, actor: Actor) {
   const participant = await runtimeEnv.DB.prepare(
     `SELECT p.*, r.id AS run_id, r.title, r.questions_snapshot,
-            r.shuffle_questions, r.shuffle_options, r.questions_to_serve
+            r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve
      FROM participants p JOIN runs r ON r.id = p.run_id
      LEFT JOIN exams e ON e.id = r.exam_id
      WHERE p.id = ? AND COALESCE(r.author_id, e.author_id) = ?`,
@@ -775,6 +816,7 @@ export async function getParticipantDetail(participantId: string, actor: Actor) 
     shuffle_questions: number;
     shuffle_options: number;
     questions_to_serve: number | null;
+    long_to_serve: number;
   }>();
   if (!participant) return null;
 

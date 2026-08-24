@@ -119,6 +119,9 @@ export const exams = sqliteTable(
     timeLimitS: integer("time_limit_s").notNull(),
     // Cuántas preguntas del pozo ve cada alumno. NULL o 0 sirve todas.
     questionsToServe: integer("questions_to_serve"),
+    // De esas, cuántas deben ser de desarrollo. Garantiza que a nadie le toque
+    // una evaluación sin preguntas para justificar por escrito.
+    longToServe: integer("long_to_serve").notNull().default(2),
     shuffleQuestions: integer("shuffle_questions", { mode: "boolean" }).notNull().default(false),
     shuffleOptions: integer("shuffle_options", { mode: "boolean" }).notNull().default(false),
     allowBackwards: integer("allow_backwards", { mode: "boolean" }).notNull().default(true),
@@ -176,6 +179,9 @@ export const runs = sqliteTable(
     timeLimitS: integer("time_limit_s").notNull(),
     // Cuántas preguntas del pozo ve cada alumno. NULL o 0 sirve todas.
     questionsToServe: integer("questions_to_serve"),
+    // De esas, cuántas deben ser de desarrollo. Garantiza que a nadie le toque
+    // una evaluación sin preguntas para justificar por escrito.
+    longToServe: integer("long_to_serve").notNull().default(2),
     shuffleQuestions: integer("shuffle_questions", { mode: "boolean" }).notNull().default(false),
     shuffleOptions: integer("shuffle_options", { mode: "boolean" }).notNull().default(false),
     allowBackwards: integer("allow_backwards", { mode: "boolean" }).notNull().default(true),

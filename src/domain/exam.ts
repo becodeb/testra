@@ -100,6 +100,9 @@ export const examDraftSchema = z.object({
   // Pozo de preguntas: cada alumno recibe este subconjunto, elegido al azar y
   // distinto por alumno. null sirve todas las preguntas cargadas.
   questionsToServe: z.number().int().positive().max(1000).nullable().default(null),
+  // De las servidas, cuántas deben ser de desarrollo. Se sortean aparte para que
+  // ningún alumno reciba una evaluación sin preguntas para justificar por escrito.
+  longToServe: z.number().int().nonnegative().max(100).default(2),
   shuffleQuestions: z.boolean().default(false),
   shuffleOptions: z.boolean().default(false),
   allowBackwards: z.boolean().default(true),
@@ -130,6 +133,21 @@ export const examDraftSchema = z.object({
       code: "custom",
       path: ["questionsToServe"],
       message: `No podés servir ${exam.questionsToServe} preguntas si el pozo tiene ${exam.questions.length}`,
+    });
+  }
+  if (exam.questionsToServe !== null && exam.longToServe > exam.questionsToServe) {
+    context.addIssue({
+      code: "custom",
+      path: ["longToServe"],
+      message: `No podés pedir ${exam.longToServe} de desarrollo si servís ${exam.questionsToServe} preguntas`,
+    });
+  }
+  const desarrolloEnPozo = exam.questions.filter((question) => question.type === "long").length;
+  if (exam.questionsToServe !== null && exam.longToServe > desarrolloEnPozo) {
+    context.addIssue({
+      code: "custom",
+      path: ["longToServe"],
+      message: `El pozo solo tiene ${desarrolloEnPozo} preguntas de desarrollo`,
     });
   }
   exam.questions.forEach((question, index) => {

@@ -50,6 +50,13 @@
       "when": 1787577728494,
       "tag": "0006_volatile_the_fallen",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787582792215,
+      "tag": "0007_empty_fallen_one",
+      "breakpoints": true
     }
   ]
 }
