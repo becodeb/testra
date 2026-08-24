@@ -40,6 +40,12 @@ export const serverEnv = {
   get TEACHER_EMAILS() {
     return optional("TEACHER_EMAILS");
   },
+  // Lista separada por comas. Se resuelve por correo y no por una columna en la
+  // base a proposito: asi se puede dar de alta a alguien que todavia no tiene
+  // cuenta, y nadie puede volverse superadmin escribiendo en la base.
+  get SUPERADMIN_EMAILS() {
+    return optional("SUPERADMIN_EMAILS");
+  },
 };
 
 export type ServerEnv = typeof serverEnv;

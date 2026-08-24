@@ -8,7 +8,7 @@ import { getActor } from "@/server/actors";
 
 interface Props {
   title: string;
-  active?: "evaluaciones" | "sesiones" | "resultados" | "solicitudes";
+  active?: "evaluaciones" | "sesiones" | "resultados" | "solicitudes" | "admin";
   fullBleed?: boolean;
 }
 
@@ -64,6 +64,7 @@ const initials = actor?.name.split(/\s+/).map((part) => part[0]).join("").slice(
             ]}
           >Resultados</a>
           {actor?.orgAdmin ? <a href="/solicitudes" aria-current={active === "solicitudes" ? "page" : undefined} class:list={["relative flex h-full items-center px-3 text-sm font-medium text-ink-2 hover:text-ink", active === "solicitudes" && "font-semibold text-brand after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand"]}>Solicitudes</a> : null}
+          {actor?.superadmin ? <a href="/admin" aria-current={active === "admin" ? "page" : undefined} class:list={["relative flex h-full items-center px-3 text-sm font-medium text-ink-2 hover:text-ink", active === "admin" && "font-semibold text-brand after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand"]}>Consola</a> : null}
         </nav>
         <div class="flex items-center justify-self-end gap-2">
           <span class="hidden text-right sm:block">
@@ -79,7 +80,8 @@ const initials = actor?.name.split(/\s+/).map((part) => part[0]).join("").slice(
         <a href="/sesiones" aria-current={active === "sesiones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "sesiones" && "border-b-2 border-brand font-semibold text-brand"]}>Sesiones</a>
         <a href="/resultados" aria-current={active === "resultados" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "resultados" && "border-b-2 border-brand font-semibold text-brand"]}>Resultados</a>
         {actor?.orgAdmin ? <a href="/solicitudes" aria-current={active === "solicitudes" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "solicitudes" && "border-b-2 border-brand font-semibold text-brand"]}>Solicitudes</a> : null}
-      </nav>
+              {actor?.superadmin ? <a href="/admin" aria-current={active === "admin" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "admin" && "border-b-2 border-brand font-semibold text-brand"]}>Consola</a> : null}
+</nav>
     </header>
     {fullBleed ? <slot /> : <main id="contenido" class="page-content mx-auto w-full max-w-[1280px] px-4 py-7 lg:px-6"><slot /></main>}
   </body>

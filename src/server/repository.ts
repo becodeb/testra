@@ -991,3 +991,110 @@ function formatCorrectAnswer(question: FullQuestion): string | null {
   if (question.type === "sa") return question.config.accepted.join(" / ");
   return null;
 }
+
+// --- Consola de plataforma --------------------------------------------------
+//
+// Todo lo de arriba filtra por `actor` (su organizacion, sus evaluaciones). Lo
+// que sigue NO filtra por nada a proposito: es la vista de superadmin. Por eso
+// vive junto y separado, y las rutas que lo usan chequean `isSuperadmin` antes
+// de llamar.
+
+export interface PlatformOrganization {
+  id: string;
+  name: string;
+  google_domain: string | null;
+  created_at: number;
+  teachers: number;
+  students: number;
+  exams: number;
+  runs: number;
+  live_runs: number;
+}
+
+export interface PlatformLiveRun {
+  id: string;
+  code: string;
+  title: string;
+  status: "lobby" | "running";
+  started_at: number | null;
+  ends_at: number | null;
+  created_at: number;
+  org_name: string | null;
+  teacher_name: string | null;
+  teacher_email: string | null;
+  participants: number;
+  active: number;
+  submitted: number;
+}
+
+export async function getPlatformOverview() {
+  // Los conteos van como subconsultas y no como JOIN + COUNT DISTINCT: un JOIN
+  // multiplica filas y los totales salen inflados.
+  const organizations = await db.prepare(
+    `SELECT o.id, o.name, o.google_domain, o.created_at,
+       (SELECT COUNT(*) FROM users u WHERE u.org_id = o.id AND u.role = 'teacher') AS teachers,
+       (SELECT COUNT(*) FROM users u WHERE u.org_id = o.id AND u.role = 'student') AS students,
+       (SELECT COUNT(*) FROM exams e WHERE e.org_id = o.id) AS exams,
+       (SELECT COUNT(*) FROM runs r WHERE r.org_id = o.id) AS runs,
+       (SELECT COUNT(*) FROM runs r WHERE r.org_id = o.id AND r.status IN ('lobby','running')) AS live_runs
+     FROM organizations o
+     ORDER BY o.name`,
+  ).all<PlatformOrganization>();
+
+  const liveRuns = await db.prepare(
+    `SELECT r.id, r.code, r.title, r.status, r.started_at, r.ends_at, r.created_at,
+       o.name AS org_name, u.name AS teacher_name, u.email AS teacher_email,
+       (SELECT COUNT(*) FROM participants p WHERE p.run_id = r.id) AS participants,
+       (SELECT COUNT(*) FROM participants p WHERE p.run_id = r.id AND p.status = 'active') AS active,
+       (SELECT COUNT(*) FROM participants p WHERE p.run_id = r.id AND p.status = 'submitted') AS submitted
+     FROM runs r
+     LEFT JOIN organizations o ON o.id = r.org_id
+     LEFT JOIN users u ON u.id = r.author_id
+     WHERE r.status IN ('lobby','running')
+     ORDER BY r.status DESC, r.created_at DESC`,
+  ).all<PlatformLiveRun>();
+
+  const totals = await db.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM organizations) AS organizations,
+       (SELECT COUNT(*) FROM users WHERE role = 'teacher') AS teachers,
+       (SELECT COUNT(*) FROM users WHERE role = 'student') AS students,
+       (SELECT COUNT(*) FROM exams) AS exams,
+       (SELECT COUNT(*) FROM runs) AS runs,
+       (SELECT COUNT(*) FROM participants) AS participants,
+       (SELECT COUNT(*) FROM answers) AS answers,
+       (SELECT COUNT(*) FROM runs WHERE status IN ('lobby','running')) AS live_runs`,
+  ).first<{
+    organizations: number; teachers: number; students: number; exams: number;
+    runs: number; participants: number; answers: number; live_runs: number;
+  }>();
+
+  const recentRuns = await db.prepare(
+    `SELECT r.id, r.code, r.title, r.status, r.created_at, r.ended_at, r.results_published_at,
+       o.name AS org_name, u.name AS teacher_name,
+       (SELECT COUNT(*) FROM participants p WHERE p.run_id = r.id) AS participants
+     FROM runs r
+     LEFT JOIN organizations o ON o.id = r.org_id
+     LEFT JOIN users u ON u.id = r.author_id
+     WHERE r.status = 'ended'
+     ORDER BY COALESCE(r.ended_at, r.created_at) DESC
+     LIMIT 12`,
+  ).all<{
+    id: string; code: string; title: string; status: string; created_at: number;
+    ended_at: number | null; results_published_at: number | null;
+    org_name: string | null; teacher_name: string | null; participants: number;
+  }>();
+
+  return {
+    organizations: organizations.results,
+    liveRuns: liveRuns.results,
+    recentRuns: recentRuns.results,
+    totals: totals ?? {
+      organizations: 0, teachers: 0, students: 0, exams: 0,
+      runs: 0, participants: 0, answers: 0, live_runs: 0,
+    },
+    serverNow: Date.now(),
+  };
+}
+
+export type PlatformOverview = Awaited<ReturnType<typeof getPlatformOverview>>;

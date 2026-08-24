@@ -1,0 +1,21 @@
+---
+import { AdminConsole } from "@/components/admin-console";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getActor, isSuperadmin } from "@/server/actors";
+import { getPlatformOverview } from "@/server/repository";
+
+const actor = getActor(Astro.locals);
+if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
+// Un docente comun no tiene que enterarse de que esto existe.
+if (!isSuperadmin(actor)) return new Response("No encontrado", { status: 404 });
+const overview = await getPlatformOverview();
+---
+
+<AppLayout title="Consola" active="admin">
+  <header class="mb-6">
+    <p class="text-xs font-semibold tracking-[.08em] text-muted uppercase">Plataforma</p>
+    <h1 class="mt-1 text-2xl font-semibold text-ink">Consola de administración</h1>
+    <p class="mt-2 text-sm text-muted">Todas las organizaciones y todas las salas abiertas, en un solo lugar.</p>
+  </header>
+  <AdminConsole client:load initial={overview} />
+</AppLayout>

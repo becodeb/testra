@@ -9,7 +9,23 @@ export interface Actor {
   name: string;
   role: ActorRole;
   orgId: string | null;
+  /** Administra su propia organizacion: aprueba docentes. */
   orgAdmin: boolean;
+  /** Ve la plataforma entera, todas las organizaciones. */
+  superadmin: boolean;
+}
+
+/**
+ * El superadmin sale de SUPERADMIN_EMAILS, no de la base. Es deliberado: da de
+ * alta a gente que todavia no se registro, y no se puede escalar privilegios
+ * escribiendo una fila.
+ */
+function isSuperadminEmail(email: string): boolean {
+  const allowlist = (serverEnv.SUPERADMIN_EMAILS ?? "")
+    .split(",")
+    .map((value) => value.trim().toLocaleLowerCase())
+    .filter(Boolean);
+  return allowlist.includes(email.trim().toLocaleLowerCase());
 }
 
 
@@ -23,6 +39,7 @@ export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor |
       role: user.role ?? "student",
       orgId: user.orgId ?? null,
       orgAdmin: user.orgAdmin ?? false,
+      superadmin: isSuperadminEmail(user.email),
     };
   }
 
@@ -35,6 +52,7 @@ export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor |
       role: "student",
       orgId: "org-demo",
       orgAdmin: false,
+      superadmin: false,
     };
   }
   return {
@@ -44,6 +62,7 @@ export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor |
     role: "teacher",
     orgId: "org-demo",
     orgAdmin: true,
+    superadmin: isSuperadminEmail("mariana@escuela.example.edu"),
   };
 }
 
@@ -53,6 +72,10 @@ export function getAuthenticatedActor(locals: App.Locals): Actor | null {
 
 export function isTeacher(actor: Actor | null): actor is Actor & { role: "teacher" } {
   return actor?.role === "teacher";
+}
+
+export function isSuperadmin(actor: Actor | null): actor is Actor & { superadmin: true } {
+  return actor?.superadmin === true;
 }
 
 export function forbidden(message = "No tenés permiso para realizar esta acción") {
