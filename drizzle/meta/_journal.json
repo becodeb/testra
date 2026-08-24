@@ -43,6 +43,13 @@
       "when": 1787477094924,
       "tag": "0005_charming_hammerhead",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787577728494,
+      "tag": "0006_volatile_the_fallen",
+      "breakpoints": true
     }
   ]
 }

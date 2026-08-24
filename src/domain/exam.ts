@@ -97,6 +97,9 @@ export const examDraftSchema = z.object({
   subject: z.string().max(80),
   instructions: z.string().trim().max(4000),
   timeLimitS: z.number().int().min(60).max(6 * 60 * 60),
+  // Pozo de preguntas: cada alumno recibe este subconjunto, elegido al azar y
+  // distinto por alumno. null sirve todas las preguntas cargadas.
+  questionsToServe: z.number().int().positive().max(1000).nullable().default(null),
   shuffleQuestions: z.boolean().default(false),
   shuffleOptions: z.boolean().default(false),
   allowBackwards: z.boolean().default(true),
@@ -121,6 +124,13 @@ export const examDraftSchema = z.object({
   }
   if (!exam.subject.trim()) {
     context.addIssue({ code: "custom", path: ["subject"], message: "Indicá la materia" });
+  }
+  if (exam.questionsToServe !== null && exam.questionsToServe > exam.questions.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["questionsToServe"],
+      message: `No podés servir ${exam.questionsToServe} preguntas si el pozo tiene ${exam.questions.length}`,
+    });
   }
   exam.questions.forEach((question, index) => {
     if (getQuestionCompletion(question) !== "complete") {

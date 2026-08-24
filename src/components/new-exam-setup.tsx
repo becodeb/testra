@@ -20,6 +20,7 @@ export function NewExamSetup() {
     const examId = crypto.randomUUID();
     const draft: ExamDraft = {
       id: examId, title: title.trim(), subject: subject.trim(), instructions: "", timeLimitS: minutes * 60,
+      questionsToServe: null,
       shuffleQuestions: true, shuffleOptions: true, allowBackwards: true, showProgress: true,
       autoSubmit: true, allowReconnect: true, supervisionLevel: "normal", requireFullscreen: false,
       detectFocusLoss: true, blockClipboard: false, recordDisconnects: true,

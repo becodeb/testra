@@ -19,6 +19,7 @@ interface ExamRow {
   subject: string;
   instructions: string;
   time_limit_s: number;
+  questions_to_serve: number | null;
   shuffle_questions: number;
   shuffle_options: number;
   allow_backwards: number;
@@ -55,6 +56,7 @@ interface RunRow {
   title: string;
   questions_snapshot: string;
   time_limit_s: number;
+  questions_to_serve: number | null;
   shuffle_questions: number;
   shuffle_options: number;
   allow_backwards: number;
@@ -204,6 +206,7 @@ export async function getExam(examId: string, actor: Actor): Promise<ExamDraft |
     subject: exam.subject,
     instructions: exam.instructions,
     timeLimitS: exam.time_limit_s,
+    questionsToServe: exam.questions_to_serve,
     shuffleQuestions: Boolean(exam.shuffle_questions),
     shuffleOptions: Boolean(exam.shuffle_options),
     allowBackwards: Boolean(exam.allow_backwards),
@@ -235,12 +238,13 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
   const now = Date.now();
   const statements: D1PreparedStatement[] = [
     runtimeEnv.DB.prepare(
-      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, shuffle_questions, shuffle_options,
+      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, questions_to_serve, shuffle_questions, shuffle_options,
        allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
        block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET title = excluded.title, subject = excluded.subject,
        instructions = excluded.instructions, time_limit_s = excluded.time_limit_s,
+       questions_to_serve = excluded.questions_to_serve,
        shuffle_questions = excluded.shuffle_questions, shuffle_options = excluded.shuffle_options,
        allow_backwards = excluded.allow_backwards, show_progress = excluded.show_progress,
        auto_submit = excluded.auto_submit, allow_reconnect = excluded.allow_reconnect,
@@ -257,6 +261,7 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
       draft.subject,
       draft.instructions,
       draft.timeLimitS,
+      draft.questionsToServe,
       draft.shuffleQuestions ? 1 : 0,
       draft.shuffleOptions ? 1 : 0,
       draft.allowBackwards ? 1 : 0,
@@ -344,10 +349,10 @@ export async function createRun(actor: Actor, examId: string) {
 
   const now = Date.now();
   await runtimeEnv.DB.prepare(
-    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, shuffle_questions, shuffle_options,
+    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, questions_to_serve, shuffle_questions, shuffle_options,
      allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
      block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
   ).bind(
     runId,
     actor.orgId,
@@ -357,6 +362,7 @@ export async function createRun(actor: Actor, examId: string) {
     exam.title,
     JSON.stringify(exam.questions),
     exam.timeLimitS,
+    exam.questionsToServe,
     exam.shuffleQuestions ? 1 : 0,
     exam.shuffleOptions ? 1 : 0,
     exam.allowBackwards ? 1 : 0,
@@ -522,12 +528,7 @@ export async function getStudentSession(access: StudentAccess, code: string) {
   const answerResult = await runtimeEnv.DB.prepare(
     "SELECT question_id, value FROM answers WHERE participant_id = ?",
   ).bind(participant.id).all<{ question_id: string; value: string }>();
-  const fullQuestions = personalizeQuestions(
-    JSON.parse(run.questions_snapshot) as FullQuestion[],
-    `${run.id}:${participant.id}`,
-    Boolean(run.shuffle_questions),
-    Boolean(run.shuffle_options),
-  );
+  const fullQuestions = questionsForParticipant(run, participant.id);
   return {
     run,
     participant,
@@ -536,14 +537,45 @@ export async function getStudentSession(access: StudentAccess, code: string) {
   };
 }
 
+/**
+ * Preguntas que efectivamente vio un alumno. Con pozo de preguntas cada alumno
+ * recibe un subconjunto distinto, así que corregir, calificar y mostrar respuestas
+ * tiene que partir de acá y no del snapshot completo de la toma. Es determinístico:
+ * se deriva de (runId, participantId), sin guardar nada extra.
+ */
+export function questionsForParticipant(
+  run: {
+    id: string;
+    questions_snapshot: string;
+    shuffle_questions: number;
+    shuffle_options: number;
+    questions_to_serve: number | null;
+  },
+  participantId: string,
+): FullQuestion[] {
+  return personalizeQuestions(
+    JSON.parse(run.questions_snapshot) as FullQuestion[],
+    `${run.id}:${participantId}`,
+    Boolean(run.shuffle_questions),
+    Boolean(run.shuffle_options),
+    run.questions_to_serve,
+  );
+}
+
 function personalizeQuestions(
   source: FullQuestion[],
   seed: string,
   shuffleQuestions: boolean,
   shuffleOptions: boolean,
+  questionsToServe?: number | null,
 ) {
   const questions = structuredClone(source);
-  const ordered = shuffleQuestions ? seededShuffle(questions, `${seed}:questions`) : questions;
+  // El subconjunto se sortea siempre por alumno, aunque el docente no haya pedido
+  // mezclar: es justamente lo que evita que dos alumnos reciban las mismas preguntas.
+  const pool = questionsToServe && questionsToServe > 0 && questionsToServe < questions.length
+    ? seededShuffle(questions, `${seed}:pool`).slice(0, questionsToServe)
+    : questions;
+  const ordered = shuffleQuestions ? seededShuffle(pool, `${seed}:questions`) : pool;
   return ordered.map((question, position) => {
     const next = { ...question, position } as FullQuestion;
     if (shuffleOptions && (next.type === "mc" || next.type === "ms")) {
@@ -575,13 +607,17 @@ function seededShuffle<T>(source: T[], seed: string) {
 export async function participantOwnedBy(participantId: string, access: StudentAccess) {
   if (access.actor) {
     const participant = await runtimeEnv.DB.prepare(
-      `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot
+      `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot,
+            r.shuffle_questions, r.shuffle_options, r.questions_to_serve
        FROM participants p JOIN runs r ON r.id = p.run_id
        WHERE p.id = ? AND p.user_id = ?`,
     ).bind(participantId, access.actor.id).first<ParticipantRow & {
       run_status: RunRow["status"];
       ends_at: number | null;
       questions_snapshot: string;
+      shuffle_questions: number;
+      shuffle_options: number;
+      questions_to_serve: number | null;
     }>();
     if (participant) return participant;
   }
@@ -589,13 +625,17 @@ export async function participantOwnedBy(participantId: string, access: StudentA
   if (!guest || guest.participantId !== participantId) return null;
   const tokenHash = await hashGuestToken(guest.token);
   return runtimeEnv.DB.prepare(
-    `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot
+    `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot,
+            r.shuffle_questions, r.shuffle_options, r.questions_to_serve
      FROM participants p JOIN runs r ON r.id = p.run_id
      WHERE p.id = ? AND p.guest_token_hash = ?`,
   ).bind(participantId, tokenHash).first<ParticipantRow & {
     run_status: RunRow["status"];
     ends_at: number | null;
     questions_snapshot: string;
+    shuffle_questions: number;
+    shuffle_options: number;
+    questions_to_serve: number | null;
   }>();
 }
 
@@ -605,7 +645,10 @@ export async function saveAnswer(access: StudentAccess, participantId: string, q
   if (participant.run_status !== "running" || (participant.ends_at !== null && participant.ends_at <= Date.now())) {
     throw new Error("La sesión ya no acepta respuestas");
   }
-  const questions = JSON.parse(participant.questions_snapshot) as FullQuestion[];
+  const questions = questionsForParticipant(
+    { ...participant, id: participant.run_id },
+    participant.id,
+  );
   const question = questions.find((candidate) => candidate.id === questionId);
   if (!question) throw new Error("La pregunta no pertenece a esta sesión");
   const now = Date.now();
@@ -627,7 +670,10 @@ export async function submitParticipant(access: StudentAccess, participantId: st
   const participant = await participantOwnedBy(participantId, access);
   if (!participant) return null;
   if (participant.status === "submitted") return { submittedAt: participant.submitted_at };
-  const questions = JSON.parse(participant.questions_snapshot) as FullQuestion[];
+  const questions = questionsForParticipant(
+    { ...participant, id: participant.run_id },
+    participant.id,
+  );
   const answerResult = await runtimeEnv.DB.prepare(
     "SELECT question_id, value FROM answers WHERE participant_id = ?",
   ).bind(participantId).all<{ question_id: string; value: string }>();
@@ -683,13 +729,30 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
       "SELECT google_user_id, name, email FROM expected_run_students WHERE run_id = ? ORDER BY name",
     ).bind(runId).all<Record<string, string | null>>(),
   ]);
-  const questionCount = (JSON.parse(run.questions_snapshot) as FullQuestion[]).length;
-  const totalPoints = (JSON.parse(run.questions_snapshot) as FullQuestion[]).reduce((sum, question) => sum + question.points, 0);
+  const allQuestions = JSON.parse(run.questions_snapshot) as FullQuestion[];
+  const served = run.questions_to_serve;
+  const questionCount = served && served > 0 && served < allQuestions.length ? served : allQuestions.length;
+  // Con pozo de preguntas cada alumno recibe un subconjunto propio, y esos
+  // subconjuntos pueden sumar puntajes distintos. El porcentaje es entonces lo
+  // único comparable entre alumnos, así que se calcula acá contra el máximo real
+  // de cada uno en vez de contra un total único de la toma.
+  const participants = participantResult.results.map((participant) => {
+    const maxPoints = questionsForParticipant(run, String(participant.id))
+      .reduce((sum, question) => sum + question.points, 0);
+    const score = Number(participant.score ?? 0);
+    return {
+      ...participant,
+      max_points: maxPoints,
+      percent: maxPoints > 0 ? Math.round((score / maxPoints) * 100) : 0,
+    };
+  });
+  const totalPoints = allQuestions.reduce((sum, question) => sum + question.points, 0);
   return {
     run: { ...run, questions_snapshot: undefined },
     questionCount,
     totalPoints,
-    participants: participantResult.results,
+    poolSize: allQuestions.length,
+    participants,
     incidents: incidentResult.results.map((row) => ({
       ...row,
       meta: typeof row.meta === "string" ? JSON.parse(row.meta) : {},
@@ -701,11 +764,18 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
 
 export async function getParticipantDetail(participantId: string, actor: Actor) {
   const participant = await runtimeEnv.DB.prepare(
-    `SELECT p.*, r.id AS run_id, r.title, r.questions_snapshot
+    `SELECT p.*, r.id AS run_id, r.title, r.questions_snapshot,
+            r.shuffle_questions, r.shuffle_options, r.questions_to_serve
      FROM participants p JOIN runs r ON r.id = p.run_id
      LEFT JOIN exams e ON e.id = r.exam_id
      WHERE p.id = ? AND COALESCE(r.author_id, e.author_id) = ?`,
-  ).bind(participantId, actor.id).first<ParticipantRow & { title: string; questions_snapshot: string }>();
+  ).bind(participantId, actor.id).first<ParticipantRow & {
+    title: string;
+    questions_snapshot: string;
+    shuffle_questions: number;
+    shuffle_options: number;
+    questions_to_serve: number | null;
+  }>();
   if (!participant) return null;
 
   const [answerResult, gradeResult, incidentResult] = await Promise.all([
@@ -716,7 +786,10 @@ export async function getParticipantDetail(participantId: string, actor: Actor) 
     runtimeEnv.DB.prepare("SELECT id, at, duration_ms, type, meta, source, question_id FROM incidents WHERE participant_id = ? ORDER BY at")
       .bind(participantId).all<{ id: string; at: number; duration_ms: number; type: string; meta: string; source: string; question_id: string | null }>(),
   ]);
-  const questions = JSON.parse(participant.questions_snapshot) as FullQuestion[];
+  const questions = questionsForParticipant(
+    { ...participant, id: participant.run_id },
+    participant.id,
+  );
   const answersByQuestion = new Map(answerResult.results.map((answer) => [answer.question_id, answer]));
   const gradesByQuestion = new Map(gradeResult.results.map((grade) => [grade.question_id, grade]));
   const questionById = new Map(questions.map((question, index) => [question.id, { ...question, number: index + 1 }]));
