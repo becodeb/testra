@@ -32,6 +32,11 @@ const CLIENT_INCIDENT_TYPES = new Set([
 ]);
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+// Ventana y umbral del aviso de cadencia. Se cuentan preguntas distintas
+// respondidas dentro de la ventana, no guardados: ver el comentario en
+// /answer-saved.
+const CADENCE_WINDOW_MS = 11_000;
+const CADENCE_MIN_QUESTIONS = 5;
 const HEARTBEAT_TIMEOUT_MS = 20_000;
 const TICK_MS = 5_000;
 
@@ -247,15 +252,37 @@ export class ExamRunActor {
       if (!participant) return Response.json({ error: "Participante inexistente" }, { status: 404 });
       participant.lastSeen = Date.now();
       participant.currentQuestionId = payload.questionId;
+      // Cadencia: responder muchas preguntas DISTINTAS en pocos segundos.
+      //
+      // Antes se contaban guardados, no preguntas. El runtime del alumno
+      // autoguarda 450 ms despues de que deja de teclear, asi que escribir un
+      // desarrollo con un par de pausas producia cinco guardados de la misma
+      // respuesta y disparaba el aviso. En produccion salto para 13 de 21
+      // alumnos —los 7 de la ultima toma, sin excepcion— y su meta muestra un
+      // unico questionId repetido. Un aviso que salta para todos no distingue a
+      // nadie, y ademas tapaba los que si sirven.
+      //
+      // Contando preguntas distintas vuelve a medir lo que decia medir: nadie
+      // escribe cinco desarrollos en once segundos sin pegarlos.
       const key = `answer-times:${payload.participantId}`;
-      const existing = (this.memory.get(key) as number[] | undefined) ?? [];
-      const recent = [...existing.filter((time) => payload.at - time <= 11_000), payload.at].slice(-5);
+      const existing = (this.memory.get(key) as Array<{ questionId: string; at: number }> | undefined) ?? [];
+      const recent = [
+        ...existing.filter((entry) => payload.at - entry.at <= CADENCE_WINDOW_MS && entry.questionId !== payload.questionId),
+        { questionId: payload.questionId, at: payload.at },
+      ].slice(-CADENCE_MIN_QUESTIONS);
       this.memory.set(key, recent);
-      if (payload.questionType === "long" && recent.length >= 5) {
+      if (payload.questionType === "long" && recent.length >= CADENCE_MIN_QUESTIONS) {
         const cadenceKey = `cadence-recorded:${payload.participantId}`;
         if (!this.memory.get(cadenceKey)) {
           this.memory.set(cadenceKey, true);
-          await this.recordIncident(payload.participantId, "cadencia-respuestas", recent.at(-1)! - recent[0], { answers: recent.length }, "server");
+          const lapso = recent.at(-1)!.at - recent[0].at;
+          await this.recordIncident(
+            payload.participantId,
+            "cadencia-respuestas",
+            lapso,
+            { questions: recent.length, questionIds: recent.map((entry) => entry.questionId) },
+            "server",
+          );
           this.broadcastIncident(payload.participantId, { type: "incident", participantId: payload.participantId, incidentType: "cadencia-respuestas", source: "server", at: Date.now() });
         }
       }
