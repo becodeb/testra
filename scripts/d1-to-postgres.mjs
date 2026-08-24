@@ -3,10 +3,13 @@
 //   node scripts/d1-to-postgres.mjs --dry-run     solo lee y reporta cuánto hay
 //   node scripts/d1-to-postgres.mjs               lee de D1 y escribe en Postgres
 //
-// Requiere:
-//   DATABASE_URL           destino Postgres (con las migraciones ya aplicadas)
-//   CLOUDFLARE_API_TOKEN   token con permiso de lectura sobre D1
-//   CLOUDFLARE_ACCOUNT_ID  cuenta dueña de la base
+// Requiere DATABASE_URL (destino Postgres, con las migraciones ya aplicadas) y
+// acceso de lectura a la D1 de origen. Para eso alcanza con cualquiera de las
+// dos formas que entiende wrangler:
+//
+//   a) npx wrangler login          inicia sesión por navegador, no hay que
+//                                  crear ningún token
+//   b) CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID   token con D1:Read
 //
 // Sobre D1 solo se ejecutan SELECT: el origen no se toca. Con --dry-run tampoco
 // se escribe en Postgres, así que es seguro correrlo para ver qué hay antes de
@@ -59,6 +62,7 @@ const TIMESTAMP_COLUMNS = {
 
 const dryRun = process.argv.includes("--dry-run");
 
+// Sale solo si falta una variable realmente obligatoria.
 function requireEnv(name) {
   const value = process.env[name];
   if (!value) {
@@ -133,8 +137,8 @@ async function insertRows(client, table, rows, columns) {
 }
 
 async function main() {
-  requireEnv("CLOUDFLARE_API_TOKEN");
-  requireEnv("CLOUDFLARE_ACCOUNT_ID");
+  // Con `wrangler login` la sesión queda en disco y no hacen falta variables.
+  if (process.env.CLOUDFLARE_API_TOKEN) requireEnv("CLOUDFLARE_ACCOUNT_ID");
   const url = dryRun ? process.env.DATABASE_URL : requireEnv("DATABASE_URL");
 
   console.log(dryRun ? "[migracion] modo ensayo: no se escribe nada" : "[migracion] copiando D1 -> Postgres");
