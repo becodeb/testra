@@ -8,7 +8,6 @@
       "@/*": ["src/*"]
     },
     "jsx": "react-jsx",
-    "jsxImportSource": "react",
-    "types": ["@cloudflare/workers-types"]
+    "jsxImportSource": "react"
   }
 }

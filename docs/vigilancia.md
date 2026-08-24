@@ -23,7 +23,7 @@ Cada incidente se muestra de inmediato al alumno con su duración o metadatos. C
 
 Estas señales no dependen del autorreporte del navegador:
 
-- Heartbeat cada 5 segundos. Si faltan durante 20 segundos, el Durable Object marca al participante como desconectado.
+- Heartbeat cada 5 segundos. Si faltan durante 20 segundos, el actor de la toma marca al participante como desconectado.
 - Una sola sesión WebSocket activa por participante. Una segunda conexión registra `sesion-duplicada`.
 - Cambio de dirección IP o user-agent durante una toma.
 - Timestamps de servidor en cada guardado de respuesta, útiles para analizar cadencias improbables.

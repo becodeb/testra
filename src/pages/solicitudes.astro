@@ -1,12 +1,11 @@
 ---
+import { db } from "@/server/db/client";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getActor } from "@/server/actors";
-import { env } from "cloudflare:workers";
 const actor = getActor(Astro.locals, "teacher");
 if (!actor) return Astro.redirect("/login?next=/solicitudes");
 if (!actor.orgAdmin || !actor.orgId) return Astro.redirect("/evaluaciones");
-const runtimeEnv = env as unknown as CloudflareEnv;
-const requests = await runtimeEnv.DB.prepare(
+const requests = await db.prepare(
   "SELECT ar.id, ar.email, ar.status, ar.requested_at, u.name FROM access_requests ar JOIN users u ON u.id = ar.requester_user_id WHERE ar.organization_id = ? ORDER BY ar.status = 'pending' DESC, ar.requested_at DESC",
 ).bind(actor.orgId).all<{ id: string; email: string; name: string; status: string; requested_at: number }>();
 ---

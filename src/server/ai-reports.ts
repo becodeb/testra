@@ -1,10 +1,10 @@
-import { env } from "cloudflare:workers";
 import { z } from "zod";
 
+import { db } from "@/server/db/client";
+import { serverEnv } from "@/server/env";
 import type { Actor } from "@/server/actors";
 import { getParticipantDetail, getRunAnalysisData } from "@/server/repository";
 
-const runtimeEnv = env as unknown as CloudflareEnv;
 const MODEL = "stealth/ox-alpha";
 
 export const runAiReportSchema = z.object({
@@ -29,7 +29,7 @@ export const personAiReportSchema = z.object({
 
 export async function getStoredAiReport(scopeType: "run" | "participant", scopeId: string, actor: Actor) {
   await assertScopeAccess(scopeType, scopeId, actor);
-  const row = await runtimeEnv.DB.prepare("SELECT content, model, generated_at FROM ai_reports WHERE scope_type = ? AND scope_id = ?")
+  const row = await db.prepare("SELECT content, model, generated_at FROM ai_reports WHERE scope_type = ? AND scope_id = ?")
     .bind(scopeType, scopeId).first<{ content: string; model: string; generated_at: number }>();
   return row ? { content: JSON.parse(row.content), model: row.model, generatedAt: row.generated_at } : null;
 }
@@ -39,7 +39,7 @@ export async function generateAiReport(scopeType: "run" | "participant", scopeId
   if (!input) return null;
   const compactInput = JSON.stringify(input);
   const inputHash = await sha256(compactInput);
-  const existing = await runtimeEnv.DB.prepare("SELECT content, model, generated_at, input_hash FROM ai_reports WHERE scope_type = ? AND scope_id = ?")
+  const existing = await db.prepare("SELECT content, model, generated_at, input_hash FROM ai_reports WHERE scope_type = ? AND scope_id = ?")
     .bind(scopeType, scopeId).first<{ content: string; model: string; generated_at: number; input_hash: string }>();
   if (existing?.input_hash === inputHash) return { content: JSON.parse(existing.content), model: existing.model, generatedAt: existing.generated_at };
 
@@ -50,7 +50,7 @@ export async function generateAiReport(scopeType: "run" | "participant", scopeId
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
-      authorization: `Bearer ${runtimeEnv.OPENROUTER_API_KEY}`,
+      authorization: `Bearer ${serverEnv.OPENROUTER_API_KEY}`,
       "content-type": "application/json",
       "HTTP-Referer": "https://testra.becode.com.ar",
       "X-Title": "Testra",
@@ -72,7 +72,7 @@ export async function generateAiReport(scopeType: "run" | "participant", scopeId
   const content = schema.parse(JSON.parse(payload.choices?.[0]?.message?.content ?? "{}"));
   const generatedAt = Date.now();
   const runId = scopeType === "run" ? scopeId : (input as NonNullable<Awaited<ReturnType<typeof getParticipantDetail>>>).run.id;
-  await runtimeEnv.DB.prepare(
+  await db.prepare(
     `INSERT INTO ai_reports (id, scope_type, scope_id, run_id, content, model, input_hash, generated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(scope_type, scope_id) DO UPDATE SET content = excluded.content, model = excluded.model, input_hash = excluded.input_hash, generated_at = excluded.generated_at`,

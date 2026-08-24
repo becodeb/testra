@@ -1,9 +1,8 @@
-import { env } from "cloudflare:workers";
 import { defineMiddleware } from "astro:middleware";
 
+import { serverEnv } from "@/server/env";
 import { auth } from "@/server/auth";
 
-const runtimeEnv = env as unknown as CloudflareEnv;
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const FORM_CONTENT_TYPES = ["application/x-www-form-urlencoded", "multipart/form-data", "text/plain"];
@@ -16,7 +15,7 @@ const FORM_CONTENT_TYPES = ["application/x-www-form-urlencoded", "multipart/form
 function trustedOrigins(url: URL) {
   const origins = new Set([url.origin]);
   try {
-    origins.add(new URL(runtimeEnv.BETTER_AUTH_URL).origin);
+    origins.add(new URL(serverEnv.BETTER_AUTH_URL).origin);
   } catch {
     // Con BETTER_AUTH_URL inválida solo se confía en el mismo origen.
   }

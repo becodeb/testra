@@ -1,0 +1,52 @@
+# Sirve para dos cosas.
+#
+#   1. Desarrollo local: `docker compose up -d postgres` levanta solo la base y
+#      la aplicación se corre aparte con `npm run dev`.
+#   2. Despliegue en Coolify: la aplicación y la base juntas en la VM.
+#
+# La aplicación corre en UNA sola réplica a propósito. El estado de las tomas en
+# vivo vive en el proceso (ver src/server/exam-run-actor.ts); con dos réplicas
+# los alumnos de un mismo examen podrían caer en procesos distintos y dejar de
+# verse entre sí. Escalar es vertical: más CPU y memoria al contenedor.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-testra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testra}
+      POSTGRES_DB: ${POSTGRES_DB:-testra}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # Solo en la interfaz local: la base no se publica hacia afuera.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-testra} -d ${POSTGRES_DB:-testra}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-testra}:${POSTGRES_PASSWORD:-testra}@postgres:5432/${POSTGRES_DB:-testra}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      TEACHER_EMAILS: ${TEACHER_EMAILS:-}
+      ALLOW_DEMO_AUTH: "false"
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:

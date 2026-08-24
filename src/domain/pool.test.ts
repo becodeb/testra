@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { examDraftSchema, type FullQuestion } from "./exam";
 
-// El sorteo vive en repository.ts, que importa cloudflare:workers y no se puede
-// cargar acá. Se replica la misma función para fijar el contrato: si cambia una,
-// este test falla y obliga a revisar la otra.
+// El sorteo vive en repository.ts, que abre el pool de Postgres al importarse y
+// no se puede cargar acá. Se replica la misma función para fijar el contrato: si
+// cambia una, este test falla y obliga a revisar la otra.
 function seededShuffle<T>(source: T[], seed: string) {
   let state = 2166136261;
   for (let index = 0; index < seed.length; index += 1) {

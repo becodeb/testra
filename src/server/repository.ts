@@ -1,5 +1,3 @@
-import { env } from "cloudflare:workers";
-
 import {
   examDraftSchema,
   type ExamDraft,
@@ -7,11 +5,11 @@ import {
   toStudentQuestions,
 } from "@/domain/exam";
 import type { Actor } from "@/server/actors";
+import { db, type PgStatement } from "@/server/db/client";
+import { dispatchRunCommand } from "@/server/exam-run-actor";
 import { gradeExam, type AnswerValue } from "@/server/grading";
 import { createRunCode } from "@/server/run-code";
 import { hashGuestToken, readGuestSession } from "@/server/student-access";
-
-const runtimeEnv = env as unknown as CloudflareEnv;
 
 interface ExamRow {
   id: string;
@@ -122,30 +120,16 @@ export interface RunSummary {
   incidentCount: number;
 }
 
-export function examRunStub(runId: string) {
-  const id = runtimeEnv.EXAM_RUNS.idFromName(runId);
-  return runtimeEnv.EXAM_RUNS.get(id);
-}
-
-export async function runCommand(
-  runId: string,
-  path: string,
-  body?: unknown,
-  headers?: Headers,
-) {
-  const forwarded = new Headers(headers);
-  if (body !== undefined) forwarded.set("content-type", "application/json");
-  const target = new URL(`https://exam-run.internal${path}`);
-  target.searchParams.set("runId", runId);
-  return examRunStub(runId).fetch(target, {
-    method: body === undefined ? "GET" : "POST",
-    headers: forwarded,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+// Antes esto resolvía un stub de Durable Object y hacía un fetch contra él.
+// Ahora el actor de la toma vive en este mismo proceso, así que el comando es
+// una llamada a un método: se conserva la firma y el `Response` de retorno para
+// no tocar las rutas de la API que ya la usan.
+export async function runCommand(runId: string, path: string, body?: unknown) {
+  return dispatchRunCommand(runId, path, body);
 }
 
 export async function listExams(actor: Actor, query = "", subject = ""): Promise<ExamSummary[]> {
-  const result = await runtimeEnv.DB.prepare(
+  const result = await db.prepare(
     `SELECT e.id, e.title, e.subject, e.status, e.updated_at,
       COUNT(DISTINCT q.id) AS question_count,
       COALESCE(SUM(DISTINCT CASE WHEN q.id IS NOT NULL THEN q.points * 1000000 + q.position ELSE NULL END), 0) AS encoded_points,
@@ -186,7 +170,7 @@ export async function listExams(actor: Actor, query = "", subject = ""): Promise
 }
 
 export async function listSubjects(actor: Actor): Promise<string[]> {
-  const result = await runtimeEnv.DB.prepare(
+  const result = await db.prepare(
     "SELECT DISTINCT subject FROM exams WHERE author_id = ? ORDER BY subject",
   ).bind(actor.id).all<{ subject: string }>();
   return result.results.map((row) => row.subject);
@@ -194,10 +178,10 @@ export async function listSubjects(actor: Actor): Promise<string[]> {
 
 export async function getExam(examId: string, actor: Actor): Promise<ExamDraft | null> {
   const [exam, questionResult] = await Promise.all([
-    runtimeEnv.DB.prepare(
+    db.prepare(
       "SELECT * FROM exams WHERE id = ? AND author_id = ?",
     ).bind(examId, actor.id).first<ExamRow>(),
-    runtimeEnv.DB.prepare(
+    db.prepare(
       "SELECT id, position, type, prompt, points, config FROM questions WHERE exam_id = ? ORDER BY position",
     ).bind(examId).all<QuestionRow>(),
   ]);
@@ -233,14 +217,14 @@ export async function getExam(examId: string, actor: Actor): Promise<ExamDraft |
 export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft> {
   if (!actor.orgId) throw new Error("Tu cuenta todavía no pertenece a una institución");
   const draft = examDraftSchema.parse(input);
-  const existing = await runtimeEnv.DB.prepare("SELECT author_id FROM exams WHERE id = ?")
+  const existing = await db.prepare("SELECT author_id FROM exams WHERE id = ?")
     .bind(draft.id)
     .first<{ author_id: string }>();
   if (existing && existing.author_id !== actor.id) throw new Error("La evaluación pertenece a otro docente");
 
   const now = Date.now();
-  const statements: D1PreparedStatement[] = [
-    runtimeEnv.DB.prepare(
+  const statements: PgStatement[] = [
+    db.prepare(
       `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, questions_to_serve, long_to_serve, shuffle_questions, shuffle_options,
        allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
        block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at, updated_at)
@@ -284,11 +268,11 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
       now,
       now,
     ),
-    runtimeEnv.DB.prepare("DELETE FROM questions WHERE exam_id = ?").bind(draft.id),
+    db.prepare("DELETE FROM questions WHERE exam_id = ?").bind(draft.id),
   ];
   for (const question of draft.questions) {
     statements.push(
-      runtimeEnv.DB.prepare(
+      db.prepare(
         "INSERT INTO questions (id, exam_id, position, type, prompt, points, config) VALUES (?, ?, ?, ?, ?, ?, ?)",
       ).bind(
         question.id,
@@ -301,7 +285,7 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
       ),
     );
   }
-  await runtimeEnv.DB.batch(statements);
+  await db.batch(statements);
   return { ...draft, updatedAt: new Date(now).toISOString() };
 }
 
@@ -324,12 +308,12 @@ export async function duplicateExam(examId: string, actor: Actor): Promise<ExamD
 }
 
 export async function deleteExam(examId: string, actor: Actor): Promise<boolean> {
-  const owned = await runtimeEnv.DB.prepare("SELECT id FROM exams WHERE id = ? AND author_id = ?")
+  const owned = await db.prepare("SELECT id FROM exams WHERE id = ? AND author_id = ?")
     .bind(examId, actor.id).first<{ id: string }>();
   if (!owned) return false;
-  await runtimeEnv.DB.batch([
-    runtimeEnv.DB.prepare("UPDATE runs SET exam_id = NULL WHERE exam_id = ?").bind(examId),
-    runtimeEnv.DB.prepare("DELETE FROM exams WHERE id = ? AND author_id = ?").bind(examId, actor.id),
+  await db.batch([
+    db.prepare("UPDATE runs SET exam_id = NULL WHERE exam_id = ?").bind(examId),
+    db.prepare("DELETE FROM exams WHERE id = ? AND author_id = ?").bind(examId, actor.id),
   ]);
   return true;
 }
@@ -343,7 +327,7 @@ export async function createRun(actor: Actor, examId: string) {
   let code = "";
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const candidate = createRunCode();
-    const collision = await runtimeEnv.DB.prepare("SELECT 1 FROM runs WHERE code = ?").bind(candidate).first();
+    const collision = await db.prepare("SELECT 1 FROM runs WHERE code = ?").bind(candidate).first();
     if (!collision) {
       code = candidate;
       break;
@@ -352,7 +336,7 @@ export async function createRun(actor: Actor, examId: string) {
   if (!code) throw new Error("No se pudo generar un código único");
 
   const now = Date.now();
-  await runtimeEnv.DB.prepare(
+  await db.prepare(
     `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, questions_to_serve, long_to_serve, shuffle_questions, shuffle_options,
      allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
      block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at)
@@ -395,7 +379,7 @@ export async function createRun(actor: Actor, examId: string) {
 }
 
 export async function getRunForTeacher(runId: string, actor: Actor): Promise<RunRow | null> {
-  return runtimeEnv.DB.prepare(
+  return db.prepare(
     `SELECT r.* FROM runs r
      LEFT JOIN exams e ON e.id = r.exam_id
      WHERE r.id = ? AND COALESCE(r.author_id, e.author_id) = ?`,
@@ -403,7 +387,7 @@ export async function getRunForTeacher(runId: string, actor: Actor): Promise<Run
 }
 
 export async function listRuns(actor: Actor): Promise<RunSummary[]> {
-  const result = await runtimeEnv.DB.prepare(
+  const result = await db.prepare(
     `WITH participant_scores AS (
        SELECT p.id, p.run_id, SUM(COALESCE(g.points_awarded, 0)) AS score
        FROM participants p LEFT JOIN grades g ON g.participant_id = p.id
@@ -448,7 +432,7 @@ export async function listRuns(actor: Actor): Promise<RunSummary[]> {
 
 export async function getJoinableRun(rawCode: string) {
   const code = rawCode.trim().toUpperCase();
-  const run = await runtimeEnv.DB.prepare("SELECT * FROM runs WHERE code = ? AND status != 'ended'")
+  const run = await db.prepare("SELECT * FROM runs WHERE code = ? AND status != 'ended'")
     .bind(code)
     .first<RunRow>();
   return run;
@@ -466,7 +450,7 @@ export async function joinRunByCode(
   const participantId = crypto.randomUUID();
   const now = Date.now();
   if (actor) {
-    await runtimeEnv.DB.prepare(
+    await db.prepare(
       `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, status, joined_at, last_seen, late)
        VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)
        ON CONFLICT(run_id, user_id) DO UPDATE SET display_name = excluded.display_name, last_seen = excluded.last_seen`,
@@ -482,7 +466,7 @@ export async function joinRunByCode(
     ).run();
   } else {
     if (!guestTokenHash) throw new Error("Falta la sesión temporal del alumno");
-    await runtimeEnv.DB.prepare(
+    await db.prepare(
       `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, status, joined_at, last_seen, late)
        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
     ).bind(
@@ -497,9 +481,9 @@ export async function joinRunByCode(
     ).run();
   }
   const participant = actor
-    ? await runtimeEnv.DB.prepare("SELECT * FROM participants WHERE run_id = ? AND user_id = ?")
+    ? await db.prepare("SELECT * FROM participants WHERE run_id = ? AND user_id = ?")
       .bind(run.id, actor.id).first<ParticipantRow>()
-    : await runtimeEnv.DB.prepare("SELECT * FROM participants WHERE id = ?")
+    : await db.prepare("SELECT * FROM participants WHERE id = ?")
       .bind(participantId).first<ParticipantRow>();
   if (!participant) throw new Error("No se pudo registrar al alumno");
   await runCommand(run.id, "/join", {
@@ -511,12 +495,12 @@ export async function joinRunByCode(
 }
 
 export async function getStudentSession(access: StudentAccess, code: string) {
-  const run = await runtimeEnv.DB.prepare("SELECT * FROM runs WHERE code = ?")
+  const run = await db.prepare("SELECT * FROM runs WHERE code = ?")
     .bind(code.trim().toUpperCase()).first<RunRow>();
   if (!run) return null;
   let participant: ParticipantRow | null = null;
   if (access.actor) {
-    participant = await runtimeEnv.DB.prepare(
+    participant = await db.prepare(
       "SELECT * FROM participants WHERE run_id = ? AND user_id = ?",
     ).bind(run.id, access.actor.id).first<ParticipantRow>();
   }
@@ -524,13 +508,13 @@ export async function getStudentSession(access: StudentAccess, code: string) {
     const guest = readGuestSession(access.request);
     if (guest) {
       const tokenHash = await hashGuestToken(guest.token);
-      participant = await runtimeEnv.DB.prepare(
+      participant = await db.prepare(
         "SELECT * FROM participants WHERE id = ? AND run_id = ? AND guest_token_hash = ?",
       ).bind(guest.participantId, run.id, tokenHash).first<ParticipantRow>();
     }
   }
   if (!participant) return null;
-  const answerResult = await runtimeEnv.DB.prepare(
+  const answerResult = await db.prepare(
     "SELECT question_id, value FROM answers WHERE participant_id = ?",
   ).bind(participant.id).all<{ question_id: string; value: string }>();
   const fullQuestions = questionsForParticipant(run, participant.id);
@@ -645,7 +629,7 @@ function seededShuffle<T>(source: T[], seed: string) {
 
 export async function participantOwnedBy(participantId: string, access: StudentAccess) {
   if (access.actor) {
-    const participant = await runtimeEnv.DB.prepare(
+    const participant = await db.prepare(
       `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot,
             r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve
        FROM participants p JOIN runs r ON r.id = p.run_id
@@ -664,7 +648,7 @@ export async function participantOwnedBy(participantId: string, access: StudentA
   const guest = readGuestSession(access.request);
   if (!guest || guest.participantId !== participantId) return null;
   const tokenHash = await hashGuestToken(guest.token);
-  return runtimeEnv.DB.prepare(
+  return db.prepare(
     `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot,
             r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve
      FROM participants p JOIN runs r ON r.id = p.run_id
@@ -693,7 +677,7 @@ export async function saveAnswer(access: StudentAccess, participantId: string, q
   const question = questions.find((candidate) => candidate.id === questionId);
   if (!question) throw new Error("La pregunta no pertenece a esta sesión");
   const now = Date.now();
-  await runtimeEnv.DB.prepare(
+  await db.prepare(
     `INSERT INTO answers (id, participant_id, question_id, value, updated_at)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(participant_id, question_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
@@ -715,7 +699,7 @@ export async function submitParticipant(access: StudentAccess, participantId: st
     { ...participant, id: participant.run_id },
     participant.id,
   );
-  const answerResult = await runtimeEnv.DB.prepare(
+  const answerResult = await db.prepare(
     "SELECT question_id, value FROM answers WHERE participant_id = ?",
   ).bind(participantId).all<{ question_id: string; value: string }>();
   const grade = gradeExam(
@@ -723,14 +707,14 @@ export async function submitParticipant(access: StudentAccess, participantId: st
     answerResult.results.map((row) => ({ questionId: row.question_id, value: JSON.parse(row.value) })),
   );
   const now = Date.now();
-  const statements: D1PreparedStatement[] = [
-    runtimeEnv.DB.prepare(
+  const statements: PgStatement[] = [
+    db.prepare(
       "UPDATE participants SET status = 'submitted', submitted_at = ?, submit_reason = ?, last_seen = ? WHERE id = ?",
     ).bind(now, reason, now, participantId),
   ];
   for (const questionGrade of grade.questions) {
     statements.push(
-      runtimeEnv.DB.prepare(
+      db.prepare(
         `INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded)
          VALUES (?, ?, ?, ?, NULL, ?)
          ON CONFLICT(participant_id, question_id) DO UPDATE SET auto = excluded.auto, points_awarded = excluded.points_awarded`,
@@ -743,7 +727,7 @@ export async function submitParticipant(access: StudentAccess, participantId: st
       ),
     );
   }
-  await runtimeEnv.DB.batch(statements);
+  await db.batch(statements);
   await runCommand(participant.run_id, "/submit", { participantId, reason, at: now });
   return { submittedAt: now, grade };
 }
@@ -752,7 +736,7 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
   const run = await getRunForTeacher(runId, actor);
   if (!run) return null;
   const [participantResult, incidentResult, expectedResult] = await Promise.all([
-    runtimeEnv.DB.prepare(
+    db.prepare(
       `SELECT p.id, p.status, p.joined_at, p.submitted_at, p.last_seen, p.late,
        p.display_name AS name, u.email,
        (SELECT COUNT(*) FROM answers a WHERE a.participant_id = p.id) AS answered,
@@ -761,12 +745,12 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
        FROM participants p LEFT JOIN users u ON u.id = p.user_id
        WHERE p.run_id = ? ORDER BY p.display_name`,
     ).bind(runId).all<Record<string, string | number | null>>(),
-    runtimeEnv.DB.prepare(
+    db.prepare(
       `SELECT i.id, i.participant_id, i.at, i.duration_ms, i.type, i.meta, i.source, p.display_name AS name
        FROM incidents i JOIN participants p ON p.id = i.participant_id
        WHERE p.run_id = ? ORDER BY i.at DESC LIMIT 200`,
     ).bind(runId).all<Record<string, string | number>>(),
-    runtimeEnv.DB.prepare(
+    db.prepare(
       "SELECT google_user_id, name, email FROM expected_run_students WHERE run_id = ? ORDER BY name",
     ).bind(runId).all<Record<string, string | null>>(),
   ]);
@@ -804,7 +788,7 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
 }
 
 export async function getParticipantDetail(participantId: string, actor: Actor) {
-  const participant = await runtimeEnv.DB.prepare(
+  const participant = await db.prepare(
     `SELECT p.*, r.id AS run_id, r.title, r.questions_snapshot,
             r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve
      FROM participants p JOIN runs r ON r.id = p.run_id
@@ -821,11 +805,11 @@ export async function getParticipantDetail(participantId: string, actor: Actor) 
   if (!participant) return null;
 
   const [answerResult, gradeResult, incidentResult] = await Promise.all([
-    runtimeEnv.DB.prepare("SELECT question_id, value, updated_at FROM answers WHERE participant_id = ?")
+    db.prepare("SELECT question_id, value, updated_at FROM answers WHERE participant_id = ?")
       .bind(participantId).all<{ question_id: string; value: string; updated_at: number }>(),
-    runtimeEnv.DB.prepare("SELECT question_id, auto, override, points_awarded FROM grades WHERE participant_id = ?")
+    db.prepare("SELECT question_id, auto, override, points_awarded FROM grades WHERE participant_id = ?")
       .bind(participantId).all<{ question_id: string; auto: number | null; override: number | null; points_awarded: number | null }>(),
-    runtimeEnv.DB.prepare("SELECT id, at, duration_ms, type, meta, source, question_id FROM incidents WHERE participant_id = ? ORDER BY at")
+    db.prepare("SELECT id, at, duration_ms, type, meta, source, question_id FROM incidents WHERE participant_id = ? ORDER BY at")
       .bind(participantId).all<{ id: string; at: number; duration_ms: number; type: string; meta: string; source: string; question_id: string | null }>(),
   ]);
   const questions = questionsForParticipant(
@@ -868,14 +852,14 @@ export async function getParticipantDetail(participantId: string, actor: Actor) 
 export async function getRunAnalysisData(runId: string, actor: Actor) {
   const run = await getRunForTeacher(runId, actor);
   if (!run) return null;
-  const participants = await runtimeEnv.DB.prepare("SELECT id FROM participants WHERE run_id = ? ORDER BY display_name")
+  const participants = await db.prepare("SELECT id FROM participants WHERE run_id = ? ORDER BY display_name")
     .bind(runId).all<{ id: string }>();
   const details = await Promise.all(participants.results.map((row) => getParticipantDetail(row.id, actor)));
   return { run: { id: run.id, title: run.title, code: run.code }, participants: details.filter(Boolean) };
 }
 
 export async function listPendingCorrections(actor: Actor, runId?: string) {
-  const result = await runtimeEnv.DB.prepare(
+  const result = await db.prepare(
     `SELECT p.id AS participant_id, p.run_id, p.submitted_at, p.display_name AS name, r.title,
       r.questions_snapshot, a.question_id, a.value, g.points_awarded
      FROM participants p
@@ -921,7 +905,7 @@ export async function saveManualGrade(
   actor: Actor,
   input: { participantId: string; questionId: string; pointsAwarded: number },
 ) {
-  const row = await runtimeEnv.DB.prepare(
+  const row = await db.prepare(
     `SELECT r.questions_snapshot FROM participants p JOIN runs r ON r.id = p.run_id
      LEFT JOIN exams e ON e.id = r.exam_id
      WHERE p.id = ? AND COALESCE(r.author_id, e.author_id) = ?`,
@@ -933,7 +917,7 @@ export async function saveManualGrade(
   if (!question || input.pointsAwarded < 0 || input.pointsAwarded > question.points) {
     throw new Error("El puntaje está fuera del rango permitido");
   }
-  await runtimeEnv.DB.prepare(
+  await db.prepare(
     `INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded)
      VALUES (?, ?, ?, NULL, 1, ?)
      ON CONFLICT(participant_id, question_id) DO UPDATE SET override = 1, points_awarded = excluded.points_awarded`,

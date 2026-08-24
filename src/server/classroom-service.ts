@@ -1,39 +1,41 @@
-import { env } from "cloudflare:workers";
 
+import { db, type PgStatement } from "@/server/db/client";
+import { serverEnv } from "@/server/env";
 import type { Actor } from "@/server/actors";
 import { createLinkedCoursework, listCourseStudents, listCourseworkSubmissions, listTeacherCourses, normalizeStudentName, sendGradeToClassroom, uniqueGoogleUsersByName } from "@/server/classroom";
 import { getRunForTeacher } from "@/server/repository";
 
-const runtimeEnv = env as unknown as CloudflareEnv;
 
+// `accounts` es tabla de better-auth: sus timestamps son timestamptz, así que
+// node-postgres los devuelve como Date. Ver src/server/db/schema.ts.
 interface GoogleAccount {
   access_token: string | null;
   refresh_token: string | null;
-  access_token_expires_at: number | null;
+  access_token_expires_at: Date | null;
 }
 
 export async function googleAccessToken(actor: Actor) {
-  const account = await runtimeEnv.DB.prepare(
+  const account = await db.prepare(
     "SELECT access_token, refresh_token, access_token_expires_at FROM accounts WHERE user_id = ? AND provider_id = 'google' ORDER BY updated_at DESC LIMIT 1",
   ).bind(actor.id).first<GoogleAccount>();
   if (!account?.access_token) throw new Error("Conectá Google Classroom para continuar");
-  if (!account.access_token_expires_at || account.access_token_expires_at > Date.now() + 60_000) return account.access_token;
+  if (!account.access_token_expires_at || account.access_token_expires_at.getTime() > Date.now() + 60_000) return account.access_token;
   if (!account.refresh_token) throw new Error("Google venció la autorización. Volvé a conectar Classroom.");
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: runtimeEnv.GOOGLE_CLIENT_ID,
-      client_secret: runtimeEnv.GOOGLE_CLIENT_SECRET,
+      client_id: serverEnv.GOOGLE_CLIENT_ID,
+      client_secret: serverEnv.GOOGLE_CLIENT_SECRET,
       refresh_token: account.refresh_token,
       grant_type: "refresh_token",
     }),
   });
   if (!response.ok) throw new Error("Google rechazó la renovación del permiso de Classroom");
   const body = await response.json() as { access_token: string; expires_in: number };
-  await runtimeEnv.DB.prepare(
+  await db.prepare(
     "UPDATE accounts SET access_token = ?, access_token_expires_at = ?, updated_at = ? WHERE user_id = ? AND provider_id = 'google'",
-  ).bind(body.access_token, Date.now() + body.expires_in * 1000, Date.now(), actor.id).run();
+  ).bind(body.access_token, new Date(Date.now() + body.expires_in * 1000), new Date(), actor.id).run();
   return body.access_token;
 }
 
@@ -55,16 +57,16 @@ export async function publishRunToClassroom(actor: Actor, runId: string, courseI
       maxPoints: (JSON.parse(run.questions_snapshot) as Array<{ points: number }>).reduce((sum, question) => sum + question.points, 0),
     }),
   ]);
-  const statements: D1PreparedStatement[] = [
-    runtimeEnv.DB.prepare("UPDATE runs SET classroom_course_id = ?, classroom_coursework_id = ? WHERE id = ?").bind(courseId, coursework.id, runId),
-    runtimeEnv.DB.prepare("DELETE FROM expected_run_students WHERE run_id = ?").bind(runId),
+  const statements: PgStatement[] = [
+    db.prepare("UPDATE runs SET classroom_course_id = ?, classroom_coursework_id = ? WHERE id = ?").bind(courseId, coursework.id, runId),
+    db.prepare("DELETE FROM expected_run_students WHERE run_id = ?").bind(runId),
   ];
   for (const student of students) {
-    statements.push(runtimeEnv.DB.prepare(
+    statements.push(db.prepare(
       "INSERT INTO expected_run_students (run_id, google_user_id, name, email) VALUES (?, ?, ?, ?)",
     ).bind(runId, student.userId, student.profile.name.fullName, student.profile.emailAddress ?? null));
   }
-  await runtimeEnv.DB.batch(statements);
+  await db.batch(statements);
   return { coursework, studentCount: students.length };
 }
 
@@ -74,7 +76,7 @@ export async function classroomGradePreview(actor: Actor, runId: string) {
   if (!run.classroom_course_id || !run.classroom_coursework_id) throw new Error("Esta sesión no está vinculada con Classroom");
   const token = await googleAccessToken(actor);
   const { submissions } = await listCourseworkSubmissions(token, run.classroom_course_id, run.classroom_coursework_id);
-  const result = await runtimeEnv.DB.prepare(
+  const result = await db.prepare(
     `SELECT p.id AS participant_id, u.name, u.email,
       SUM(CASE WHEN g.points_awarded IS NOT NULL THEN g.points_awarded ELSE 0 END) AS grade,
       SUM(CASE WHEN g.points_awarded IS NULL THEN 1 ELSE 0 END) AS pending
@@ -82,7 +84,7 @@ export async function classroomGradePreview(actor: Actor, runId: string) {
      LEFT JOIN grades g ON g.participant_id = p.id
      WHERE p.run_id = ? AND p.status = 'submitted' GROUP BY p.id`,
   ).bind(runId).all<{ participant_id: string; name: string; email: string; grade: number; pending: number }>();
-  const expected = await runtimeEnv.DB.prepare(
+  const expected = await db.prepare(
     "SELECT google_user_id, name, email FROM expected_run_students WHERE run_id = ?",
   ).bind(runId).all<{ google_user_id: string; name: string; email: string | null }>();
   const googleByEmail = new Map(expected.results.filter((row) => row.email).map((row) => [row.email!.toLocaleLowerCase(), row.google_user_id]));
@@ -121,7 +123,7 @@ export async function sendRunGrades(actor: Actor, runId: string) {
       grade: row.grade,
       submissionState: row.submissionState!,
     });
-    await runtimeEnv.DB.prepare("UPDATE participants SET classroom_submission_id = ? WHERE id = ?").bind(row.submissionId, row.participantId).run();
+    await db.prepare("UPDATE participants SET classroom_submission_id = ? WHERE id = ?").bind(row.submissionId, row.participantId).run();
   }
   return { sent: eligible.length, skipped: preview.rows.length - eligible.length, rows: preview.rows };
 }

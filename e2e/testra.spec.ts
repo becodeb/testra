@@ -95,7 +95,7 @@ test("student answers survive question navigation", async ({ page }) => {
   await expect(answer).toBeChecked();
 });
 
-test("student answers survive a full reload through D1 autosave", async ({ page }) => {
+test("student answers survive a full reload through autosave", async ({ page }) => {
   const title = `Persistencia de respuesta ${Date.now()}`;
   const examCreation = await page.request.post("/api/exams", { data: examPayload(title) });
   expect(examCreation.status()).toBe(201);
@@ -151,7 +151,7 @@ test("teacher drafts persist and reopen from their canonical URL", async ({ page
   await expect(page.getByRole("textbox", { name: "Enunciado" })).toHaveValue("¿Qué propiedad demuestra este guardado?");
 });
 
-test("a ready exam creates a real lobby backed by the Durable Object", async ({ page, isMobile }) => {
+test("a ready exam creates a real lobby backed by the run actor", async ({ page, isMobile }) => {
   test.skip(Boolean(isMobile), "Run creation is covered once on desktop");
   await page.goto("/evaluaciones");
   await page.locator("[data-library-ready=true]").waitFor();

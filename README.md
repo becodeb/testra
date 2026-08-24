@@ -13,7 +13,7 @@ Testra permite que un docente cree evaluaciones, lance una toma en vivo, supervi
 - Autocorrección en servidor y cola de corrección manual con override docente.
 - Registro e inicio de sesión con correo y contraseña; Google OAuth queda disponible para integraciones cuando haya credenciales válidas.
 - Google Classroom Opción A: cursos, roster, tarea con link y devolución explícita de notas.
-- D1, Durable Objects con WebSocket Hibernation, CI, Vitest, Playwright y Axe.
+- Postgres, WebSockets en proceso para las tomas en vivo, CI, Vitest, Playwright y Axe.
 
 ## Desarrollo local
 
@@ -21,8 +21,9 @@ Requiere Node.js 22.12 o posterior.
 
 ```powershell
 npm install
-Copy-Item .dev.vars.example .dev.vars
-npm run db:setup:local
+Copy-Item .env.example .env
+docker compose up -d postgres
+npm run db:setup
 npm run dev
 ```
 
@@ -42,22 +43,33 @@ npm run check
 npm test
 npm run test:e2e
 npm run build
-npx wrangler deploy --dry-run
+```
+
+Para probar la imagen de producción tal cual la va a correr Coolify:
+
+```powershell
+docker compose up --build
 ```
 
 ## Producción
 
-Testra se ejecuta en Cloudflare Workers porque D1 y Durable Objects son partes del modelo de consistencia, no servicios intercambiables. La guía completa está en [docs/deployment.md](docs/deployment.md).
+Testra corre como un solo contenedor Node en la VM de Coolify, con Postgres al
+lado. La guía completa está en [docs/deployment.md](docs/deployment.md).
 
 Resumen:
 
-1. Crear la base D1 `testra-db` y reemplazar su ID en `wrangler.jsonc`.
-2. Aplicar las migraciones remotas.
-3. Configurar `BETTER_AUTH_SECRET` y, si se habilita Google, `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` como secretos.
-4. Autorizar `https://testra.becode.com.ar/api/auth/callback/google` en Google Cloud antes de mostrar el acceso con Google.
-5. Desplegar el Worker y publicar el dominio mediante el proxy de Coolify documentado en `docs/deployment.md`.
+1. Crear la base Postgres en Coolify.
+2. Desplegar la aplicación desde el `Dockerfile` de la raíz, en **una sola
+   réplica**: el estado de las tomas en vivo vive en el proceso.
+3. Configurar `DATABASE_URL`, `BETTER_AUTH_URL` y `BETTER_AUTH_SECRET`; si se
+   habilita Google, además `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`.
+4. Autorizar `https://testra.becode.com.ar/api/auth/callback/google` en Google
+   Cloud antes de mostrar el acceso con Google.
+5. Verificar que el proxy permita el upgrade a WebSocket en `/api/runs/*/socket`.
 
-Nunca publiques `.dev.vars`, tokens de Coolify, tokens de Cloudflare ni claves de proveedores de IA.
+Las migraciones se aplican solas al arrancar el contenedor.
+
+Nunca publiques `.env`, tokens de Coolify, credenciales de Postgres ni claves de proveedores de IA.
 
 ## Documentación
 

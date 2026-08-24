@@ -1,74 +1,96 @@
-import { env } from "cloudflare:workers";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth/minimal";
-import { drizzle } from "drizzle-orm/d1";
+import { drizzle } from "drizzle-orm/node-postgres";
 
+import { getPool } from "@/server/db/client";
 import { accounts, sessions, users, verifications } from "@/server/db/schema";
+import { serverEnv } from "@/server/env";
 
-const runtimeEnv = env as unknown as CloudflareEnv;
-const db = drizzle(runtimeEnv.DB);
+function createAuth() {
+  const db = drizzle(getPool());
 
-export const auth = betterAuth({
-  appName: "Testra",
-  baseURL: runtimeEnv.BETTER_AUTH_URL,
-  secret: runtimeEnv.BETTER_AUTH_SECRET,
-  database: drizzleAdapter(db, {
-    provider: "sqlite",
-    schema: {
-      user: users,
-      session: sessions,
-      account: accounts,
-      verification: verifications,
-    },
-  }),
-  emailAndPassword: {
-    enabled: true,
-    autoSignIn: true,
-    requireEmailVerification: false,
-    minPasswordLength: 8,
-    maxPasswordLength: 128,
-  },
-  socialProviders: {
-    google: {
-      clientId: runtimeEnv.GOOGLE_CLIENT_ID,
-      clientSecret: runtimeEnv.GOOGLE_CLIENT_SECRET,
-      accessType: "offline",
-      prompt: "select_account consent",
-      scope: ["openid", "email", "profile"],
-    },
-  },
-  account: {
-    accountLinking: {
+  return betterAuth({
+    appName: "Testra",
+    baseURL: serverEnv.BETTER_AUTH_URL,
+    secret: serverEnv.BETTER_AUTH_SECRET,
+    database: drizzleAdapter(db, {
+      provider: "pg",
+      schema: {
+        user: users,
+        session: sessions,
+        account: accounts,
+        verification: verifications,
+      },
+    }),
+    emailAndPassword: {
       enabled: true,
-      trustedProviders: ["google"],
-      requireLocalEmailVerified: false,
-      allowDifferentEmails: true,
+      autoSignIn: true,
+      requireEmailVerification: false,
+      minPasswordLength: 8,
+      maxPasswordLength: 128,
     },
-  },
-  user: {
-    additionalFields: {
-      role: {
-        type: ["teacher", "student"],
-        required: true,
-        defaultValue: "student",
-        input: false,
-      },
-      orgId: {
-        type: "string",
-        required: false,
-        input: false,
-      },
-      orgAdmin: {
-        type: "boolean",
-        required: true,
-        defaultValue: false,
-        input: false,
-      },
-      googleSub: {
-        type: "string",
-        required: false,
-        input: false,
+    socialProviders: {
+      google: {
+        clientId: serverEnv.GOOGLE_CLIENT_ID,
+        clientSecret: serverEnv.GOOGLE_CLIENT_SECRET,
+        accessType: "offline",
+        prompt: "select_account consent",
+        scope: ["openid", "email", "profile"],
       },
     },
+    account: {
+      accountLinking: {
+        enabled: true,
+        trustedProviders: ["google"],
+        requireLocalEmailVerified: false,
+        allowDifferentEmails: true,
+      },
+    },
+    user: {
+      additionalFields: {
+        role: {
+          type: ["teacher", "student"],
+          required: true,
+          defaultValue: "student",
+          input: false,
+        },
+        orgId: {
+          type: "string",
+          required: false,
+          input: false,
+        },
+        orgAdmin: {
+          type: "boolean",
+          required: true,
+          defaultValue: false,
+          input: false,
+        },
+        googleSub: {
+          type: "string",
+          required: false,
+          input: false,
+        },
+      },
+    },
+  });
+}
+
+type Auth = ReturnType<typeof createAuth>;
+
+let instance: Auth | null = null;
+
+export function getAuth(): Auth {
+  if (!instance) instance = createAuth();
+  return instance;
+}
+
+// La instancia se crea al primer uso, no al importar el módulo. `astro build`
+// importa este archivo durante el empaquetado y ahí todavía no existen
+// BETTER_AUTH_SECRET ni DATABASE_URL: construirla al vuelo rompería la imagen
+// de Docker. El proxy conserva la forma de siempre (`auth.handler`,
+// `auth.api.getSession`) para no tocar las llamadas existentes.
+export const auth: Auth = new Proxy({} as Auth, {
+  get(_target, property, receiver) {
+    return Reflect.get(getAuth(), property, receiver);
   },
 });

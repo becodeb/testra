@@ -24,7 +24,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run db:setup:local && npm run dev -- --host 127.0.0.1 --force",
+    command: "npm run db:setup && npm run dev -- --host 127.0.0.1 --force",
     url: "http://127.0.0.1:4321/evaluaciones",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

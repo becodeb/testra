@@ -5,7 +5,7 @@
 - A student must see every signal recorded about them when it happens.
 - Incidents are conversation material for the teacher, never an automatic failing grade.
 - Answer keys must never be serialized to a student-facing response. Use `toStudentQuestion()` and keep its leak tests passing.
-- Server timestamps and the Durable Object clock are authoritative. Never trust a client clock for grading, timing, or ordering.
+- Server timestamps and the run actor's clock are authoritative. Never trust a client clock for grading, timing, or ordering.
 - Do not use `localStorage` as a source of truth.
 - A live run always owns a frozen question snapshot.
 

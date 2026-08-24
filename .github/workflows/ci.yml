@@ -8,6 +8,27 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+
+    # Los tests de punta a punta levantan la aplicación de verdad, y desde la
+    # migración a Coolify eso significa una base Postgres real.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: testra
+          POSTGRES_PASSWORD: testra
+          POSTGRES_DB: testra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U testra -d testra"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://testra:testra@127.0.0.1:5432/testra
+
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -19,5 +40,8 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - run: cp .dev.vars.example .dev.vars
+      - run: cp .env.example .env
+      - name: Apuntar .env a la base del runner
+        run: |
+          sed -i 's|^DATABASE_URL=.*|DATABASE_URL=postgres://testra:testra@127.0.0.1:5432/testra|' .env
       - run: npm run test:e2e

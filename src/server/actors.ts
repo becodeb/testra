@@ -1,4 +1,5 @@
-import { env } from "cloudflare:workers";
+import { serverEnv } from "@/server/env";
+
 
 export type ActorRole = "teacher" | "student";
 
@@ -11,7 +12,6 @@ export interface Actor {
   orgAdmin: boolean;
 }
 
-const runtimeEnv = env as unknown as CloudflareEnv;
 
 export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor | null {
   if (locals.user) {
@@ -26,7 +26,7 @@ export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor |
     };
   }
 
-  if (runtimeEnv.ALLOW_DEMO_AUTH !== "true") return null;
+  if (serverEnv.ALLOW_DEMO_AUTH !== "true") return null;
   if (preferredRole === "student") {
     return {
       id: "student-demo",
