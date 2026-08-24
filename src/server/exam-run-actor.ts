@@ -104,8 +104,35 @@ export class ExamRunActor {
     return result;
   }
 
+  /**
+   * Escritura que no necesita el orden global de la cola. La registra el turno
+   * que está corriendo y se ejecuta recién cuando el candado se soltó, así cien
+   * heartbeats simultáneos van al pool en paralelo en vez de hacer fila.
+   *
+   * Se lee dentro del mismo turno serializado que la escribió, y los turnos no
+   * se entrelazan, así que no se pueden mezclar entre comandos.
+   */
+  private deferred: (() => Promise<void>) | undefined;
+
+  private defer(task: () => Promise<void>) {
+    this.deferred = task;
+  }
+
+  private async withDeferred<T>(task: () => Promise<T>): Promise<T> {
+    type Turn = { value: T; after: (() => Promise<void>) | undefined };
+    const { value, after } = await this.serialize(async (): Promise<Turn> => {
+      this.deferred = undefined;
+      const value = await task();
+      return { value, after: this.deferred };
+    });
+    if (after) {
+      await after().catch((error) => console.error("[toma] falló una escritura diferida", error));
+    }
+    return value;
+  }
+
   async handle(path: string, searchParams: URLSearchParams, body: unknown): Promise<Response> {
-    return this.serialize(async () => {
+    return this.withDeferred(async () => {
       if (!this.run.runId && path !== "/initialize") {
         await this.hydrate(searchParams.get("runId") ?? this.runId);
       }
@@ -134,7 +161,7 @@ export class ExamRunActor {
         ip: prior?.ip ?? "pending-socket",
         userAgent: prior?.userAgent ?? "pending-socket",
       };
-      this.broadcast({ type: "participant-joined", participant: this.run.participants[input.participantId] });
+      this.broadcastToTeachers({ type: "participant-joined", participant: this.run.participants[input.participantId] });
       return Response.json(this.publicState());
     }
 
@@ -152,7 +179,7 @@ export class ExamRunActor {
           .bind(this.run.runId),
       ]);
       this.schedule();
-      this.broadcast({ type: "run-started", run: this.publicState() });
+      this.broadcastRunState("run-started");
       return Response.json(this.publicState());
     }
 
@@ -173,7 +200,7 @@ export class ExamRunActor {
       const participant = this.run.participants[participantId];
       if (!participant) return Response.json({ error: "Participante inexistente" }, { status: 404 });
       if (questionId) participant.currentQuestionId = questionId;
-      await this.markSeen(participant);
+      this.markSeen(participant);
       this.schedule();
       return Response.json({ serverNow: Date.now(), endsAt: this.run.endsAt, status: this.run.status });
     }
@@ -191,7 +218,7 @@ export class ExamRunActor {
       const durationMs = Math.max(0, Math.min(Number(payload.durationMs) || 0, SIX_HOURS_MS));
       const meta = typeof payload.meta === "object" && payload.meta ? payload.meta : {};
       await this.recordIncident(participantId, incidentType, durationMs, meta, "client");
-      this.broadcast({ type: "incident", participantId, incidentType, durationMs, source: "client", at: Date.now() });
+      this.broadcastIncident(participantId, { type: "incident", participantId, incidentType, durationMs, source: "client", at: Date.now() });
       return Response.json({ accepted: true }, { status: 202 });
     }
 
@@ -208,7 +235,7 @@ export class ExamRunActor {
         if (Date.now() - prior > 2_000) {
           this.memory.set(dedupeKey, Date.now());
           await this.recordIncident(payload.participantId, "cierre-pestana", 0, { event: payload.event, clientAt: payload.at }, "client");
-          this.broadcast({ type: "incident", participantId: payload.participantId, incidentType: "cierre-pestana", durationMs: 0, source: "client", at: Date.now() });
+          this.broadcastIncident(payload.participantId, { type: "incident", participantId: payload.participantId, incidentType: "cierre-pestana", durationMs: 0, source: "client", at: Date.now() });
         }
       }
       return new Response(null, { status: 202 });
@@ -229,10 +256,10 @@ export class ExamRunActor {
         if (!this.memory.get(cadenceKey)) {
           this.memory.set(cadenceKey, true);
           await this.recordIncident(payload.participantId, "cadencia-respuestas", recent.at(-1)! - recent[0], { answers: recent.length }, "server");
-          this.broadcast({ type: "incident", participantId: payload.participantId, incidentType: "cadencia-respuestas", source: "server", at: Date.now() });
+          this.broadcastIncident(payload.participantId, { type: "incident", participantId: payload.participantId, incidentType: "cadencia-respuestas", source: "server", at: Date.now() });
         }
       }
-      this.broadcast({ type: "answer-saved", participantId: payload.participantId, questionId: payload.questionId, at: Date.now() });
+      this.broadcastToTeachers({ type: "answer-saved", participantId: payload.participantId, questionId: payload.questionId, at: Date.now() });
       this.schedule();
       return Response.json({ accepted: true, serverNow: Date.now() });
     }
@@ -241,7 +268,7 @@ export class ExamRunActor {
       const payload = body as { participantId: string; reason: string; at: number };
       const participant = this.run.participants[payload.participantId];
       if (participant) participant.status = "submitted";
-      this.broadcast({ type: "participant-submitted", participantId: payload.participantId, reason: payload.reason, at: payload.at });
+      this.broadcastToTeachers({ type: "participant-submitted", participantId: payload.participantId, reason: payload.reason, at: payload.at });
       return Response.json({ accepted: true });
     }
 
@@ -303,10 +330,14 @@ export class ExamRunActor {
             to: identity.userAgent,
           });
         }
-        this.broadcast({ type: "participant-joined", participant: this.run.participants[participantId] });
+        this.broadcastToTeachers({ type: "participant-joined", participant: this.run.participants[participantId] });
       }
 
-      this.send(socket, { type: "state", run: this.publicState(), serverNow: Date.now() });
+      this.send(socket, {
+        type: "state",
+        run: identity.role === "teacher" ? this.publicState() : this.studentState(),
+        serverNow: Date.now(),
+      });
     });
   }
 
@@ -318,14 +349,14 @@ export class ExamRunActor {
       return;
     }
 
-    await this.serialize(async () => {
+    await this.withDeferred(async () => {
       const attachment = this.sockets.get(socket);
       if (!attachment?.participantId) return;
 
       if (payload.type === "heartbeat") {
         const participant = this.run.participants[attachment.participantId];
         if (!participant) return;
-        await this.markSeen(participant);
+        this.markSeen(participant);
         this.schedule();
         this.send(socket, { type: "heartbeat-ack", serverNow: Date.now(), endsAt: this.run.endsAt });
         return;
@@ -338,7 +369,7 @@ export class ExamRunActor {
         const durationMs = Math.max(0, Math.min(Number(payload.durationMs) || 0, SIX_HOURS_MS));
         const meta = typeof payload.meta === "object" && payload.meta ? payload.meta : {};
         await this.recordIncident(attachment.participantId, incidentType, durationMs, meta, "client");
-        this.broadcast({
+        this.broadcastIncident(attachment.participantId, {
           type: "incident",
           participantId: attachment.participantId,
           incidentType,
@@ -373,15 +404,68 @@ export class ExamRunActor {
     }
   }
 
-  private broadcast(payload: unknown) {
+  private write(sockets: Iterable<WebSocket>, payload: unknown) {
     const message = JSON.stringify(payload);
-    for (const socket of this.sockets.keys()) {
+    for (const socket of sockets) {
       try {
         socket.send(message);
       } catch {
-        // Igual que arriba: un socket a medio cerrar no debe cortar el reparto.
+        // Un socket a medio cerrar no debe cortar el reparto al resto.
       }
     }
+  }
+
+  /** Eventos de la toma: los necesitan todos, docentes y alumnos. */
+  private broadcast(payload: unknown) {
+    this.write(this.sockets.keys(), payload);
+  }
+
+  /**
+   * Cambio de estado de la toma. Va a todos, pero cada rol recibe la vista que
+   * le corresponde: el docente el estado completo, el alumno solo el reloj.
+   */
+  private broadcastRunState(type: string, extra: Record<string, unknown> = {}) {
+    const forTeachers = JSON.stringify({ type, ...extra, run: this.publicState() });
+    const forStudents = JSON.stringify({ type, ...extra, run: this.studentState() });
+    for (const [socket, attachment] of this.sockets) {
+      try {
+        socket.send(attachment.role === "teacher" ? forTeachers : forStudents);
+      } catch {
+        // Un socket a medio cerrar no debe cortar el reparto al resto.
+      }
+    }
+  }
+
+  /**
+   * Eventos de seguimiento. Van solo a los docentes, por dos razones.
+   *
+   * De privacidad: `participant-joined` lleva la IP y el user agent del alumno,
+   * y los incidentes dicen quién perdió el foco o cambió de pestaña. Eso no
+   * tiene por qué llegarle al resto del curso.
+   *
+   * De escala: el reparto a todos era cuadrático. Con 100 alumnos guardando
+   * respuestas, cada guardado se repetía 101 veces y el aula recibía ~36.000
+   * mensajes en 30 segundos que el cliente del alumno descartaba enteros.
+   */
+  private broadcastToTeachers(payload: unknown) {
+    const teachers: WebSocket[] = [];
+    for (const [socket, attachment] of this.sockets) {
+      if (attachment.role === "teacher") teachers.push(socket);
+    }
+    if (teachers.length) this.write(teachers, payload);
+  }
+
+  /**
+   * Un incidente va a los docentes y al alumno al que le corresponde. El alumno
+   * tiene que poder ver toda señal registrada sobre él en el momento en que
+   * ocurre; el resto del curso, ninguna.
+   */
+  private broadcastIncident(participantId: string, payload: unknown) {
+    const targets: WebSocket[] = [];
+    for (const [socket, attachment] of this.sockets) {
+      if (attachment.role === "teacher" || attachment.participantId === participantId) targets.push(socket);
+    }
+    if (targets.length) this.write(targets, payload);
   }
 
   // --- Temporizador ---------------------------------------------------------
@@ -416,7 +500,7 @@ export class ExamRunActor {
         await db.prepare("UPDATE participants SET status = 'disconnected' WHERE id = ? AND status = 'active'")
           .bind(participant.participantId)
           .run();
-        this.broadcast({ type: "participant-disconnected", participantId: participant.participantId });
+        this.broadcastToTeachers({ type: "participant-disconnected", participantId: participant.participantId });
       }
     }
 
@@ -425,11 +509,29 @@ export class ExamRunActor {
 
   // --- Estado ---------------------------------------------------------------
 
+  /** Vista completa de la toma. Solo para docentes: incluye IP y user agent. */
   private publicState() {
     return {
       ...this.run,
       serverNow: Date.now(),
       participants: Object.values(this.run.participants),
+    };
+  }
+
+  /**
+   * Vista para el alumno: el reloj y el estado de la toma, nada del resto del
+   * curso. Es lo único que consume student-runtime.tsx, y evita mandarle la
+   * lista de participantes con la IP y el user agent de sus compañeros.
+   */
+  private studentState() {
+    return {
+      runId: this.run.runId,
+      title: this.run.title,
+      status: this.run.status,
+      timeLimitS: this.run.timeLimitS,
+      startedAt: this.run.startedAt,
+      endsAt: this.run.endsAt,
+      serverNow: Date.now(),
     };
   }
 
@@ -441,15 +543,24 @@ export class ExamRunActor {
     return true;
   }
 
-  private async markSeen(participant: ParticipantState): Promise<void> {
+  /**
+   * El estado en memoria es el que manda para detectar desconexiones, así que
+   * se actualiza en el acto. La copia en Postgres —que es la que ve el panel del
+   * docente— se difiere: es una fila por alumno, sin orden entre sí.
+   */
+  private markSeen(participant: ParticipantState): void {
     participant.lastSeen = Date.now();
     if (participant.status === "disconnected") {
       participant.status = "active";
-      this.broadcast({ type: "participant-reconnected", participantId: participant.participantId });
+      this.broadcastToTeachers({ type: "participant-reconnected", participantId: participant.participantId });
     }
-    await db.prepare(
-      "UPDATE participants SET last_seen = ?, status = CASE WHEN status = 'disconnected' THEN 'active' ELSE status END WHERE id = ?",
-    ).bind(participant.lastSeen, participant.participantId).run();
+    const lastSeen = participant.lastSeen;
+    const participantId = participant.participantId;
+    this.defer(async () => {
+      await db.prepare(
+        "UPDATE participants SET last_seen = ?, status = CASE WHEN status = 'disconnected' THEN 'active' ELSE status END WHERE id = ?",
+      ).bind(lastSeen, participantId).run();
+    });
   }
 
   private async hydrate(runId: string | null): Promise<void> {
@@ -508,7 +619,7 @@ export class ExamRunActor {
       .run();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    this.broadcast({ type: "run-ended", reason, run: this.publicState() });
+    this.broadcastRunState("run-ended", { reason });
   }
 
   private async recordIncident(

@@ -26,6 +26,36 @@ Lo durable no depende de eso: todo lo que importa se escribe en Postgres a
 medida que ocurre. Si el proceso se reinicia en mitad de una toma, el actor se
 rehidrata de la base y la toma sigue.
 
+## Capacidad
+
+`scripts/loadtest.mjs` levanta un aula entera de sesiones de invitado reales
+—cada alumno con su cookie, su WebSocket y su ritmo de guardado— contra un
+servidor ya corriendo. No apuntarlo nunca a producción.
+
+```bash
+node scripts/loadtest.mjs --students=100 --seconds=30
+```
+
+Medido contra Postgres 17 en Docker, con el servidor y la base en la misma
+máquina:
+
+| Escenario | Reparto a los alumnos | Heartbeat | Cierre de la toma |
+| --- | --- | --- | --- |
+| 100 alumnos, 1 aula | 2 ms | 5 ms | 0,5 s |
+| 300 alumnos, 1 aula | 6 ms | 12 ms | 1,3 s |
+| 500 alumnos, 1 aula | 9 ms | 10 ms | 2,5 s |
+| 4 aulas de 100 en paralelo | 1 ms | 2 ms | 0,5 s |
+
+Con 400 alumnos repartidos en cuatro tomas simultáneas el proceso se mantuvo en
+148 MB de memoria y consumió 6 segundos de CPU en toda la prueba. El docente vio
+a los 100 participantes de cada aula.
+
+Lo que marca el techo no es la aplicación sino el `fsync` de Postgres al
+confirmar cada transacción. En el disco virtualizado de la prueba una escritura
+tardaba 32 ms, contra menos de 1 ms en un SSD normal: con eso, cerrar una toma
+de 300 alumnos pasó de 11,8 s a 1,3 s sin tocar una línea de código. En la VM
+conviene darle a Postgres un disco decente antes que más CPU a la aplicación.
+
 ## 1. Postgres
 
 Crear la base en Coolify, o usar el servicio `postgres` de `docker-compose.yml`.

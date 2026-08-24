@@ -48,9 +48,25 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/runs/${encodeURIComponent(runId)}/socket?role=teacher`);
-    socket.addEventListener("message", () => void refresh());
+
+    // Cada mensaje del socket dispara una relectura del panel completo. Con un
+    // curso entero rindiendo llegan decenas de eventos por segundo —cada
+    // respuesta guardada es uno—, así que se agrupan: como mucho una relectura
+    // cada 400 ms. El panel sigue sintiéndose inmediato y el servidor deja de
+    // resolver la misma consulta pesada una vez por evento.
+    let pending = 0;
+    const scheduleRefresh = () => {
+      if (pending) return;
+      pending = window.setTimeout(() => {
+        pending = 0;
+        void refresh();
+      }, 400);
+    };
+
+    socket.addEventListener("message", scheduleRefresh);
     const poll = window.setInterval(() => void refresh(), 5_000);
     return () => {
+      window.clearTimeout(pending);
       window.clearInterval(poll);
       socket.close();
     };
