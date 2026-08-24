@@ -33,7 +33,9 @@ export function ResultsWorkspace({ sessions, snapshot, corrections }: { sessions
     return () => { active = false; };
   }, [selectedRunId]);
 
-  function updateGrade(participantId: string, previous: number | null, next: number) { setLiveSnapshot((current) => current ? { ...current, participants: current.participants.map((participant) => participant.id === participantId ? { ...participant, score: Number(participant.score ?? 0) - Number(previous ?? 0) + next, pending_manual: Math.max(0, Number(participant.pending_manual ?? 0) - (previous === null ? 1 : 0)) } : participant) } : current); }
+  // El porcentaje se recalcula acá y no solo el puntaje: si no, la tabla seguía
+  // mostrando el valor previo a la corrección manual hasta recargar la página.
+  function updateGrade(participantId: string, previous: number | null, next: number) { setLiveSnapshot((current) => current ? { ...current, participants: current.participants.map((participant) => { if (participant.id !== participantId) return participant; const score = Number(participant.score ?? 0) - Number(previous ?? 0) + next; const maxPoints = Number(participant.max_points ?? current.totalPoints); return { ...participant, score, percent: maxPoints > 0 ? Math.round((score / maxPoints) * 100) : 0, pending_manual: Math.max(0, Number(participant.pending_manual ?? 0) - (previous === null ? 1 : 0)) }; }) } : current); }
 
   async function openStudent(participantId: string) {
     setDetailOpen(true); setDetailLoading(true); setDetail(null); setPersonReport(null); setError("");
