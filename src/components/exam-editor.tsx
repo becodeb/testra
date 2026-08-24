@@ -70,7 +70,7 @@ function id(prefix: string) {
 }
 
 function makeQuestion(type: QuestionType = "mc", position = 0): FullQuestion {
-  const base = { id: id("q"), position, prompt: "", points: 1 };
+  const base = { id: id("q"), position, prompt: "", points: 1, section: "" };
   const options = [
     { id: id("op"), text: "" },
     { id: id("op"), text: "" },
@@ -94,6 +94,7 @@ export const sampleQuestions: FullQuestion[] = [
   {
     id: "q-demo-1",
     position: 0,
+    section: "Teoria",
     type: "mc",
     prompt: "¿Qué proceso permite que las plantas transformen energía lumínica en energía química?",
     points: 2,
@@ -110,6 +111,7 @@ export const sampleQuestions: FullQuestion[] = [
   {
     id: "q-demo-2",
     position: 1,
+    section: "Teoria",
     type: "ms",
     prompt: "Seleccioná los componentes que intervienen directamente en la fotosíntesis.",
     points: 3,
@@ -126,6 +128,7 @@ export const sampleQuestions: FullQuestion[] = [
   {
     id: "q-demo-3",
     position: 2,
+    section: "Practica",
     type: "sa",
     prompt: "¿Cómo se llama el pigmento principal que absorbe la luz?",
     points: 2,
@@ -134,6 +137,7 @@ export const sampleQuestions: FullQuestion[] = [
   {
     id: "q-demo-4",
     position: 3,
+    section: "Practica",
     type: "long",
     prompt: "Explicá por qué la fotosíntesis es importante para los ecosistemas.",
     points: 3,
@@ -189,6 +193,8 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
   const [shuffleOptions, setShuffleOptions] = useState(initialExam.shuffleOptions);
   const [questionsToServe, setQuestionsToServe] = useState<number | null>(initialExam.questionsToServe);
   const [longToServe, setLongToServe] = useState(initialExam.longToServe);
+  const [sectionQuotas, setSectionQuotas] = useState<Record<string, number>>(initialExam.sectionQuotas ?? {});
+
   const [allowBackwards, setAllowBackwards] = useState(initialExam.allowBackwards);
   const [showProgress, setShowProgress] = useState(initialExam.showProgress);
   const [autoSubmit, setAutoSubmit] = useState(initialExam.autoSubmit);
@@ -203,6 +209,23 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
   const [resultsWhen, setResultsWhen] = useState(initialExam.resultsWhen);
   const [status, setStatus] = useState<"draft" | "ready">(initialExam.status);
   const [questions, setQuestions] = useState<FullQuestion[]>(initialExam.questions);
+  // Las secciones no se declaran aparte: existen porque hay preguntas que las
+  // nombran. Asi el docente no tiene que mantener dos listas sincronizadas.
+  const conteoPorSeccion = useMemo(() => {
+    const total = new Map<string, number>();
+    for (const question of questions) {
+      const seccion = (question.section ?? "").trim();
+      if (!seccion) continue;
+      total.set(seccion, (total.get(seccion) ?? 0) + 1);
+    }
+    return total;
+  }, [questions]);
+  const seccionesCargadas = useMemo(() => [...conteoPorSeccion.keys()].sort(), [conteoPorSeccion]);
+  const totalPorCuotas = useMemo(
+    () => seccionesCargadas.reduce((suma, seccion) => suma + Math.min(sectionQuotas[seccion] ?? 0, conteoPorSeccion.get(seccion) ?? 0), 0),
+    [conteoPorSeccion, seccionesCargadas, sectionQuotas],
+  );
+  const usaSecciones = totalPorCuotas > 0;
   const [activeIndex, setActiveIndex] = useState(0);
   const [saveState, setSaveState] = useState<"pending" | "loading" | "done">("done");
   const [saveError, setSaveError] = useState("");
@@ -260,6 +283,7 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
           timeLimitS: Math.max(60, Math.round(timeLimit * 60)),
           questionsToServe,
           longToServe,
+          sectionQuotas,
           shuffleQuestions,
           shuffleOptions,
           allowBackwards,
@@ -293,7 +317,7 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
       setSaveState("done");
       return false;
     }
-  }, [allowBackwards, allowReconnect, autoSubmit, blockClipboard, detectFocusLoss, initialExam.id, instructions, questions, questionsToServe, longToServe, recordDisconnects, requireFullscreen, resultsDisplay, resultsWhen, showProgress, shuffleOptions, shuffleQuestions, status, subject, supervisionLevel, timeLimit, title, violationAction]);
+  }, [allowBackwards, allowReconnect, autoSubmit, blockClipboard, detectFocusLoss, initialExam.id, instructions, questions, questionsToServe, longToServe, sectionQuotas, recordDisconnects, requireFullscreen, resultsDisplay, resultsWhen, showProgress, shuffleOptions, shuffleQuestions, status, subject, supervisionLevel, timeLimit, title, violationAction]);
 
   useEffect(() => {
     if (firstAutosave.current) {
@@ -434,7 +458,46 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
               <Dialog><DialogTrigger asChild><Button type="button" variant="outline" size="sm"><Settings2 data-icon="inline-start" />Configuración</Button></DialogTrigger><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Configuración de la evaluación</DialogTitle><DialogDescription>Definí navegación, tiempo, supervisión y publicación de resultados.</DialogDescription></DialogHeader><div className="grid gap-6 py-2">
                 <FieldGroup className="grid gap-3 sm:grid-cols-[1fr_10rem_8rem]"><Field><FieldLabel htmlFor="exam-title">Título</FieldLabel><Input id="exam-title" value={title} onChange={(event) => setTitle(event.target.value)} /></Field><Field><FieldLabel htmlFor="exam-subject">Materia</FieldLabel><Input id="exam-subject" value={subject} onChange={(event) => setSubject(event.target.value)} /></Field><Field><FieldLabel htmlFor="exam-time">Duración</FieldLabel><Input id="exam-time" type="number" min={1} max={360} value={timeLimit} onChange={(event) => setTimeLimit(Number(event.target.value))} /></Field></FieldGroup>
                 <section><h3 className="text-sm font-semibold text-ink">Orden y navegación</h3><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Mezclar preguntas" checked={shuffleQuestions} onChange={setShuffleQuestions} /><Toggle label="Mezclar respuestas" checked={shuffleOptions} onChange={setShuffleOptions} /><Toggle label="Permitir volver atrás" checked={allowBackwards} onChange={setAllowBackwards} /><Toggle label="Mostrar progreso" checked={showProgress} onChange={setShowProgress} /></div></section>
-                <section><h3 className="text-sm font-semibold text-ink">Pozo de preguntas</h3><p className="mt-1 text-sm leading-relaxed text-muted">Cargá todas las preguntas que quieras y elegí cuántas recibe cada alumno. El subconjunto se sortea por alumno, así que dos compañeros no reciben las mismas preguntas y no hace falta armar tema A y tema B.</p><div className="mt-3 grid gap-3 sm:grid-cols-[auto_12rem]"><Toggle label="Servir solo una parte del pozo" checked={questionsToServe !== null} onChange={(value) => setQuestionsToServe(value ? Math.min(10, questions.length) : null)} />{questionsToServe !== null ? <Field><FieldLabel htmlFor="exam-serve">Preguntas por alumno</FieldLabel><Input id="exam-serve" type="number" min={1} max={questions.length} value={questionsToServe} onChange={(event) => setQuestionsToServe(Math.max(1, Math.min(questions.length, Number(event.target.value) || 1)))} /></Field> : null}</div>{questionsToServe !== null ? <Field className="mt-3 max-w-[16rem]"><FieldLabel htmlFor="exam-long">De esas, cuántas de desarrollo</FieldLabel><Input id="exam-long" type="number" min={0} max={Math.min(questionsToServe, questions.filter((question) => question.type === "long").length)} value={longToServe} onChange={(event) => setLongToServe(Math.max(0, Math.min(questionsToServe, Number(event.target.value) || 0)))} /><FieldDescription>Se sortean aparte, así a nadie le toca una evaluación sin preguntas para justificar.</FieldDescription></Field> : null}{questionsToServe !== null ? <p className="mt-2 text-sm font-medium text-ink-2">Cada alumno responde {questionsToServe} de {questions.length} preguntas, {longToServe} de ellas de desarrollo. El pozo tiene {questions.filter((question) => question.type === "long").length} de desarrollo.</p> : null}</section>
+                {seccionesCargadas.length ? (
+                  <section>
+                    <h3 className="text-sm font-semibold text-ink">Secciones</h3>
+                    <p className="mt-1 text-sm leading-relaxed text-muted">Elegí cuántas preguntas de cada sección recibe cada alumno. Se sortean por alumno, así que dos compañeros reciben preguntas distintas con la misma composición.</p>
+                    <div className="mt-3 grid gap-2">
+                      {seccionesCargadas.map((seccion) => {
+                        const disponibles = conteoPorSeccion.get(seccion) ?? 0;
+                        const pedidas = sectionQuotas[seccion] ?? 0;
+                        return (
+                          <div key={seccion} className="flex flex-wrap items-center gap-3 rounded-md border bg-inset px-3 py-2">
+                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{seccion}</span>
+                            <span className="text-xs text-muted">{disponibles} cargada{disponibles === 1 ? "" : "s"}</span>
+                            <label className="flex items-center gap-2 text-sm text-ink-2">
+                              Servir
+                              <Input
+                                type="number"
+                                min={0}
+                                max={disponibles}
+                                className="mono-number h-9 w-20"
+                                aria-label={`Preguntas de ${seccion} por alumno`}
+                                value={pedidas}
+                                onChange={(event) => {
+                                  const valor = Math.max(0, Math.min(disponibles, Number(event.target.value) || 0));
+                                  setSectionQuotas((actual) => ({ ...actual, [seccion]: valor }));
+                                }}
+                              />
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {usaSecciones ? (
+                      <p className="mt-2 text-sm font-medium text-ink-2">Cada alumno responde {totalPorCuotas} pregunta{totalPorCuotas === 1 ? "" : "s"}: {seccionesCargadas.filter((s) => (sectionQuotas[s] ?? 0) > 0).map((s) => `${Math.min(sectionQuotas[s] ?? 0, conteoPorSeccion.get(s) ?? 0)} de ${s}`).join(", ")}. Mientras haya secciones con cupo, el pozo de abajo no se usa.</p>
+                    ) : (
+                      <p className="mt-2 text-sm text-muted">Todavía no pediste ninguna. Poné un número mayor que cero para empezar a usar secciones.</p>
+                    )}
+                  </section>
+                ) : null}
+
+                <section className={usaSecciones ? "opacity-50" : undefined}><h3 className="text-sm font-semibold text-ink">Pozo de preguntas</h3><p className="mt-1 text-sm leading-relaxed text-muted">Cargá todas las preguntas que quieras y elegí cuántas recibe cada alumno. El subconjunto se sortea por alumno, así que dos compañeros no reciben las mismas preguntas y no hace falta armar tema A y tema B.</p><div className="mt-3 grid gap-3 sm:grid-cols-[auto_12rem]"><Toggle label="Servir solo una parte del pozo" checked={questionsToServe !== null} onChange={(value) => setQuestionsToServe(value ? Math.min(10, questions.length) : null)} />{questionsToServe !== null ? <Field><FieldLabel htmlFor="exam-serve">Preguntas por alumno</FieldLabel><Input id="exam-serve" type="number" min={1} max={questions.length} value={questionsToServe} onChange={(event) => setQuestionsToServe(Math.max(1, Math.min(questions.length, Number(event.target.value) || 1)))} /></Field> : null}</div>{questionsToServe !== null ? <Field className="mt-3 max-w-[16rem]"><FieldLabel htmlFor="exam-long">De esas, cuántas de desarrollo</FieldLabel><Input id="exam-long" type="number" min={0} max={Math.min(questionsToServe, questions.filter((question) => question.type === "long").length)} value={longToServe} onChange={(event) => setLongToServe(Math.max(0, Math.min(questionsToServe, Number(event.target.value) || 0)))} /><FieldDescription>Se sortean aparte, así a nadie le toca una evaluación sin preguntas para justificar.</FieldDescription></Field> : null}{questionsToServe !== null ? <p className="mt-2 text-sm font-medium text-ink-2">Cada alumno responde {questionsToServe} de {questions.length} preguntas, {longToServe} de ellas de desarrollo. El pozo tiene {questions.filter((question) => question.type === "long").length} de desarrollo.</p> : null}</section>
                 <section><h3 className="text-sm font-semibold text-ink">Tiempo y entrega</h3><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Entregar automáticamente al finalizar" checked={autoSubmit} onChange={setAutoSubmit} /><Toggle label="Permitir reconexión" checked={allowReconnect} onChange={setAllowReconnect} /></div></section>
                 <section><h3 className="text-sm font-semibold text-ink">Supervisión</h3><div className="mt-3 flex flex-wrap gap-2"><Button type="button" size="sm" variant={supervisionLevel === "normal" ? "default" : "outline"} onClick={() => applySupervisionPreset("normal")}>Normal</Button><Button type="button" size="sm" variant={supervisionLevel === "strict" ? "default" : "outline"} onClick={() => applySupervisionPreset("strict")}>Estricto</Button><Button type="button" size="sm" variant={supervisionLevel === "custom" ? "default" : "outline"} onClick={() => setSupervisionLevel("custom")}>Personalizado</Button></div><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Requerir pantalla completa" checked={requireFullscreen} onChange={(value) => { setRequireFullscreen(value); setSupervisionLevel("custom"); }} /><Toggle label="Detectar cambio de pestaña/ventana" checked={detectFocusLoss} onChange={(value) => { setDetectFocusLoss(value); setSupervisionLevel("custom"); }} /><Toggle label="Bloquear copiar y pegar" checked={blockClipboard} onChange={(value) => { setBlockClipboard(value); setSupervisionLevel("custom"); }} /><Toggle label="Registrar desconexiones" checked={recordDisconnects} onChange={(value) => { setRecordDisconnects(value); setSupervisionLevel("custom"); }} /></div><Field className="mt-3"><FieldLabel>Al detectar una infracción</FieldLabel><Select value={violationAction} onValueChange={(value) => setViolationAction(value as typeof violationAction)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="warn_and_record">Advertir y registrar</SelectItem><SelectItem value="record_only">Solo registrar</SelectItem></SelectContent></Select></Field></section>
                 <section><h3 className="text-sm font-semibold text-ink">Resultados</h3><div className="mt-3 grid gap-3 sm:grid-cols-2"><Field><FieldLabel>Mostrar</FieldLabel><Select value={resultsDisplay} onValueChange={(value) => setResultsDisplay(value as typeof resultsDisplay)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="score_only">Solo puntaje</SelectItem><SelectItem value="score_and_answers">Puntaje y respuestas</SelectItem><SelectItem value="hidden">No mostrar</SelectItem></SelectContent></Select></Field><Field><FieldLabel>Cuándo</FieldLabel><Select value={resultsWhen} onValueChange={(value) => setResultsWhen(value as typeof resultsWhen)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="teacher_publishes">Cuando el docente publique</SelectItem><SelectItem value="after_submit">Al entregar</SelectItem><SelectItem value="after_run">Al terminar la sesión</SelectItem></SelectContent></Select></Field></div></section>
@@ -536,6 +599,20 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
                     aria-invalid={active.points <= 0}
                     onChange={(event) => updateActive((question) => ({ ...question, points: Number(event.target.value) }))}
                   />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="question-section">Sección</FieldLabel>
+                  <Input
+                    id="question-section"
+                    list="secciones-cargadas"
+                    placeholder="sin sección"
+                    value={active.section ?? ""}
+                    onChange={(event) => updateActive((question) => ({ ...question, section: event.target.value }))}
+                  />
+                  <datalist id="secciones-cargadas">
+                    {seccionesCargadas.map((seccion) => <option value={seccion} key={seccion} />)}
+                  </datalist>
+                  <FieldDescription>Agrupa preguntas para servir una cantidad de cada grupo.</FieldDescription>
                 </Field>
               </FieldGroup>
 

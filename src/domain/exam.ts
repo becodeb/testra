@@ -13,6 +13,10 @@ const baseQuestionShape = {
   position: z.number().int().nonnegative(),
   prompt: z.string().max(10_000),
   points: z.number().positive("El puntaje debe ser mayor que cero").max(1000),
+  // Agrupa preguntas para poder servir una cantidad distinta de cada grupo:
+  // "2 de teoria, 4 de practica". Vacio significa que la pregunta no esta en
+  // ninguna seccion. Ver `sectionQuotas` en el examen.
+  section: z.string().trim().max(60).optional(),
 };
 
 export const multipleChoiceQuestionSchema = z.object({
@@ -103,6 +107,10 @@ export const examDraftSchema = z.object({
   // De las servidas, cuántas deben ser de desarrollo. Se sortean aparte para que
   // ningún alumno reciba una evaluación sin preguntas para justificar por escrito.
   longToServe: z.number().int().nonnegative().max(100).default(2),
+  // Cuantas preguntas sirve de cada seccion: { "Teoria": 2, "Practica": 4 }.
+  // Cuando tiene entradas manda sobre questionsToServe y sobre longToServe,
+  // porque el docente ya definio la composicion explicitamente.
+  sectionQuotas: z.record(z.string().trim().min(1).max(60), z.number().int().nonnegative().max(1000)).default({}),
   shuffleQuestions: z.boolean().default(false),
   shuffleOptions: z.boolean().default(false),
   allowBackwards: z.boolean().default(true),
@@ -128,6 +136,31 @@ export const examDraftSchema = z.object({
   if (!exam.subject.trim()) {
     context.addIssue({ code: "custom", path: ["subject"], message: "Indicá la materia" });
   }
+  const quotas = Object.entries(exam.sectionQuotas).filter(([, count]) => count > 0);
+  if (quotas.length) {
+    const porSeccion = new Map<string, number>();
+    for (const question of exam.questions) {
+      if (!question.section) continue;
+      porSeccion.set(question.section, (porSeccion.get(question.section) ?? 0) + 1);
+    }
+    for (const [section, count] of quotas) {
+      const disponibles = porSeccion.get(section) ?? 0;
+      if (disponibles === 0) {
+        context.addIssue({
+          code: "custom",
+          path: ["sectionQuotas", section],
+          message: `La seccion "${section}" no tiene ninguna pregunta cargada`,
+        });
+      } else if (count > disponibles) {
+        context.addIssue({
+          code: "custom",
+          path: ["sectionQuotas", section],
+          message: `Pediste ${count} de "${section}" pero solo hay ${disponibles} cargada${disponibles === 1 ? "" : "s"}`,
+        });
+      }
+    }
+  }
+
   if (exam.questionsToServe !== null && exam.questionsToServe > exam.questions.length) {
     context.addIssue({
       code: "custom",

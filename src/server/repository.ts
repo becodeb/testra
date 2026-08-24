@@ -7,6 +7,7 @@ import {
 import type { Actor } from "@/server/actors";
 import { db, type PgStatement } from "@/server/db/client";
 import { dispatchRunCommand } from "@/server/exam-run-actor";
+import { personalizeQuestions } from "@/domain/pool";
 import { gradeExam, type AnswerValue } from "@/server/grading";
 import { createRunCode } from "@/server/run-code";
 import { hashGuestToken, readGuestSession } from "@/server/student-access";
@@ -19,6 +20,7 @@ interface ExamRow {
   time_limit_s: number;
   questions_to_serve: number | null;
   long_to_serve: number;
+  section_quotas: string;
   shuffle_questions: number;
   shuffle_options: number;
   allow_backwards: number;
@@ -44,6 +46,7 @@ interface QuestionRow {
   prompt: string;
   points: number;
   config: string;
+  section: string | null;
 }
 
 interface RunRow {
@@ -57,6 +60,7 @@ interface RunRow {
   time_limit_s: number;
   questions_to_serve: number | null;
   long_to_serve: number;
+  section_quotas: string;
   shuffle_questions: number;
   shuffle_options: number;
   allow_backwards: number;
@@ -183,7 +187,7 @@ export async function getExam(examId: string, actor: Actor): Promise<ExamDraft |
       "SELECT * FROM exams WHERE id = ? AND author_id = ?",
     ).bind(examId, actor.id).first<ExamRow>(),
     db.prepare(
-      "SELECT id, position, type, prompt, points, config FROM questions WHERE exam_id = ? ORDER BY position",
+      "SELECT id, position, type, prompt, points, config, section FROM questions WHERE exam_id = ? ORDER BY position",
     ).bind(examId).all<QuestionRow>(),
   ]);
   if (!exam) return null;
@@ -195,6 +199,7 @@ export async function getExam(examId: string, actor: Actor): Promise<ExamDraft |
     timeLimitS: exam.time_limit_s,
     questionsToServe: exam.questions_to_serve,
     longToServe: exam.long_to_serve,
+    sectionQuotas: safeQuotas(exam.section_quotas),
     shuffleQuestions: Boolean(exam.shuffle_questions),
     shuffleOptions: Boolean(exam.shuffle_options),
     allowBackwards: Boolean(exam.allow_backwards),
@@ -226,13 +231,14 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
   const now = Date.now();
   const statements: PgStatement[] = [
     db.prepare(
-      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, questions_to_serve, long_to_serve, shuffle_questions, shuffle_options,
+      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, questions_to_serve, long_to_serve, section_quotas, shuffle_questions, shuffle_options,
        allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
        block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET title = excluded.title, subject = excluded.subject,
        instructions = excluded.instructions, time_limit_s = excluded.time_limit_s,
        questions_to_serve = excluded.questions_to_serve, long_to_serve = excluded.long_to_serve,
+       section_quotas = excluded.section_quotas,
        shuffle_questions = excluded.shuffle_questions, shuffle_options = excluded.shuffle_options,
        allow_backwards = excluded.allow_backwards, show_progress = excluded.show_progress,
        auto_submit = excluded.auto_submit, allow_reconnect = excluded.allow_reconnect,
@@ -251,6 +257,7 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
       draft.timeLimitS,
       draft.questionsToServe,
       draft.longToServe,
+      JSON.stringify(draft.sectionQuotas ?? {}),
       draft.shuffleQuestions ? 1 : 0,
       draft.shuffleOptions ? 1 : 0,
       draft.allowBackwards ? 1 : 0,
@@ -274,7 +281,7 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
   for (const question of draft.questions) {
     statements.push(
       db.prepare(
-        "INSERT INTO questions (id, exam_id, position, type, prompt, points, config) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO questions (id, exam_id, position, type, prompt, points, config, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       ).bind(
         question.id,
         draft.id,
@@ -283,6 +290,7 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
         question.prompt,
         question.points,
         JSON.stringify(question.config),
+        question.section || null,
       ),
     );
   }
@@ -338,10 +346,10 @@ export async function createRun(actor: Actor, examId: string) {
 
   const now = Date.now();
   await db.prepare(
-    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, questions_to_serve, long_to_serve, shuffle_questions, shuffle_options,
+    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, questions_to_serve, long_to_serve, section_quotas, shuffle_questions, shuffle_options,
      allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
      block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
   ).bind(
     runId,
     actor.orgId,
@@ -353,6 +361,7 @@ export async function createRun(actor: Actor, examId: string) {
     exam.timeLimitS,
     exam.questionsToServe,
     exam.longToServe,
+    JSON.stringify(exam.sectionQuotas ?? {}),
     exam.shuffleQuestions ? 1 : 0,
     exam.shuffleOptions ? 1 : 0,
     exam.allowBackwards ? 1 : 0,
@@ -541,9 +550,19 @@ export function questionsForParticipant(
     shuffle_options: number;
     questions_to_serve: number | null;
     long_to_serve?: number;
+    section_quotas?: string | null;
   },
   participantId: string,
 ): FullQuestion[] {
+  let sectionQuotas: Record<string, number> = {};
+  if (run.section_quotas) {
+    try {
+      sectionQuotas = JSON.parse(run.section_quotas) as Record<string, number>;
+    } catch {
+      // Una toma vieja o un valor corrupto no puede dejar al alumno sin examen:
+      // se cae al sorteo plano de siempre.
+    }
+  }
   return personalizeQuestions(
     JSON.parse(run.questions_snapshot) as FullQuestion[],
     `${run.id}:${participantId}`,
@@ -551,88 +570,15 @@ export function questionsForParticipant(
     Boolean(run.shuffle_options),
     run.questions_to_serve,
     run.long_to_serve ?? 2,
+    sectionQuotas,
   );
-}
-
-/**
- * Elige las preguntas que recibe un alumno garantizando la cuota de desarrollo.
- *
- * Un sorteo plano sobre el pozo puede dejar a un alumno sin ninguna pregunta para
- * justificar por escrito y a otro con seis. Acá se sortea por separado el grupo de
- * desarrollo y el resto, y después se arma el conjunto final. Si el pozo no tiene
- * suficientes de desarrollo se toman las que haya y se completa con el resto, sin
- * devolver nunca menos preguntas de las pedidas.
- */
-function elegirSubconjunto(
-  questions: FullQuestion[],
-  seed: string,
-  total: number,
-  longToServe: number,
-): FullQuestion[] {
-  const desarrollo = questions.filter((question) => question.type === "long");
-  const resto = questions.filter((question) => question.type !== "long");
-
-  const cuotaDesarrollo = Math.max(0, Math.min(longToServe, desarrollo.length, total));
-  const elegidasDesarrollo = seededShuffle(desarrollo, `${seed}:pool:long`).slice(0, cuotaDesarrollo);
-  const elegidasResto = seededShuffle(resto, `${seed}:pool:resto`).slice(0, total - cuotaDesarrollo);
-
-  // Si el resto no alcanza para llenar el cupo, se completa con más de desarrollo.
-  const faltan = total - elegidasDesarrollo.length - elegidasResto.length;
-  const relleno = faltan > 0
-    ? desarrollo.filter((q) => !elegidasDesarrollo.includes(q)).slice(0, faltan)
-    : [];
-
-  return [...elegidasDesarrollo, ...elegidasResto, ...relleno];
-}
-
-function personalizeQuestions(
-  source: FullQuestion[],
-  seed: string,
-  shuffleQuestions: boolean,
-  shuffleOptions: boolean,
-  questionsToServe?: number | null,
-  longToServe = 2,
-) {
-  const questions = structuredClone(source);
-  // El subconjunto se sortea siempre por alumno, aunque el docente no haya pedido
-  // mezclar: es justamente lo que evita que dos alumnos reciban las mismas preguntas.
-  const pool = questionsToServe && questionsToServe > 0 && questionsToServe < questions.length
-    ? elegirSubconjunto(questions, seed, questionsToServe, longToServe)
-    : questions;
-  const ordered = shuffleQuestions ? seededShuffle(pool, `${seed}:questions`) : pool;
-  return ordered.map((question, position) => {
-    const next = { ...question, position } as FullQuestion;
-    if (shuffleOptions && (next.type === "mc" || next.type === "ms")) {
-      next.config.options = seededShuffle(next.config.options, `${seed}:${next.id}:options`);
-    }
-    return next;
-  });
-}
-
-function seededShuffle<T>(source: T[], seed: string) {
-  let state = 2166136261;
-  for (let index = 0; index < seed.length; index += 1) {
-    state ^= seed.charCodeAt(index);
-    state = Math.imul(state, 16777619);
-  }
-  const next = [...source];
-  for (let index = next.length - 1; index > 0; index -= 1) {
-    state += 0x6d2b79f5;
-    let value = state;
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    const random = ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-    const target = Math.floor(random * (index + 1));
-    [next[index], next[target]] = [next[target], next[index]];
-  }
-  return next;
 }
 
 export async function participantOwnedBy(participantId: string, access: StudentAccess) {
   if (access.actor) {
     const participant = await db.prepare(
       `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot,
-            r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve
+            r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve, r.section_quotas
        FROM participants p JOIN runs r ON r.id = p.run_id
        WHERE p.id = ? AND p.user_id = ?`,
     ).bind(participantId, access.actor.id).first<ParticipantRow & {
@@ -643,6 +589,7 @@ export async function participantOwnedBy(participantId: string, access: StudentA
       shuffle_options: number;
       questions_to_serve: number | null;
       long_to_serve: number;
+      section_quotas: string;
     }>();
     if (participant) return participant;
   }
@@ -651,7 +598,7 @@ export async function participantOwnedBy(participantId: string, access: StudentA
   const tokenHash = await hashGuestToken(guest.token);
   return db.prepare(
     `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot,
-            r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve
+            r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve, r.section_quotas
      FROM participants p JOIN runs r ON r.id = p.run_id
      WHERE p.id = ? AND p.guest_token_hash = ?`,
   ).bind(participantId, tokenHash).first<ParticipantRow & {
@@ -662,6 +609,7 @@ export async function participantOwnedBy(participantId: string, access: StudentA
     shuffle_options: number;
     questions_to_serve: number | null;
     long_to_serve: number;
+    section_quotas: string;
   }>();
 }
 
@@ -791,7 +739,7 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
 export async function getParticipantDetail(participantId: string, actor: Actor) {
   const participant = await db.prepare(
     `SELECT p.*, r.id AS run_id, r.title, r.questions_snapshot,
-            r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve
+            r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve, r.section_quotas
      FROM participants p JOIN runs r ON r.id = p.run_id
      LEFT JOIN exams e ON e.id = r.exam_id
      WHERE p.id = ? AND COALESCE(r.author_id, e.author_id) = ?`,
@@ -802,6 +750,7 @@ export async function getParticipantDetail(participantId: string, actor: Actor) 
     shuffle_options: number;
     questions_to_serve: number | null;
     long_to_serve: number;
+    section_quotas: string;
   }>();
   if (!participant) return null;
 
@@ -963,6 +912,17 @@ export async function publishRunResults(actor: Actor, runId: string) {
   };
 }
 
+/** Las cuotas viajan como JSON en texto; un valor corrupto no puede romper la lectura. */
+function safeQuotas(raw: string | null | undefined): Record<string, number> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function parseQuestion(row: QuestionRow): FullQuestion {
   return {
     id: row.id,
@@ -970,6 +930,7 @@ function parseQuestion(row: QuestionRow): FullQuestion {
     type: row.type,
     prompt: row.prompt,
     points: row.points,
+    section: row.section ?? undefined,
     config: JSON.parse(row.config),
   } as FullQuestion;
 }

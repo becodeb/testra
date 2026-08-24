@@ -147,6 +147,9 @@ export const exams = pgTable(
     // De esas, cuántas deben ser de desarrollo. Garantiza que a nadie le toque
     // una evaluación sin preguntas para justificar por escrito.
     longToServe: integer("long_to_serve").notNull().default(2),
+    // Cuantas preguntas se sirven de cada seccion: {"Teoria":2,"Practica":4}.
+    // Cuando tiene entradas manda sobre questions_to_serve y long_to_serve.
+    sectionQuotas: text("section_quotas").notNull().default("{}"),
     shuffleQuestions: flag("shuffle_questions").notNull().default(0),
     shuffleOptions: flag("shuffle_options").notNull().default(0),
     allowBackwards: flag("allow_backwards").notNull().default(1),
@@ -184,6 +187,9 @@ export const questions = pgTable(
     prompt: text("prompt").notNull(),
     points: integer("points").notNull(),
     config: text("config").notNull(),
+    // Agrupa preguntas para servir una cantidad distinta de cada grupo.
+    // Vacio o NULL = la pregunta no pertenece a ninguna seccion.
+    section: text("section"),
   },
   (table) => [
     uniqueIndex("questions_exam_position_uq").on(table.examId, table.position),
@@ -207,6 +213,9 @@ export const runs = pgTable(
     // De esas, cuántas deben ser de desarrollo. Garantiza que a nadie le toque
     // una evaluación sin preguntas para justificar por escrito.
     longToServe: integer("long_to_serve").notNull().default(2),
+    // Cuantas preguntas se sirven de cada seccion: {"Teoria":2,"Practica":4}.
+    // Cuando tiene entradas manda sobre questions_to_serve y long_to_serve.
+    sectionQuotas: text("section_quotas").notNull().default("{}"),
     shuffleQuestions: flag("shuffle_questions").notNull().default(0),
     shuffleOptions: flag("shuffle_options").notNull().default(0),
     allowBackwards: flag("allow_backwards").notNull().default(1),

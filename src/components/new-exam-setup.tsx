@@ -24,7 +24,7 @@ export function NewExamSetup() {
       shuffleQuestions: true, shuffleOptions: true, allowBackwards: true, showProgress: true,
       autoSubmit: true, allowReconnect: true, supervisionLevel: "normal", requireFullscreen: false,
       detectFocusLoss: true, blockClipboard: false, recordDisconnects: true,
-      violationAction: "warn_and_record", resultsDisplay: "score_only", resultsWhen: "teacher_publishes",
+      violationAction: "warn_and_record", resultsDisplay: "score_only", resultsWhen: "teacher_publishes", sectionQuotas: {},
       status: "draft", updatedAt: new Date().toISOString(),
       questions: [{ id: crypto.randomUUID(), position: 0, type: "mc", prompt: "", points: 1, config: { options: [{ id: crypto.randomUUID(), text: "" }, { id: crypto.randomUUID(), text: "" }], correctOptionId: "" } }],
     };
