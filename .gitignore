@@ -7,5 +7,7 @@ playwright-report/
 test-results/
 .dev.vars
 .env
+.env*
+!.env.example
 .DS_Store
 *.log
