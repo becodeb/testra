@@ -6,7 +6,7 @@
 # imágenes que Astro necesita al construir— tiene binarios más confiables
 # contra glibc que contra musl.
 
-FROM node:22.12-slim AS build
+FROM node:22-slim AS build
 
 WORKDIR /app
 
@@ -17,26 +17,26 @@ COPY . .
 RUN npm run build
 
 
-FROM node:22.12-slim AS runtime
+FROM node:22-slim AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
 
-COPY package.json package-lock.json ./
+RUN chown node:node /app
+USER node
+
+COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 # `dist/server` y `dist/client` los produce Astro; `dist/ws-upgrade.mjs` es el
 # bundle aparte del upgrade de WebSocket (ver src/server/ws-upgrade.ts).
-COPY --from=build /app/dist ./dist
+COPY --chown=node:node --from=build /app/dist ./dist
 # Las migraciones viajan en la imagen: `npm start` las aplica antes de escuchar.
-COPY --from=build /app/drizzle ./drizzle
-COPY server.mjs ./server.mjs
-COPY scripts/migrate.mjs ./scripts/migrate.mjs
-
-RUN chown -R node:node /app
-USER node
+COPY --chown=node:node --from=build /app/drizzle ./drizzle
+COPY --chown=node:node server.mjs ./server.mjs
+COPY --chown=node:node scripts/migrate.mjs ./scripts/migrate.mjs
 
 EXPOSE 3000
 
