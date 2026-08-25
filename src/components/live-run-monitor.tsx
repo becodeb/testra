@@ -19,19 +19,22 @@ interface MonitorSnapshot {
   participants: Array<Record<string, string | number | null>>;
   incidents: Array<Record<string, string | number | object>>;
   expected: Array<Record<string, string | null>>;
+  events: Array<Record<string, string | number | object | null>>;
 }
 
 interface LiveRunMonitorProps {
   runId: string;
   initialSnapshot: MonitorSnapshot;
+  canControl?: boolean;
 }
 
 const timeFormatter = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) {
+export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: LiveRunMonitorProps) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [now, setNow] = useState(initialSnapshot.serverNow);
   const [working, setWorking] = useState(false);
+  const [selectedParticipant, setSelectedParticipant] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/state`);
@@ -51,22 +54,35 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/runs/${encodeURIComponent(runId)}/socket?role=teacher`);
 
-    // Cada mensaje del socket dispara una relectura del panel completo. Con un
-    // curso entero rindiendo llegan decenas de eventos por segundo —cada
-    // respuesta guardada es uno—, así que se agrupan: como mucho una relectura
-    // cada 400 ms. El panel sigue sintiéndose inmediato y el servidor deja de
-    // resolver la misma consulta pesada una vez por evento.
+    // Cada mensaje del socket puede pedir una relectura del panel completo. Con
+    // un curso entero rindiendo llegan decenas por segundo, así que se agrupan y
+    // nunca se permiten snapshots solapados contra Postgres.
     let pending = 0;
+    let refreshing = false;
+    let queued = false;
+    const runRefresh = async () => {
+      if (refreshing) {
+        queued = true;
+        return;
+      }
+      refreshing = true;
+      await refresh();
+      refreshing = false;
+      if (queued) {
+        queued = false;
+        scheduleRefresh();
+      }
+    };
     const scheduleRefresh = () => {
       if (pending) return;
       pending = window.setTimeout(() => {
         pending = 0;
-        void refresh();
-      }, 400);
+        void runRefresh();
+      }, 800);
     };
 
     socket.addEventListener("message", scheduleRefresh);
-    const poll = window.setInterval(() => void refresh(), 5_000);
+    const poll = window.setInterval(() => void runRefresh(), 5_000);
     return () => {
       window.clearTimeout(pending);
       window.clearInterval(poll);
@@ -99,6 +115,18 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
     setWorking(false);
   }
 
+  async function participantControl(participant: Record<string, string | number | null>, action: "participant-time" | "reopen") {
+    const raw = window.prompt(action === "reopen" ? "Minutos extra al reabrir (puede ser 0):" : "Tiempo extra total en minutos:", action === "reopen" ? "15" : String(Math.round(Number(participant.extra_time_s ?? 0) / 60)));
+    if (raw === null) return;
+    const minutes = Number(raw);
+    if (!Number.isFinite(minutes) || minutes < 0 || minutes > 1440) return window.alert("Ingresá entre 0 y 1440 minutos");
+    setWorking(true);
+    const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/control`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, participantId: participant.id, extraTimeS: Math.round(minutes * 60) }) });
+    if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; window.alert(body.error ?? "No se pudo actualizar al alumno"); }
+    await refresh();
+    setWorking(false);
+  }
+
   return (
     <div className="grid gap-5">
       <section className="rounded-lg border bg-paper p-5 shadow-card" aria-labelledby="run-title">
@@ -115,7 +143,7 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
           </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-2 border-t pt-4">
+        {canControl ? <div className="mt-5 flex flex-wrap items-center gap-2 border-t pt-4">
           {snapshot.run.status === "lobby" ? (
             <>
               <Button type="button" disabled={!allExpectedPresent || working} onClick={() => control("start")}>Iniciar evaluación</Button>
@@ -128,7 +156,7 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
               <Button type="button" variant="destructive" className="ms-auto" disabled={working} onClick={() => control("end")}><Square data-icon="inline-start" /> Finalizar evaluación</Button>
             </>
           ) : <a href={`/resultados?run=${encodeURIComponent(runId)}`} className="text-sm font-semibold text-brand hover:underline">Ver notas y corregir</a>}
-        </div>
+        </div> : null}
       </section>
 
       <div className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
@@ -136,14 +164,15 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
           <div className="flex items-center justify-between border-b px-4 py-3"><h2 id="participants-title" className="font-semibold text-ink">Alumnos</h2><span className="mono-number inline-flex items-center gap-2 text-sm text-muted"><Users className="size-4" aria-hidden="true" />{snapshot.participants.length}</span></div>
           <div className="max-h-[32rem] overflow-auto">
             <table className="w-full min-w-[580px] text-left text-sm">
-              <thead className="sticky top-0 bg-inset text-xs text-ink-2"><tr><th className="px-4 py-2.5">Alumno</th><th className="px-4 py-2.5">Estado</th><th className="px-4 py-2.5 text-right">Avance</th><th className="px-4 py-2.5 text-right">Puntaje</th><th className="px-4 py-2.5 text-right">Última señal</th></tr></thead>
+              <thead className="sticky top-0 bg-inset text-xs text-ink-2"><tr><th className="px-4 py-2.5">Alumno</th><th className="px-4 py-2.5">Estado</th><th className="px-4 py-2.5 text-right">Avance</th><th className="px-4 py-2.5 text-right">Puntaje</th><th className="px-4 py-2.5 text-right">Tiempo</th><th className="px-4 py-2.5 text-right">Última señal</th><th className="px-4 py-2.5">Acciones</th></tr></thead>
               <tbody className="divide-y">
-                {snapshot.participants.map((participant) => <tr key={String(participant.id)}><th scope="row" className="px-4 py-3 font-medium text-ink">{String(participant.name)}</th><td className="px-4 py-3"><Status value={String(participant.status)} /></td><td className="mono-number px-4 py-3 text-right">{formatAssignedProgress(Number(participant.answered), Number(participant.assigned_questions ?? snapshot.questionCount))}</td><td className="mono-number px-4 py-3 text-right">{participant.score === null ? "—" : `${Number(participant.percent ?? 0)}%`}{Number(participant.pending_manual) ? " + pendiente" : ""}</td><td className="mono-number px-4 py-3 text-right text-muted">{timeFormatter.format(Number(participant.last_seen))}</td></tr>)}
-                {!snapshot.participants.length ? <tr><td colSpan={5} className="px-4 py-10 text-center text-muted">Todavía no ingresó ningún alumno.</td></tr> : null}
+                {snapshot.participants.map((participant) => <tr key={String(participant.id)}><th scope="row" className="px-4 py-3 font-medium text-ink"><button type="button" className="hover:text-brand hover:underline" onClick={() => setSelectedParticipant(String(participant.id))}>{String(participant.name)}</button></th><td className="px-4 py-3"><Status value={String(participant.status)} /></td><td className="mono-number px-4 py-3 text-right">{formatAssignedProgress(Number(participant.answered), Number(participant.assigned_questions ?? snapshot.questionCount))}</td><td className="mono-number px-4 py-3 text-right">{participant.score === null ? "—" : `${Number(participant.percent ?? 0)}%`}{Number(participant.pending_manual) ? " + pendiente" : ""}</td><td className="mono-number px-4 py-3 text-right">{Number(participant.extra_time_s) > 0 ? `+${Math.round(Number(participant.extra_time_s) / 60)} min` : "base"}</td><td className="mono-number px-4 py-3 text-right text-muted">{timeFormatter.format(Number(participant.last_seen))}</td><td className="px-4 py-3"><div className="flex gap-1"><Button type="button" size="xs" variant="outline" disabled={working || snapshot.run.status === "ended"} onClick={() => void participantControl(participant, "participant-time")}>Tiempo</Button>{participant.status === "submitted" && snapshot.run.status === "running" ? <Button type="button" size="xs" variant="outline" disabled={working} onClick={() => void participantControl(participant, "reopen")}>Reabrir</Button> : null}</div></td></tr>)}
+                {!snapshot.participants.length ? <tr><td colSpan={7} className="px-4 py-10 text-center text-muted">Todavía no ingresó ningún alumno.</td></tr> : null}
               </tbody>
             </table>
           </div>
           {missing.length ? <div className="border-t bg-inset px-4 py-3"><p className="text-xs font-semibold text-ink-2">Faltan: {missing.map((student) => student.name).join(", ")}</p></div> : null}
+          {selectedParticipant ? <div className="border-t bg-inset p-4"><div className="flex items-center justify-between"><p className="text-sm font-semibold text-ink">Línea de tiempo</p><Button type="button" variant="ghost" size="xs" onClick={() => setSelectedParticipant(null)}>Cerrar</Button></div><ol className="mt-3 grid max-h-56 gap-2 overflow-auto">{snapshot.events.filter((event) => String(event.participant_id) === selectedParticipant).map((event) => <li key={String(event.id)} className="flex items-start justify-between gap-3 text-xs"><span>{timelineLabel(String(event.type))}{event.actor_name ? ` · ${String(event.actor_name)}` : ""}</span><time className="mono-number shrink-0 text-muted">{timeFormatter.format(Number(event.at))}</time></li>)}{!snapshot.events.some((event) => String(event.participant_id) === selectedParticipant) ? <li className="text-xs text-muted">Todavía no hay eventos auditables.</li> : null}</ol></div> : null}
         </section>
 
         <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="incidents-title">
@@ -175,4 +204,9 @@ function Status({ value }: { value: string }) {
 function incidentLabel(type: string, durationMs: number) {
   const duration = durationMs > 0 ? ` (${(durationMs / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} s)` : "";
   return `${copyForIncident(type).title}${duration}`;
+}
+
+function timelineLabel(type: string) {
+  const labels: Record<string, string> = { "exam-started": "Comenzó la evaluación", submitted: "Entregó", "extra-time-changed": "Se cambió el tiempo extra", "submission-reopened": "Se reabrió la entrega", disconnected: "Se desconectó", reconnected: "Se reconectó" };
+  return labels[type] ?? type;
 }

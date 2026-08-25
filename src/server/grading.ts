@@ -39,6 +39,30 @@ function sameStringSet(left: string[], right: string[]): boolean {
   return left.every((value) => rightSet.has(value));
 }
 
+/**
+ * Crédito parcial para selección múltiple. Cada acierto aporta una fracción
+ * igual y cada opción incorrecta resta una fracción igual. El piso evita notas
+ * negativas y el techo protege el máximo aun si llegan opciones duplicadas.
+ */
+export function partialMultiSelectScore(
+  selected: string[],
+  correctIds: string[],
+  allOptionIds: string[],
+  maxPoints: number,
+): number {
+  const uniqueSelected = new Set(selected.filter((id) => allOptionIds.includes(id)));
+  const correct = new Set(correctIds);
+  const wrongCount = Math.max(1, allOptionIds.length - correct.size);
+  let selectedCorrect = 0;
+  let selectedWrong = 0;
+  for (const optionId of uniqueSelected) {
+    if (correct.has(optionId)) selectedCorrect += 1;
+    else selectedWrong += 1;
+  }
+  const fraction = selectedCorrect / correct.size - selectedWrong / wrongCount;
+  return Math.min(maxPoints, Math.max(0, fraction * maxPoints));
+}
+
 export function gradeQuestion(question: FullQuestion, value: AnswerValue): QuestionGrade {
   let correct: boolean | null;
 
@@ -47,6 +71,22 @@ export function gradeQuestion(question: FullQuestion, value: AnswerValue): Quest
       correct = typeof value === "string" && value === question.config.correctOptionId;
       break;
     case "ms":
+      if (question.config.gradingMode === "partial") {
+        const selected = Array.isArray(value) ? value : [];
+        const exact = sameStringSet([...new Set(selected)], question.config.correctOptionIds);
+        const pointsAwarded = partialMultiSelectScore(
+          selected,
+          question.config.correctOptionIds,
+          question.config.options.map((option) => option.id),
+          question.points,
+        );
+        return {
+          questionId: question.id,
+          auto: exact,
+          pointsAwarded,
+          maxPoints: question.points,
+        };
+      }
       correct = Array.isArray(value) && sameStringSet(value, question.config.correctOptionIds);
       break;
     case "tf":

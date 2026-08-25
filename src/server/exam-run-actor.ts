@@ -5,6 +5,7 @@ import { personalizeQuestions } from "@/domain/pool";
 import { shouldCompareConnectionValue } from "@/server/connection-signals";
 import { db, type PgStatement } from "@/server/db/client";
 import { gradeExam } from "@/server/grading";
+import { allDeadlinesComplete, normalizeExtraTime, participantDeadline, shiftDeadline } from "@/server/run-time";
 
 // Reemplazo del Durable Object `ExamRunDO`. Cada toma en vivo tiene un actor en
 // memoria dentro del proceso Node: el estado, los WebSockets y el temporizador
@@ -41,6 +42,12 @@ const CADENCE_MIN_QUESTIONS = 5;
 const HEARTBEAT_TIMEOUT_MS = 20_000;
 const TICK_MS = 5_000;
 
+function eventStatement(participantId: string, type: string, actorUserId: string | null, at: number, meta: unknown): PgStatement {
+  return db.prepare(
+    "INSERT INTO participant_events (id, participant_id, at, type, actor_user_id, meta) VALUES (?, ?, ?, ?, ?, ?)",
+  ).bind(crypto.randomUUID(), participantId, at, type, actorUserId, JSON.stringify(meta ?? {}));
+}
+
 type RunStatus = "lobby" | "running" | "ended";
 
 interface ParticipantState {
@@ -52,6 +59,8 @@ interface ParticipantState {
   ip: string;
   userAgent: string;
   currentQuestionId?: string;
+  extraTimeS: number;
+  deadlineAt: number | null;
 }
 
 interface LiveRunState {
@@ -63,6 +72,15 @@ interface LiveRunState {
   endsAt: number | null;
   recordDisconnects: boolean;
   participants: Record<string, ParticipantState>;
+}
+
+interface GradingRunSnapshot {
+  questions_snapshot: string;
+  shuffle_questions: number;
+  shuffle_options: number;
+  questions_to_serve: number | null;
+  long_to_serve: number;
+  section_quotas: string;
 }
 
 interface SocketAttachment {
@@ -166,6 +184,8 @@ export class ExamRunActor {
         lastSeen: Date.now(),
         ip: prior?.ip ?? "pending-socket",
         userAgent: prior?.userAgent ?? "pending-socket",
+        extraTimeS: prior?.extraTimeS ?? 0,
+        deadlineAt: prior?.deadlineAt ?? this.run.endsAt,
       };
       this.broadcastToTeachers({ type: "participant-joined", participant: this.run.participants[input.participantId] });
       return Response.json(this.publicState());
@@ -177,12 +197,19 @@ export class ExamRunActor {
       this.run.status = "running";
       this.run.startedAt = now;
       this.run.endsAt = now + this.run.timeLimitS * 1000;
-      for (const participant of Object.values(this.run.participants)) participant.status = "active";
+      for (const participant of Object.values(this.run.participants)) {
+        participant.status = "active";
+        participant.deadlineAt = this.run.endsAt + participant.extraTimeS * 1000;
+      }
       await db.batch([
         db.prepare("UPDATE runs SET status = 'running', started_at = ?, ends_at = ? WHERE id = ?")
           .bind(now, this.run.endsAt, this.run.runId),
-        db.prepare("UPDATE participants SET status = 'active' WHERE run_id = ? AND status = 'waiting'")
-          .bind(this.run.runId),
+        db.prepare("UPDATE participants SET status = 'active', deadline_at = ?::bigint + extra_time_s * 1000 WHERE run_id = ? AND status = 'waiting'")
+          .bind(this.run.endsAt, this.run.runId),
+        db.prepare(
+          `INSERT INTO participant_events (id, participant_id, at, type, meta)
+           SELECT gen_random_uuid()::text, id, ?, 'exam-started', '{}' FROM participants WHERE run_id = ?`,
+        ).bind(now, this.run.runId),
       ]);
       this.schedule();
       this.broadcastRunState("run-started");
@@ -194,11 +221,70 @@ export class ExamRunActor {
       if (this.run.status !== "running" || this.run.endsAt === null) {
         return Response.json({ error: "La sesión no está en curso" }, { status: 409 });
       }
-      this.run.endsAt = Math.max(Date.now(), this.run.endsAt + Math.trunc(deltaS) * 1000);
-      await db.prepare("UPDATE runs SET ends_at = ? WHERE id = ?").bind(this.run.endsAt, this.run.runId).run();
+      const deltaMs = Math.trunc(deltaS) * 1000;
+      this.run.endsAt = Math.max(Date.now(), this.run.endsAt + deltaMs);
+      await db.batch([
+        db.prepare("UPDATE runs SET ends_at = ? WHERE id = ?").bind(this.run.endsAt, this.run.runId),
+        db.prepare("UPDATE participants SET deadline_at = GREATEST(?, deadline_at + ?) WHERE run_id = ? AND deadline_at IS NOT NULL AND status != 'submitted'")
+          .bind(Date.now(), deltaMs, this.run.runId),
+      ]);
+      for (const participant of Object.values(this.run.participants)) {
+        if (participant.deadlineAt !== null && participant.status !== "submitted") {
+          participant.deadlineAt = shiftDeadline(participant.deadlineAt, deltaS, Date.now());
+        }
+      }
       this.schedule();
-      this.broadcast({ type: "time-adjusted", endsAt: this.run.endsAt });
+      this.broadcastRunState("time-adjusted");
       return Response.json(this.publicState());
+    }
+
+    if (path === "/participant-time") {
+      const { participantId, extraTimeS, actorUserId } = body as { participantId: string; extraTimeS: number; actorUserId: string };
+      const participant = this.run.participants[participantId];
+      if (!participant) return Response.json({ error: "Participante inexistente" }, { status: 404 });
+      const normalized = normalizeExtraTime(extraTimeS);
+      participant.extraTimeS = normalized;
+      participant.deadlineAt = this.run.status === "running" && this.run.endsAt !== null
+        ? participantDeadline(this.run.endsAt, normalized, Date.now())
+        : null;
+      const at = Date.now();
+      await db.batch([
+        db.prepare("UPDATE participants SET extra_time_s = ?, deadline_at = ? WHERE id = ? AND run_id = ?")
+          .bind(normalized, participant.deadlineAt, participantId, this.run.runId),
+        eventStatement(participantId, "extra-time-changed", actorUserId, at, { extraTimeS: normalized, deadlineAt: participant.deadlineAt }),
+      ]);
+      this.schedule();
+      this.write(this.socketsFor(participantId), { type: "time-adjusted", endsAt: participant.deadlineAt, serverNow: at });
+      this.broadcastToTeachers({ type: "participant-time-adjusted", participantId, extraTimeS: normalized, deadlineAt: participant.deadlineAt, at });
+      return Response.json({ participantId, extraTimeS: normalized, deadlineAt: participant.deadlineAt });
+    }
+
+    if (path === "/reopen") {
+      const { participantId, extraTimeS = 0, actorUserId } = body as { participantId: string; extraTimeS?: number; actorUserId: string };
+      if (this.run.status !== "running" || this.run.endsAt === null) {
+        return Response.json({ error: "Solo se puede reabrir mientras la sesión está en curso" }, { status: 409 });
+      }
+      const participant = this.run.participants[participantId];
+      if (!participant || participant.status !== "submitted") {
+        return Response.json({ error: "La entrega no está cerrada" }, { status: 409 });
+      }
+      const extra = normalizeExtraTime(extraTimeS);
+      participant.status = "active";
+      participant.extraTimeS += extra;
+      participant.deadlineAt = Math.max(Date.now() + extra * 1000, participantDeadline(this.run.endsAt, participant.extraTimeS));
+      const at = Date.now();
+      await db.batch([
+        db.prepare(
+          `UPDATE participants SET status = 'active', submitted_at = NULL, submit_reason = NULL,
+             extra_time_s = ?, deadline_at = ?, reopened_count = reopened_count + 1, last_seen = ?
+           WHERE id = ? AND run_id = ? AND status = 'submitted'`,
+        ).bind(participant.extraTimeS, participant.deadlineAt, at, participantId, this.run.runId),
+        eventStatement(participantId, "submission-reopened", actorUserId, at, { extraTimeS: extra, deadlineAt: participant.deadlineAt }),
+      ]);
+      this.write(this.socketsFor(participantId), { type: "submission-reopened", endsAt: participant.deadlineAt, serverNow: at });
+      this.broadcastToTeachers({ type: "participant-reopened", participantId, deadlineAt: participant.deadlineAt, at });
+      this.schedule();
+      return Response.json({ participantId, deadlineAt: participant.deadlineAt });
     }
 
     if (path === "/heartbeat") {
@@ -208,7 +294,7 @@ export class ExamRunActor {
       if (questionId) participant.currentQuestionId = questionId;
       this.markSeen(participant);
       this.schedule();
-      return Response.json({ serverNow: Date.now(), endsAt: this.run.endsAt, status: this.run.status });
+      return Response.json({ serverNow: Date.now(), endsAt: participant.deadlineAt ?? this.run.endsAt, status: this.run.status, participantStatus: participant.status });
     }
 
     if (path === "/incident") {
@@ -296,6 +382,9 @@ export class ExamRunActor {
       const payload = body as { participantId: string; reason: string; at: number };
       const participant = this.run.participants[payload.participantId];
       if (participant) participant.status = "submitted";
+      await db.prepare(
+        "INSERT INTO participant_events (id, participant_id, at, type, meta) VALUES (?, ?, ?, 'submitted', ?)",
+      ).bind(crypto.randomUUID(), payload.participantId, payload.at, JSON.stringify({ reason: payload.reason })).run();
       this.broadcastToTeachers({ type: "participant-submitted", participantId: payload.participantId, reason: payload.reason, at: payload.at });
       return Response.json({ accepted: true });
     }
@@ -357,6 +446,8 @@ export class ExamRunActor {
           ip: identity.ip,
           userAgent: identity.userAgent,
           currentQuestionId: prior?.currentQuestionId,
+          extraTimeS: prior?.extraTimeS ?? 0,
+          deadlineAt: prior?.deadlineAt ?? this.run.endsAt,
         };
 
         if (duplicate) await this.recordIncident(participantId, "sesion-duplicada", 0, {});
@@ -374,7 +465,7 @@ export class ExamRunActor {
 
       this.send(socket, {
         type: "state",
-        run: identity.role === "teacher" ? this.publicState() : this.studentState(),
+        run: identity.role === "teacher" ? this.publicState() : this.studentState(identity.participantId),
         serverNow: Date.now(),
       });
     });
@@ -397,7 +488,7 @@ export class ExamRunActor {
         if (!participant) return;
         this.markSeen(participant);
         this.schedule();
-        this.send(socket, { type: "heartbeat-ack", serverNow: Date.now(), endsAt: this.run.endsAt });
+        this.send(socket, { type: "heartbeat-ack", serverNow: Date.now(), endsAt: participant.deadlineAt ?? this.run.endsAt });
         return;
       }
 
@@ -454,21 +545,17 @@ export class ExamRunActor {
     }
   }
 
-  /** Eventos de la toma: los necesitan todos, docentes y alumnos. */
-  private broadcast(payload: unknown) {
-    this.write(this.sockets.keys(), payload);
-  }
-
   /**
    * Cambio de estado de la toma. Va a todos, pero cada rol recibe la vista que
    * le corresponde: el docente el estado completo, el alumno solo el reloj.
    */
   private broadcastRunState(type: string, extra: Record<string, unknown> = {}) {
     const forTeachers = JSON.stringify({ type, ...extra, run: this.publicState() });
-    const forStudents = JSON.stringify({ type, ...extra, run: this.studentState() });
     for (const [socket, attachment] of this.sockets) {
       try {
-        socket.send(attachment.role === "teacher" ? forTeachers : forStudents);
+        socket.send(attachment.role === "teacher"
+          ? forTeachers
+          : JSON.stringify({ type, ...extra, run: this.studentState(attachment.participantId) }));
       } catch {
         // Un socket a medio cerrar no debe cortar el reparto al resto.
       }
@@ -513,7 +600,11 @@ export class ExamRunActor {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     if (this.run.status !== "running" || this.run.endsAt === null) return;
-    const delay = Math.max(0, Math.min(this.run.endsAt, Date.now() + TICK_MS) - Date.now());
+    const deadlines = Object.values(this.run.participants)
+      .filter((participant) => participant.status !== "submitted" && participant.deadlineAt !== null)
+      .map((participant) => participant.deadlineAt!);
+    const nextDeadline = deadlines.length ? Math.min(...deadlines) : this.run.endsAt;
+    const delay = Math.max(0, Math.min(nextDeadline, Date.now() + TICK_MS) - Date.now());
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.serialize(() => this.tick());
@@ -525,9 +616,13 @@ export class ExamRunActor {
     if (this.run.status !== "running" || this.run.endsAt === null) return;
 
     const now = Date.now();
-    if (now >= this.run.endsAt) {
-      await this.endRun("timer");
-      return;
+    for (const participant of Object.values(this.run.participants)) {
+      if (participant.status !== "submitted" && participant.deadlineAt !== null && now >= participant.deadlineAt) {
+        await this.gradeAndSubmit(participant.participantId, "timer");
+        participant.status = "submitted";
+        this.write(this.socketsFor(participant.participantId), { type: "participant-deadline", serverNow: now });
+        this.broadcastToTeachers({ type: "participant-submitted", participantId: participant.participantId, reason: "timer", at: now });
+      }
     }
 
     for (const participant of Object.values(this.run.participants)) {
@@ -536,11 +631,17 @@ export class ExamRunActor {
         if (this.run.recordDisconnects) {
           await this.recordIncident(participant.participantId, "desconexion", 0, { lastSeen: participant.lastSeen });
         }
-        await db.prepare("UPDATE participants SET status = 'disconnected' WHERE id = ? AND status = 'active'")
-          .bind(participant.participantId)
-          .run();
+        await db.batch([
+          db.prepare("UPDATE participants SET status = 'disconnected' WHERE id = ? AND status = 'active'").bind(participant.participantId),
+          eventStatement(participant.participantId, "disconnected", null, now, { lastSeen: participant.lastSeen }),
+        ]);
         this.broadcastToTeachers({ type: "participant-disconnected", participantId: participant.participantId });
       }
+    }
+
+    if (allDeadlinesComplete(this.run.endsAt, now, Object.values(this.run.participants).map((participant) => participant.status))) {
+      await this.endRun("timer");
+      return;
     }
 
     this.schedule();
@@ -562,14 +663,15 @@ export class ExamRunActor {
    * curso. Es lo único que consume student-runtime.tsx, y evita mandarle la
    * lista de participantes con la IP y el user agent de sus compañeros.
    */
-  private studentState() {
+  private studentState(participantId?: string) {
+    const participant = participantId ? this.run.participants[participantId] : undefined;
     return {
       runId: this.run.runId,
       title: this.run.title,
       status: this.run.status,
       timeLimitS: this.run.timeLimitS,
       startedAt: this.run.startedAt,
-      endsAt: this.run.endsAt,
+      endsAt: participant?.deadlineAt ?? this.run.endsAt,
       serverNow: Date.now(),
     };
   }
@@ -588,17 +690,20 @@ export class ExamRunActor {
    * docente— se difiere: es una fila por alumno, sin orden entre sí.
    */
   private markSeen(participant: ParticipantState): void {
+    const reconnected = participant.status === "disconnected";
     participant.lastSeen = Date.now();
-    if (participant.status === "disconnected") {
+    if (reconnected) {
       participant.status = "active";
       this.broadcastToTeachers({ type: "participant-reconnected", participantId: participant.participantId });
     }
     const lastSeen = participant.lastSeen;
     const participantId = participant.participantId;
     this.defer(async () => {
-      await db.prepare(
+      const statements = [db.prepare(
         "UPDATE participants SET last_seen = ?, status = CASE WHEN status = 'disconnected' THEN 'active' ELSE status END WHERE id = ?",
-      ).bind(lastSeen, participantId).run();
+      ).bind(lastSeen, participantId)];
+      if (reconnected) statements.push(eventStatement(participantId, "reconnected", null, lastSeen, {}));
+      await db.batch(statements);
     });
   }
 
@@ -617,9 +722,9 @@ export class ExamRunActor {
     }>();
     if (!row) return;
     const participants = await db.prepare(
-      `SELECT p.id, p.user_id, p.status, p.last_seen, p.display_name AS name
+      `SELECT p.id, p.user_id, p.status, p.last_seen, p.display_name AS name, p.extra_time_s, p.deadline_at
        FROM participants p WHERE p.run_id = ?`,
-    ).bind(row.id).all<{ id: string; user_id: string | null; status: ParticipantState["status"]; last_seen: number; name: string }>();
+    ).bind(row.id).all<{ id: string; user_id: string | null; status: ParticipantState["status"]; last_seen: number; name: string; extra_time_s: number; deadline_at: number | null }>();
     this.run = {
       runId: row.id,
       title: row.title,
@@ -636,6 +741,8 @@ export class ExamRunActor {
         lastSeen: participant.last_seen,
         ip: "restored",
         userAgent: "restored",
+        extraTimeS: participant.extra_time_s,
+        deadlineAt: participant.deadline_at,
       }])),
     };
     // Una toma que seguía en curso al reiniciar el proceso vuelve a vigilarse.
@@ -652,12 +759,21 @@ export class ExamRunActor {
     await db.prepare("UPDATE runs SET status = 'ended', ends_at = ?, ended_at = ? WHERE id = ?")
       .bind(this.run.endsAt, endedAt, this.run.runId)
       .run();
-    for (const participant of Object.values(this.run.participants)) {
-      if (participant.status === "active" || participant.status === "disconnected") {
-        await this.gradeAndSubmit(participant.participantId, reason === "timer" ? "timer" : "teacher");
+    const pending = Object.values(this.run.participants).filter(
+      (participant) => participant.status === "active" || participant.status === "disconnected",
+    );
+    const gradingRun = await this.loadGradingRun();
+    // El cierre de un aula grande no debe repetir la misma consulta de la toma
+    // por alumno ni corregir cientos de entregas estrictamente en serie. Se usa
+    // concurrencia acotada para aprovechar el pool sin inundar Postgres.
+    for (let index = 0; index < pending.length; index += 20) {
+      const batch = pending.slice(index, index + 20);
+      await Promise.all(batch.map(async (participant) => {
+        await this.gradeAndSubmit(participant.participantId, reason === "timer" ? "timer" : "teacher", gradingRun);
         participant.status = "submitted";
-      }
+      }));
     }
+
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.broadcastRunState("run-ended", { reason });
@@ -685,10 +801,14 @@ export class ExamRunActor {
       .run();
   }
 
-  private async gradeAndSubmit(participantId: string, reason: "timer" | "teacher"): Promise<void> {
-    const run = await db.prepare("SELECT questions_snapshot, shuffle_questions, shuffle_options, questions_to_serve, long_to_serve, section_quotas FROM runs WHERE id = ?")
+  private async loadGradingRun(): Promise<GradingRunSnapshot | null> {
+    return db.prepare("SELECT questions_snapshot, shuffle_questions, shuffle_options, questions_to_serve, long_to_serve, section_quotas FROM runs WHERE id = ?")
       .bind(this.run.runId)
-      .first<{ questions_snapshot: string; shuffle_questions: number; shuffle_options: number; questions_to_serve: number | null; long_to_serve: number; section_quotas: string }>();
+      .first<GradingRunSnapshot>();
+  }
+
+  private async gradeAndSubmit(participantId: string, reason: "timer" | "teacher", snapshot?: GradingRunSnapshot | null): Promise<void> {
+    const run = snapshot ?? await this.loadGradingRun();
     if (!run) return;
     const answers = await db.prepare("SELECT question_id, value FROM answers WHERE participant_id = ?")
       .bind(participantId)

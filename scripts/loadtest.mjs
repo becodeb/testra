@@ -27,6 +27,7 @@ const SECONDS = Number(args.seconds ?? 30);
 const EXAM_ID = args.exam ?? "exam-biology-demo";
 const ANSWER_EVERY_MS = Number(args["answer-every"] ?? 8000);
 const HEARTBEAT_EVERY_MS = 5000;
+const BURST = args.burst === "true";
 
 if (BASE.includes("becode.com.ar") || BASE.includes("workers.dev")) {
   console.error("Esta prueba no se corre contra producción.");
@@ -173,7 +174,7 @@ class Student {
 
 // --- Ejecución -------------------------------------------------------------
 
-console.log(`\nAula simulada: ${STUDENTS} alumnos, ${SECONDS}s de fase sostenida, contra ${BASE}\n`);
+console.log(`\nAula simulada: ${STUDENTS} alumnos, ${SECONDS}s de fase sostenida, carga ${BURST ? "sincronizada" : "escalonada"}, contra ${BASE}\n`);
 
 const run = await createRun();
 console.log(`Toma creada: ${run.id} (código ${run.code})`);
@@ -194,14 +195,24 @@ await new Promise((resolve, reject) => {
 teacher.refreshes = 0;
 teacher.refreshLatency = [];
 let teacherPending = null;
+let teacherRefreshing = false;
+let teacherQueued = false;
 async function teacherRefresh() {
+  if (teacherRefreshing) { teacherQueued = true; return; }
+  teacherRefreshing = true;
   const started = Date.now();
   const response = await fetch(`${BASE}/api/runs/${run.id}/state`).catch(() => null);
-  if (!response?.ok) return;
-  const snapshot = await response.json();
-  teacher.refreshes += 1;
-  teacher.refreshLatency.push(Date.now() - started);
-  for (const participant of snapshot.participants ?? []) teacher.participantsSeen.add(participant.id ?? participant.participantId);
+  if (response?.ok) {
+    const snapshot = await response.json();
+    teacher.refreshes += 1;
+    teacher.refreshLatency.push(Date.now() - started);
+    for (const participant of snapshot.participants ?? []) teacher.participantsSeen.add(participant.id ?? participant.participantId);
+  }
+  teacherRefreshing = false;
+  if (teacherQueued) {
+    teacherQueued = false;
+    teacherPending = setTimeout(() => { teacherPending = null; void teacherRefresh(); }, 800);
+  }
 }
 
 teacher.socket.on("message", (raw) => {
@@ -211,7 +222,7 @@ teacher.socket.on("message", (raw) => {
   if (payload.type === "participant-joined") teacher.participantsSeen.add(payload.participant.participantId);
   if (payload.type === "state") for (const participant of payload.run.participants ?? []) teacher.participantsSeen.add(participant.participantId);
   if (!teacherPending) {
-    teacherPending = setTimeout(() => { teacherPending = null; void teacherRefresh(); }, 400);
+    teacherPending = setTimeout(() => { teacherPending = null; void teacherRefresh(); }, 800);
   }
 });
 console.log("Docente conectado\n");
@@ -246,21 +257,28 @@ console.log(`3. Fase sostenida (${SECONDS}s: heartbeats cada ${HEARTBEAT_EVERY_M
 const questionIds = ["demo-q1", "demo-q3"];
 const phaseStart = Date.now();
 const timers = [];
-
-timers.push(setInterval(() => {
-  for (const student of online) student.heartbeat();
-}, HEARTBEAT_EVERY_MS));
-
-timers.push(setInterval(() => {
-  for (const student of online) {
+function answer(student) {
     const questionId = questionIds[student.index % questionIds.length];
     const value = questionId === "demo-q1" ? "b" : `Respuesta del alumno ${student.index} a las ${new Date().toISOString()}`;
     void student.saveAnswer(questionId, value);
-  }
-}, ANSWER_EVERY_MS));
+}
 
-// Un primer ciclo inmediato para no esperar al primer intervalo.
-for (const student of online) student.heartbeat();
+if (BURST) {
+  timers.push(setInterval(() => { for (const student of online) student.heartbeat(); }, HEARTBEAT_EVERY_MS));
+  timers.push(setInterval(() => { for (const student of online) answer(student); }, ANSWER_EVERY_MS));
+  for (const student of online) student.heartbeat();
+} else {
+  for (const student of online) {
+    timers.push(setTimeout(() => {
+      student.heartbeat();
+      timers.push(setInterval(() => student.heartbeat(), HEARTBEAT_EVERY_MS));
+    }, (student.index * 991) % HEARTBEAT_EVERY_MS));
+    timers.push(setTimeout(() => {
+      answer(student);
+      timers.push(setInterval(() => answer(student), ANSWER_EVERY_MS));
+    }, (student.index * 997) % ANSWER_EVERY_MS));
+  }
+}
 
 await sleep(SECONDS * 1000);
 for (const timer of timers) clearInterval(timer);
@@ -305,4 +323,4 @@ if (errors.length) {
 for (const student of online) student.close();
 teacher.socket.close();
 await sleep(500);
-process.exit(0);
+process.exit(errors.length || joinFailures.length || connectFailures.length ? 1 : 0);

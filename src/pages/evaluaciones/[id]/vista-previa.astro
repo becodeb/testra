@@ -1,0 +1,16 @@
+---
+import { ExamPreview } from "@/components/exam-preview";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getActor, isTeacher } from "@/server/actors";
+import { getExam } from "@/server/repository";
+
+const actor = getActor(Astro.locals, "teacher");
+if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
+if (!isTeacher(actor)) return Astro.redirect("/rendir");
+const exam = await getExam(Astro.params.id!, actor);
+if (!exam) return new Response("Evaluación inexistente", { status: 404 });
+---
+
+<AppLayout title={`Vista previa · ${exam.title}`} active="evaluaciones">
+  <ExamPreview client:load exam={exam} />
+</AppLayout>

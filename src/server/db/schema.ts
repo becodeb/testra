@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  customType,
   index,
   integer,
   numeric,
@@ -27,6 +28,7 @@ import {
 // Pasarlas a timestamptz obligaría a reescribirlas todas sin ganar nada.
 
 const epochMs = (name: string) => bigint(name, { mode: "number" });
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
 const createdAtMs = (name: string) =>
   epochMs(name)
@@ -163,6 +165,9 @@ export const exams = pgTable(
     violationAction: text("violation_action", { enum: ["warn_and_record", "record_only"] }).notNull().default("warn_and_record"),
     resultsDisplay: text("results_display", { enum: ["score_only", "score_and_answers", "hidden"] }).notNull().default("score_only"),
     resultsWhen: text("results_when", { enum: ["teacher_publishes", "after_submit", "after_run"] }).notNull().default("teacher_publishes"),
+    // NULL conserva el comportamiento historico: Testra no inventa un umbral
+    // de aprobacion si el docente no configuro uno.
+    passingScorePercent: numeric("passing_score_percent", { precision: 5, scale: 2, mode: "number" }),
     status: text("status", { enum: ["draft", "ready"] }).notNull().default("draft"),
     createdAt: createdAtMs("created_at"),
     updatedAt: createdAtMs("updated_at"),
@@ -189,6 +194,11 @@ export const questions = pgTable(
     // Agrupa preguntas para servir una cantidad distinta de cada grupo.
     // Vacio o NULL = la pregunta no pertenece a ninguna seccion.
     section: text("section"),
+    // Clasificacion secundaria y totalmente opcional.
+    difficulty: text("difficulty", { enum: ["easy", "medium", "hard"] }),
+    // Metadatos de adjuntos. Los bytes viven en question_assets para no inflar
+    // cada snapshot de una toma.
+    assets: text("assets").notNull().default("[]"),
   },
   (table) => [
     uniqueIndex("questions_exam_position_uq").on(table.examId, table.position),
@@ -229,6 +239,7 @@ export const runs = pgTable(
     violationAction: text("violation_action", { enum: ["warn_and_record", "record_only"] }).notNull().default("warn_and_record"),
     resultsDisplay: text("results_display", { enum: ["score_only", "score_and_answers", "hidden"] }).notNull().default("score_only"),
     resultsWhen: text("results_when", { enum: ["teacher_publishes", "after_submit", "after_run"] }).notNull().default("teacher_publishes"),
+    passingScorePercent: numeric("passing_score_percent", { precision: 5, scale: 2, mode: "number" }),
     status: text("status", { enum: ["lobby", "running", "ended"] })
       .notNull()
       .default("lobby"),
@@ -272,6 +283,11 @@ export const participants = pgTable(
     submitReason: text("submit_reason"),
     classroomSubmissionId: text("classroom_submission_id"),
     late: flag("late").notNull().default(0),
+    extraTimeS: integer("extra_time_s").notNull().default(0),
+    // Deadline efectivo del alumno. Antes de empezar queda NULL; al iniciar se
+    // calcula como el cierre base de la toma mas su tiempo adicional.
+    deadlineAt: epochMs("deadline_at"),
+    reopenedCount: integer("reopened_count").notNull().default(0),
     lastSeen: epochMs("last_seen").notNull(),
   },
   (table) => [
@@ -316,6 +332,8 @@ export const grades = pgTable(
     // guarda 0.5 tal cual en una columna con esa afinidad; Postgres redondearía,
     // así que la columna es numérica de verdad.
     pointsAwarded: numeric("points_awarded", { precision: 8, scale: 2, mode: "number" }),
+    feedback: text("feedback").notNull().default(""),
+    rubricScores: text("rubric_scores").notNull().default("{}"),
   },
   (table) => [
     uniqueIndex("grades_participant_question_uq").on(
@@ -386,4 +404,68 @@ export const expectedRunStudents = pgTable(
     email: text("email"),
   },
   (table) => [primaryKey({ columns: [table.runId, table.googleUserId] })],
+);
+
+export const participantEvents = pgTable(
+  "participant_events",
+  {
+    id: text("id").primaryKey(),
+    participantId: text("participant_id")
+      .notNull()
+      .references(() => participants.id, { onDelete: "cascade" }),
+    at: epochMs("at").notNull(),
+    type: text("type").notNull(),
+    actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    meta: text("meta").notNull().default("{}"),
+  },
+  (table) => [
+    index("participant_events_participant_at_idx").on(table.participantId, table.at),
+    index("participant_events_type_idx").on(table.type),
+  ],
+);
+
+export const quickComments = pgTable(
+  "quick_comments",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    createdAt: createdAtMs("created_at"),
+    updatedAt: createdAtMs("updated_at"),
+  },
+  (table) => [index("quick_comments_user_idx").on(table.userId)],
+);
+
+export const examCollaborators = pgTable(
+  "exam_collaborators",
+  {
+    examId: text("exam_id").notNull().references(() => exams.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    permission: text("permission", { enum: ["view", "edit", "correct"] }).notNull().default("view"),
+    canPublishResults: flag("can_publish_results").notNull().default(0),
+    canManageClassroom: flag("can_manage_classroom").notNull().default(0),
+    createdAt: createdAtMs("created_at"),
+    updatedAt: createdAtMs("updated_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.examId, table.userId] }),
+    index("exam_collaborators_user_idx").on(table.userId),
+  ],
+);
+
+export const questionAssets = pgTable(
+  "question_assets",
+  {
+    id: text("id").primaryKey(),
+    examId: text("exam_id").references(() => exams.id, { onDelete: "set null" }),
+    uploaderId: text("uploader_id").references(() => users.id, { onDelete: "set null" }),
+    originalName: text("original_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: createdAtMs("created_at"),
+  },
+  (table) => [index("question_assets_exam_idx").on(table.examId)],
 );

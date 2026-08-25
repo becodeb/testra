@@ -100,6 +100,7 @@ export function ExamLibrary({ initialExams, subjects }: ExamLibraryProps) {
                 <span className={`rounded-sm border px-1.5 py-0.5 text-[.7rem] font-semibold ${exam.status === "ready" ? "border-ok/25 bg-ok/5 text-ok" : "border-warn/25 bg-warn/5 text-warn"}`}>{exam.status === "ready" ? "Lista" : "Borrador"}</span>
               </div>
               <h2 className="mt-3 text-lg font-semibold leading-snug tracking-[-.01em] text-ink">{exam.title || "Sin título"}</h2>
+              {exam.accessRole !== "owner" ? <p className="mt-1 text-xs font-medium text-muted">Compartida por {exam.ownerName} · {exam.accessRole === "edit" ? "podés editar" : exam.accessRole === "correct" ? "podés corregir" : "solo lectura"}</p> : null}
               <dl className="mt-4 grid grid-cols-3 gap-3 border-y py-3">
                 <div><dt className="text-[.7rem] text-muted">Preguntas</dt><dd className="mono-number mt-0.5 text-sm font-semibold">{exam.questionCount}</dd></div>
                 <div><dt className="text-[.7rem] text-muted">Puntaje</dt><dd className="mono-number mt-0.5 text-sm font-semibold">{exam.totalPoints}</dd></div>
@@ -107,10 +108,10 @@ export function ExamLibrary({ initialExams, subjects }: ExamLibraryProps) {
               </dl>
               <p className="mt-3 text-xs text-muted">Última sesión: <span className="tabular text-ink-2">{exam.lastRunAt ? dateFormatter.format(exam.lastRunAt) : "Nunca"}</span></p>
               <div className="mt-auto flex flex-wrap items-center gap-1 pt-5">
-                <Button type="button" size="sm" disabled={exam.status !== "ready" || workingId === exam.id} onClick={() => createRun(exam.id)}><Play data-icon="inline-start" /> Abrir sala</Button>
-                <Button asChild variant="outline" size="sm"><a href={`/evaluaciones/${encodeURIComponent(exam.id)}`}><Pencil data-icon="inline-start" /> Editar</a></Button>
+                {exam.accessRole === "owner" || exam.accessRole === "edit" ? <Button type="button" size="sm" disabled={exam.status !== "ready" || workingId === exam.id} onClick={() => createRun(exam.id)}><Play data-icon="inline-start" /> Abrir sala</Button> : null}
+                <Button asChild variant="outline" size="sm"><a href={`/evaluaciones/${encodeURIComponent(exam.id)}`}><Pencil data-icon="inline-start" /> {exam.accessRole === "owner" || exam.accessRole === "edit" ? "Editar" : "Ver"}</a></Button>
                 <Button type="button" variant="ghost" size="icon-sm" disabled={workingId === exam.id} aria-label={`Duplicar ${exam.title}`} onClick={() => duplicate(exam.id)}><Copy /></Button>
-                <Button type="button" variant={deleteId === exam.id ? "destructive" : "ghost"} size={deleteId === exam.id ? "sm" : "icon-sm"} disabled={workingId === exam.id} aria-label={`Borrar ${exam.title}`} onClick={() => remove(exam.id)}><Trash2 />{deleteId === exam.id ? "Confirmar borrado" : null}</Button>
+                {exam.accessRole === "owner" ? <Button type="button" variant={deleteId === exam.id ? "destructive" : "ghost"} size={deleteId === exam.id ? "sm" : "icon-sm"} disabled={workingId === exam.id} aria-label={`Borrar ${exam.title}`} onClick={() => remove(exam.id)}><Trash2 />{deleteId === exam.id ? "Confirmar borrado" : null}</Button> : null}
               </div>
             </article>
           ))}

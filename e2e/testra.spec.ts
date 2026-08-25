@@ -346,3 +346,75 @@ test("an anonymous student joins from another browser, waits, and submits", asyn
     await studentContext.close();
   }
 });
+
+test("teacher preview renders math, regenerates locally and never creates participants", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "Preview isolation is covered once on desktop");
+  const payload = examPayload(`Vista previa ${Date.now()}`);
+  payload.questions[0].prompt = "Calculá $x^2$ y explicá ```js\nconst x = 2\n```";
+  const creation = await page.request.post("/api/exams", { data: payload });
+  const exam = await creation.json() as { id: string };
+  const runCreation = await page.request.post("/api/runs", { data: { examId: exam.id } });
+  const run = await runCreation.json() as { id: string };
+  const before = await (await page.request.get(`/api/runs/${run.id}/state`)).json() as { participants: unknown[] };
+  expect(before.participants).toHaveLength(0);
+  await page.goto(`/evaluaciones/${exam.id}/vista-previa`);
+  await page.locator("[data-preview-ready]").waitFor();
+  await expect(page.locator(".katex")).toBeVisible();
+  await expect(page.locator("[data-preview-ready] pre code")).toContainText("const x = 2");
+  await page.getByRole("button", { name: "Regenerar variante" }).click();
+  const after = await (await page.request.get(`/api/runs/${run.id}/state`)).json() as { participants: unknown[] };
+  expect(after.participants).toHaveLength(0);
+});
+
+test("individual time and reopening preserve one participant and existing answers", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "Individual deadline flow is covered once on desktop");
+  const payload = examPayload(`Reapertura ${Date.now()}`);
+  const creation = await page.request.post("/api/exams", { data: payload });
+  const exam = await creation.json() as { id: string };
+  const runCreation = await page.request.post("/api/runs", { data: { examId: exam.id } });
+  const run = await runCreation.json() as { id: string; code: string };
+  await page.goto(`/rendir/${run.code}`);
+  await page.locator("[data-join-ready=true]").waitFor();
+  await page.getByLabel("Tu nombre y apellido").fill("Alumno con tiempo extra");
+  await page.getByRole("button", { name: "Entrar a la sala" }).click();
+  await expect(page.getByText(new RegExp(`Sala de espera · ${run.code}`))).toBeVisible();
+  const initial = await (await page.request.get(`/api/runs/${run.id}/state`)).json() as { participants: Array<{ id: string }> };
+  const participantId = initial.participants[0].id;
+  expect((await page.request.post(`/api/runs/${run.id}/control`, { data: { action: "participant-time", participantId, extraTimeS: 600 } })).ok()).toBe(true);
+  expect((await page.request.post(`/api/runs/${run.id}/control`, { data: { action: "start" } })).ok()).toBe(true);
+  const running = await (await page.request.get(`/api/runs/${run.id}/state`)).json() as { run: { ends_at: number }; participants: Array<{ id: string; deadline_at: number; extra_time_s: number }> };
+  expect(running.participants[0].deadline_at - running.run.ends_at).toBe(600_000);
+  expect((await page.request.post("/api/student/answer", { data: { participantId, questionId: payload.questions[0].id, value: payload.questions[0].config.correctOptionId } })).ok()).toBe(true);
+  expect((await page.request.post("/api/student/submit", { data: { participantId, reason: "manual" } })).ok()).toBe(true);
+  expect((await page.request.post(`/api/runs/${run.id}/control`, { data: { action: "reopen", participantId, extraTimeS: 120 } })).ok()).toBe(true);
+  const reopened = await (await page.request.get(`/api/runs/${run.id}/state`)).json() as { participants: Array<{ id: string; status: string; extra_time_s: number; reopened_count: number }>; events: Array<{ type: string }> };
+  expect(reopened.participants).toHaveLength(1);
+  expect(reopened.participants[0]).toMatchObject({ id: participantId, status: "active", extra_time_s: 720, reopened_count: 1 });
+  expect(reopened.events.some((event) => event.type === "submission-reopened")).toBe(true);
+  expect((await page.request.post("/api/student/answer", { data: { participantId, questionId: payload.questions[0].id, value: payload.questions[0].config.correctOptionId } })).ok()).toBe(true);
+});
+
+test("question image upload is validated and served as optimized WebP", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "Upload flow is covered once on desktop");
+  const creation = await page.request.post("/api/exams", { data: examPayload(`Imagen ${Date.now()}`) });
+  const exam = await creation.json() as { id: string };
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const upload = await page.request.post("/api/question-assets", { headers: { origin: "http://127.0.0.1:4321" }, multipart: { examId: exam.id, file: { name: "pixel.png", mimeType: "image/png", buffer: png } } });
+  expect(upload.status()).toBe(201);
+  const asset = await upload.json() as { id: string; mimeType: string; width: number; height: number };
+  expect(asset).toMatchObject({ mimeType: "image/webp", width: 1, height: 1 });
+  const image = await page.request.get(`/api/question-assets/${asset.id}`);
+  expect(image.headers()["content-type"]).toBe("image/webp");
+  expect(image.headers()["x-content-type-options"]).toBe("nosniff");
+});
+
+test("historical analytics expose current and aggregate metrics without an invented threshold", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "Analytics contract is covered once on desktop");
+  const response = await page.request.get("/api/runs/run-biology-ended/analytics");
+  expect(response.ok()).toBe(true);
+  const body = await response.json() as { current: { analytics: { summary: { participants: number; passPercentage: number | null }; questions: unknown[] } }; aggregate: unknown; perRun: unknown[] };
+  expect(body.current.analytics.summary.participants).toBeGreaterThan(0);
+  expect(body.current.analytics.summary.passPercentage).toBeNull();
+  expect(body.current.analytics.questions.length).toBeGreaterThan(0);
+  expect(body.perRun.length).toBeGreaterThan(1);
+});

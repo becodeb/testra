@@ -13,6 +13,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
+import { RichContent } from "@/components/rich-content";
 
 export type StudentAnswerValue = string | boolean | string[];
 
@@ -161,7 +162,6 @@ export function StudentRuntime({
     });
     if (response.ok) {
       setSubmitted(true);
-      setRunStatus("ended");
     } else {
       setSaveError("No se pudo entregar. Testra seguirá intentando mientras esta pestaña esté abierta.");
       submittingRef.current = false;
@@ -200,6 +200,26 @@ export function StudentRuntime({
     const heartbeat = window.setInterval(() => void sendHeartbeat(), runStatus === "lobby" ? 1_500 : 5_000);
     return () => window.clearInterval(heartbeat);
   }, [active.id, finish, participantId, runStatus, submitted]);
+
+  useEffect(() => {
+    if (!submitted || runStatus === "ended") return;
+    const checkReopen = async () => {
+      const response = await fetch("/api/student/heartbeat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ participantId, questionId: active.id }) });
+      if (!response.ok) return;
+      const body = await response.json() as { status: "lobby" | "running" | "ended"; participantStatus?: string; endsAt: number | null; serverNow: number };
+      if (body.participantStatus === "active") {
+        submittingRef.current = false;
+        setSubmitting(false);
+        setSubmitted(false);
+        setRunStatus("running");
+        setEndsAt(body.endsAt);
+        clockOffset.current = body.serverNow - Date.now();
+      } else if (body.status === "ended") setRunStatus("ended");
+    };
+    void checkReopen();
+    const timer = window.setInterval(() => void checkReopen(), 4_000);
+    return () => window.clearInterval(timer);
+  }, [active.id, participantId, runStatus, submitted]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -320,7 +340,7 @@ export function StudentRuntime({
         ) : (
           <>
             <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-ink-2">Pregunta {activeIndex + 1} de {questions.length} · <span className="mono-number">{active.points} pt{active.points === 1 ? "" : "s"}</span></p><div className="flex items-center gap-2"><span className="text-xs text-muted">{incidentCount} aviso{incidentCount === 1 ? "" : "s"} visible{incidentCount === 1 ? "" : "s"}</span>{requireFullscreen ? <Button type="button" variant="outline" size="sm" onClick={enterFullscreen}><Maximize2 data-icon="inline-start" /> Pantalla completa</Button> : null}</div></div>
-            <section className="rounded-lg border bg-paper p-5 shadow-card md:p-8" aria-labelledby="student-question"><h2 id="student-question" className="max-w-4xl text-lg font-semibold leading-relaxed text-ink">{active.prompt}</h2><div className="mt-7"><StudentAnswer question={active} value={answers[active.id]} onChange={(value) => setAnswer(active.id, value)} /></div></section>
+            <section className="rounded-lg border bg-paper p-5 shadow-card md:p-8" aria-labelledby="student-question"><div id="student-question"><RichContent text={active.prompt} assets={active.assets} className="max-w-4xl text-lg font-semibold leading-relaxed text-ink" /></div><div className="mt-7"><StudentAnswer question={active} value={answers[active.id]} onChange={(value) => setAnswer(active.id, value)} /></div></section>
             <div className="mt-auto rounded-lg border bg-paper p-4 shadow-card">{showProgress ? <QuestionNavigator states={states} activeIndex={activeIndex} onSelect={(index) => { if (allowBackwards || index >= activeIndex) { setActiveIndex(index); setReviewing(false); } }} mode="student" /> : null}<div className={`${showProgress ? "mt-4 border-t pt-4" : ""} flex items-center justify-between gap-3`}><Button type="button" variant="outline" disabled={!allowBackwards || activeIndex === 0} onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}><ArrowLeft data-icon="inline-start" />Anterior</Button><Button type="button" onClick={() => activeIndex === questions.length - 1 ? setReviewing(true) : setActiveIndex((index) => index + 1)}>{activeIndex === questions.length - 1 ? "Revisar" : "Siguiente"}<ArrowRight data-icon="inline-end" /></Button></div></div>
           </>
         )}
@@ -333,10 +353,10 @@ export function StudentRuntime({
 }
 
 function StudentAnswer({ question, value, onChange }: { question: StudentQuestion; value?: StudentAnswerValue; onChange: (value: StudentAnswerValue) => void }) {
-  if (question.type === "mc") return <RadioGroup value={typeof value === "string" ? value : ""} onValueChange={onChange} className="gap-3">{question.config.options.map((option) => <FieldLabel key={option.id} className="bg-white"><Field orientation="horizontal"><RadioGroupItem value={option.id} aria-label={option.text} /><span className="leading-relaxed">{option.text}</span></Field></FieldLabel>)}</RadioGroup>;
+  if (question.type === "mc") return <RadioGroup value={typeof value === "string" ? value : ""} onValueChange={onChange} className="gap-3">{question.config.options.map((option) => <FieldLabel key={option.id} className="bg-white"><Field orientation="horizontal"><RadioGroupItem value={option.id} aria-label={option.text} /><RichContent text={option.text} className="leading-relaxed" /></Field></FieldLabel>)}</RadioGroup>;
   if (question.type === "ms") {
     const selected = Array.isArray(value) ? value : [];
-    return <div className="flex flex-col gap-3">{question.config.options.map((option) => <FieldLabel key={option.id} className="bg-white"><Field orientation="horizontal"><Checkbox aria-label={option.text} checked={selected.includes(option.id)} onCheckedChange={(checked) => onChange(checked ? [...selected, option.id] : selected.filter((id) => id !== option.id))} /><span className="leading-relaxed">{option.text}</span></Field></FieldLabel>)}</div>;
+    return <div className="flex flex-col gap-3">{question.config.options.map((option) => <FieldLabel key={option.id} className="bg-white"><Field orientation="horizontal"><Checkbox aria-label={option.text} checked={selected.includes(option.id)} onCheckedChange={(checked) => onChange(checked ? [...selected, option.id] : selected.filter((id) => id !== option.id))} /><RichContent text={option.text} className="leading-relaxed" /></Field></FieldLabel>)}</div>;
   }
   if (question.type === "tf") return <RadioGroup value={typeof value === "boolean" ? String(value) : ""} onValueChange={(next) => onChange(next === "true")} className="grid gap-3 sm:grid-cols-2"><FieldLabel className="bg-white"><Field orientation="horizontal"><RadioGroupItem value="true" aria-label="Verdadero" />Verdadero</Field></FieldLabel><FieldLabel className="bg-white"><Field orientation="horizontal"><RadioGroupItem value="false" aria-label="Falso" />Falso</Field></FieldLabel></RadioGroup>;
   if (question.type === "sa") return <Field><FieldLabel htmlFor={`answer-${question.id}`}>Tu respuesta</FieldLabel><Input id={`answer-${question.id}`} value={typeof value === "string" ? value : ""} onChange={(event) => onChange(event.target.value)} autoComplete="off" /></Field>;

@@ -11,6 +11,11 @@ import {
   Save,
   Settings2,
   Trash2,
+  Eye,
+  ImagePlus,
+  X,
+  BrainCircuit,
+  LoaderCircle,
 } from "lucide-react";
 
 import {
@@ -56,6 +61,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { RichContent } from "@/components/rich-content";
 
 const TYPE_LABELS: Record<QuestionType, string> = {
   mc: "Opción única",
@@ -70,7 +76,7 @@ function id(prefix: string) {
 }
 
 function makeQuestion(type: QuestionType = "mc", position = 0): FullQuestion {
-  const base = { id: id("q"), position, prompt: "", points: 1, section: "" };
+  const base = { id: id("q"), position, prompt: "", points: 1, section: "", assets: [] };
   const options = [
     { id: id("op"), text: "" },
     { id: id("op"), text: "" },
@@ -178,13 +184,14 @@ function parsePastedExam(text: string): FullQuestion[] {
 
 interface ExamEditorProps {
   initialExam: ExamDraft;
+  aiEnabled?: boolean;
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return <FieldLabel className="bg-white"><Field orientation="horizontal"><Checkbox aria-label={label} checked={checked} onCheckedChange={(value) => onChange(Boolean(value))} /><span>{label}</span></Field></FieldLabel>;
 }
 
-export function ExamEditor({ initialExam }: ExamEditorProps) {
+export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) {
   const [title, setTitle] = useState(initialExam.title);
   const [subject, setSubject] = useState(initialExam.subject);
   const [instructions, setInstructions] = useState(initialExam.instructions);
@@ -207,6 +214,7 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
   const [violationAction, setViolationAction] = useState(initialExam.violationAction);
   const [resultsDisplay, setResultsDisplay] = useState(initialExam.resultsDisplay);
   const [resultsWhen, setResultsWhen] = useState(initialExam.resultsWhen);
+  const [passingScorePercent, setPassingScorePercent] = useState<number | null>(initialExam.passingScorePercent ?? null);
   const [status, setStatus] = useState<"draft" | "ready">(initialExam.status);
   const [questions, setQuestions] = useState<FullQuestion[]>(initialExam.questions);
   // Las secciones no se declaran aparte: existen porque hay preguntas que las
@@ -233,6 +241,9 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
   const [importText, setImportText] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const [generatingVariants, setGeneratingVariants] = useState(false);
+  const [variants, setVariants] = useState<FullQuestion[]>([]);
+  const [variantsOpen, setVariantsOpen] = useState(false);
   const firstAutosave = useRef(true);
 
   const active = questions[activeIndex];
@@ -298,6 +309,7 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
           violationAction,
           resultsDisplay,
           resultsWhen,
+          passingScorePercent,
           status: nextStatus,
           questions,
           updatedAt: new Date().toISOString(),
@@ -317,7 +329,7 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
       setSaveState("done");
       return false;
     }
-  }, [allowBackwards, allowReconnect, autoSubmit, blockClipboard, detectFocusLoss, initialExam.id, instructions, questions, questionsToServe, longToServe, sectionQuotas, recordDisconnects, requireFullscreen, resultsDisplay, resultsWhen, showProgress, shuffleOptions, shuffleQuestions, status, subject, supervisionLevel, timeLimit, title, violationAction]);
+  }, [allowBackwards, allowReconnect, autoSubmit, blockClipboard, detectFocusLoss, initialExam.id, instructions, passingScorePercent, questions, questionsToServe, longToServe, sectionQuotas, recordDisconnects, requireFullscreen, resultsDisplay, resultsWhen, showProgress, shuffleOptions, shuffleQuestions, status, subject, supervisionLevel, timeLimit, title, violationAction]);
 
   useEffect(() => {
     if (firstAutosave.current) {
@@ -365,6 +377,9 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
       id: question.id,
       prompt: question.prompt,
       points: question.points,
+      section: question.section,
+      difficulty: question.difficulty,
+      assets: question.assets,
     }));
   }
 
@@ -435,6 +450,26 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
     else { setRequireFullscreen(true); setDetectFocusLoss(true); setBlockClipboard(true); setRecordDisconnects(true); setViolationAction("warn_and_record"); }
   }
 
+  async function suggestVariants() {
+    setGeneratingVariants(true);
+    setSaveError("");
+    const response = await fetch("/api/ai/variants", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ examId: initialExam.id, questionId: active.id, count: 3 }) });
+    const body = await response.json().catch(() => ({})) as { variants?: FullQuestion[]; error?: string };
+    if (response.ok && body.variants) { setVariants(body.variants); setVariantsOpen(true); }
+    else setSaveError(body.error ?? "No se pudieron generar variantes");
+    setGeneratingVariants(false);
+  }
+
+  function addVariant(variant: FullQuestion) {
+    setQuestions((current) => {
+      const next = [...current];
+      next.splice(activeIndex + 1, 0, { ...variant, id: id("q") });
+      return next.map((question, position) => ({ ...question, position }));
+    });
+    setActiveIndex(activeIndex + 1);
+    setVariantsOpen(false);
+  }
+
   return (
     <div className="flex min-h-[calc(100dvh-3.75rem)] flex-col bg-canvas" data-editor-ready={ready} inert={!ready}>
       <div className="border-b bg-paper">
@@ -455,6 +490,7 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
                 {saveError || (saveState === "pending" ? "Cambios sin guardar" : saveState === "loading" ? "Guardando…" : "Guardado")}
               </span>
               {saveState === "pending" ? <Button type="button" variant="outline" size="sm" onClick={() => void saveNow()}><Save data-icon="inline-start" />Guardar ahora</Button> : null}
+              <Button type="button" variant="outline" size="sm" asChild><a href={`/evaluaciones/${encodeURIComponent(initialExam.id)}/vista-previa`} target="_blank" rel="noreferrer"><Eye data-icon="inline-start" />Vista previa</a></Button>
               <Dialog><DialogTrigger asChild><Button type="button" variant="outline" size="sm"><Settings2 data-icon="inline-start" />Configuración</Button></DialogTrigger><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Configuración de la evaluación</DialogTitle><DialogDescription>Definí navegación, tiempo, supervisión y publicación de resultados.</DialogDescription></DialogHeader><div className="grid gap-6 py-2">
                 <FieldGroup className="grid gap-3 sm:grid-cols-[1fr_10rem_8rem]"><Field><FieldLabel htmlFor="exam-title">Título</FieldLabel><Input id="exam-title" value={title} onChange={(event) => setTitle(event.target.value)} /></Field><Field><FieldLabel htmlFor="exam-subject">Materia</FieldLabel><Input id="exam-subject" value={subject} onChange={(event) => setSubject(event.target.value)} /></Field><Field><FieldLabel htmlFor="exam-time">Duración</FieldLabel><Input id="exam-time" type="number" min={1} max={360} value={timeLimit} onChange={(event) => setTimeLimit(Number(event.target.value))} /></Field></FieldGroup>
                 <section><h3 className="text-sm font-semibold text-ink">Orden y navegación</h3><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Mezclar preguntas" checked={shuffleQuestions} onChange={setShuffleQuestions} /><Toggle label="Mezclar respuestas" checked={shuffleOptions} onChange={setShuffleOptions} /><Toggle label="Permitir volver atrás" checked={allowBackwards} onChange={setAllowBackwards} /><Toggle label="Mostrar progreso" checked={showProgress} onChange={setShowProgress} /></div></section>
@@ -500,7 +536,7 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
                 <section className={usaSecciones ? "opacity-50" : undefined}><h3 className="text-sm font-semibold text-ink">Pozo de preguntas</h3><p className="mt-1 text-sm leading-relaxed text-muted">Cargá todas las preguntas que quieras y elegí cuántas recibe cada alumno. El subconjunto se sortea por alumno, así que dos compañeros no reciben las mismas preguntas y no hace falta armar tema A y tema B.</p><div className="mt-3 grid gap-3 sm:grid-cols-[auto_12rem]"><Toggle label="Servir solo una parte del pozo" checked={questionsToServe !== null} onChange={(value) => setQuestionsToServe(value ? Math.min(10, questions.length) : null)} />{questionsToServe !== null ? <Field><FieldLabel htmlFor="exam-serve">Preguntas por alumno</FieldLabel><Input id="exam-serve" type="number" min={1} max={questions.length} value={questionsToServe} onChange={(event) => setQuestionsToServe(Math.max(1, Math.min(questions.length, Number(event.target.value) || 1)))} /></Field> : null}</div>{questionsToServe !== null ? <Field className="mt-3 max-w-[16rem]"><FieldLabel htmlFor="exam-long">De esas, cuántas de desarrollo</FieldLabel><Input id="exam-long" type="number" min={0} max={Math.min(questionsToServe, questions.filter((question) => question.type === "long").length)} value={longToServe} onChange={(event) => setLongToServe(Math.max(0, Math.min(questionsToServe, Number(event.target.value) || 0)))} /><FieldDescription>Se sortean aparte, así a nadie le toca una evaluación sin preguntas para justificar.</FieldDescription></Field> : null}{questionsToServe !== null ? <p className="mt-2 text-sm font-medium text-ink-2">Cada alumno responde {questionsToServe} de {questions.length} preguntas, {longToServe} de ellas de desarrollo. El pozo tiene {questions.filter((question) => question.type === "long").length} de desarrollo.</p> : null}</section>
                 <section><h3 className="text-sm font-semibold text-ink">Tiempo y entrega</h3><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Entregar automáticamente al finalizar" checked={autoSubmit} onChange={setAutoSubmit} /><Toggle label="Permitir reconexión" checked={allowReconnect} onChange={setAllowReconnect} /></div></section>
                 <section><h3 className="text-sm font-semibold text-ink">Supervisión</h3><div className="mt-3 flex flex-wrap gap-2"><Button type="button" size="sm" variant={supervisionLevel === "normal" ? "default" : "outline"} onClick={() => applySupervisionPreset("normal")}>Normal</Button><Button type="button" size="sm" variant={supervisionLevel === "strict" ? "default" : "outline"} onClick={() => applySupervisionPreset("strict")}>Estricto</Button><Button type="button" size="sm" variant={supervisionLevel === "custom" ? "default" : "outline"} onClick={() => setSupervisionLevel("custom")}>Personalizado</Button></div><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Requerir pantalla completa" checked={requireFullscreen} onChange={(value) => { setRequireFullscreen(value); setSupervisionLevel("custom"); }} /><Toggle label="Detectar cambio de pestaña/ventana" checked={detectFocusLoss} onChange={(value) => { setDetectFocusLoss(value); setSupervisionLevel("custom"); }} /><Toggle label="Bloquear copiar y pegar" checked={blockClipboard} onChange={(value) => { setBlockClipboard(value); setSupervisionLevel("custom"); }} /><Toggle label="Registrar desconexiones" checked={recordDisconnects} onChange={(value) => { setRecordDisconnects(value); setSupervisionLevel("custom"); }} /></div><Field className="mt-3"><FieldLabel>Al detectar una infracción</FieldLabel><Select value={violationAction} onValueChange={(value) => setViolationAction(value as typeof violationAction)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="warn_and_record">Advertir y registrar</SelectItem><SelectItem value="record_only">Solo registrar</SelectItem></SelectContent></Select></Field></section>
-                <section><h3 className="text-sm font-semibold text-ink">Resultados</h3><div className="mt-3 grid gap-3 sm:grid-cols-2"><Field><FieldLabel>Mostrar</FieldLabel><Select value={resultsDisplay} onValueChange={(value) => setResultsDisplay(value as typeof resultsDisplay)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="score_only">Solo puntaje</SelectItem><SelectItem value="score_and_answers">Puntaje y respuestas</SelectItem><SelectItem value="hidden">No mostrar</SelectItem></SelectContent></Select></Field><Field><FieldLabel>Cuándo</FieldLabel><Select value={resultsWhen} onValueChange={(value) => setResultsWhen(value as typeof resultsWhen)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="teacher_publishes">Cuando el docente publique</SelectItem><SelectItem value="after_submit">Al entregar</SelectItem><SelectItem value="after_run">Al terminar la sesión</SelectItem></SelectContent></Select></Field></div></section>
+                <section><h3 className="text-sm font-semibold text-ink">Resultados</h3><div className="mt-3 grid gap-3 sm:grid-cols-2"><Field><FieldLabel>Mostrar</FieldLabel><Select value={resultsDisplay} onValueChange={(value) => setResultsDisplay(value as typeof resultsDisplay)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="score_only">Solo puntaje</SelectItem><SelectItem value="score_and_answers">Puntaje y respuestas</SelectItem><SelectItem value="hidden">No mostrar</SelectItem></SelectContent></Select></Field><Field><FieldLabel>Cuándo</FieldLabel><Select value={resultsWhen} onValueChange={(value) => setResultsWhen(value as typeof resultsWhen)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="teacher_publishes">Cuando el docente publique</SelectItem><SelectItem value="after_submit">Al entregar</SelectItem><SelectItem value="after_run">Al terminar la sesión</SelectItem></SelectContent></Select></Field><Field><FieldLabel htmlFor="passing-score">Aprobación (%) · opcional</FieldLabel><Input id="passing-score" type="number" min={0} max={100} value={passingScorePercent ?? ""} placeholder="Sin umbral" onChange={(event) => setPassingScorePercent(event.target.value === "" ? null : Math.max(0, Math.min(100, Number(event.target.value))))} /><FieldDescription>Si queda vacío, Testra no supone un porcentaje.</FieldDescription></Field></div></section>
               </div><DialogFooter><DialogClose asChild><Button type="button">Listo</Button></DialogClose></DialogFooter></DialogContent></Dialog>
               <Button type="button" disabled={!canReady || preparing} onClick={() => void prepareRun()}>
                 {preparing ? "Preparando sala…" : "Preparar para el curso"}
@@ -529,6 +565,7 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
             <span className="mono-number text-sm font-semibold text-ink-2">{totalPoints} pt{totalPoints === 1 ? "" : "s"}</span>
           </div>
           <div className="flex items-center gap-1">
+            {aiEnabled ? <Button type="button" variant="ghost" size="sm" disabled={generatingVariants} onClick={() => void suggestVariants()}>{generatingVariants ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : <BrainCircuit data-icon="inline-start" />}Variantes IA</Button> : null}
             <Button type="button" variant="ghost" size="sm" onClick={duplicateActive}>
               <Copy data-icon="inline-start" /> Duplicar
             </Button>
@@ -564,6 +601,8 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
                 placeholder="Escribí el enunciado. Después elegís el tipo de respuesta."
                 autoFocus
               />
+              {active.prompt.trim() ? <div className="rounded-md border bg-inset p-4"><p className="mb-2 text-xs font-semibold uppercase tracking-[.08em] text-muted">Vista renderizada</p><RichContent text={active.prompt} assets={active.assets ?? []} /></div> : null}
+              <QuestionImages examId={initialExam.id} question={active} onChange={updateActive} />
               {!active.prompt.trim() ? <FieldError>Escribí el enunciado de la pregunta {activeIndex + 1}.</FieldError> : null}
             </Field>
 
@@ -613,6 +652,12 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
                     {seccionesCargadas.map((seccion) => <option value={seccion} key={seccion} />)}
                   </datalist>
                   <FieldDescription>Agrupa preguntas para servir una cantidad de cada grupo.</FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel>Dificultad · opcional</FieldLabel>
+                  <Select value={active.difficulty ?? "none"} onValueChange={(value) => updateActive((question) => ({ ...question, difficulty: value === "none" ? null : value as "easy" | "medium" | "hard" }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Sin clasificar</SelectItem><SelectItem value="easy">Fácil</SelectItem><SelectItem value="medium">Media</SelectItem><SelectItem value="hard">Difícil</SelectItem></SelectContent>
+                  </Select>
                 </Field>
               </FieldGroup>
 
@@ -684,8 +729,31 @@ export function ExamEditor({ initialExam }: ExamEditorProps) {
           </div>
         </div>
       </main>
+      <Dialog open={variantsOpen} onOpenChange={setVariantsOpen}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>Variantes propuestas</DialogTitle><DialogDescription>Ninguna se agrega sola. Elegí una, revisala y editá su clave antes de usarla.</DialogDescription></DialogHeader><div className="grid gap-3">{variants.map((variant, index) => <article key={variant.id} className="rounded-md border p-4"><p className="text-xs font-semibold uppercase tracking-[.08em] text-muted">Propuesta {index + 1}</p><RichContent text={variant.prompt} className="mt-2 text-sm font-semibold text-ink" /><Button type="button" className="mt-3" size="sm" onClick={() => addVariant(variant)}>Agregar y editar</Button></article>)}</div></DialogContent></Dialog>
     </div>
   );
+}
+
+function QuestionImages({ examId, question, onChange }: { examId: string; question: FullQuestion; onChange: (updater: (question: FullQuestion) => FullQuestion) => void }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const assets = question.assets ?? [];
+
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    const form = new FormData();
+    form.set("examId", examId);
+    form.set("file", file);
+    const response = await fetch("/api/question-assets", { method: "POST", body: form });
+    const body = await response.json().catch(() => ({})) as { id?: string; name?: string; mimeType?: "image/webp"; width?: number; height?: number; error?: string };
+    if (!response.ok || !body.id || !body.name || !body.mimeType || !body.width || !body.height) setError(body.error ?? "No se pudo subir la imagen");
+    else onChange((current) => ({ ...current, assets: [...(current.assets ?? []), { id: body.id!, name: body.name!, mimeType: body.mimeType!, width: body.width!, height: body.height! }] }));
+    setUploading(false);
+  }
+
+  return <div className="grid gap-2"><div className="flex flex-wrap items-center gap-2">{assets.map((asset) => <div key={asset.id} className="relative overflow-hidden rounded-md border bg-white"><img src={`/api/question-assets/${asset.id}`} alt={asset.name} className="h-24 w-36 object-contain" /><Button type="button" variant="destructive" size="icon-xs" className="absolute right-1 top-1" aria-label={`Quitar ${asset.name}`} onClick={() => onChange((current) => ({ ...current, assets: (current.assets ?? []).filter((item) => item.id !== asset.id) }))}><X /></Button></div>)}{assets.length < 4 ? <label className="inline-flex h-24 w-36 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed bg-white text-xs font-semibold text-ink-2 hover:border-brand"><ImagePlus className="size-5 text-brand" />{uploading ? "Procesando…" : "Agregar imagen"}<input type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,image/gif" disabled={uploading} onChange={(event) => void upload(event.target.files?.[0])} /></label> : null}</div><p className="text-xs text-muted">Hasta 4 imágenes de 5 MB. Testra las valida, orienta y optimiza a WebP.</p>{error ? <FieldError>{error}</FieldError> : null}</div>;
 }
 
 function AnswerKeyEditor({
@@ -696,10 +764,13 @@ function AnswerKeyEditor({
   onChange: (updater: (question: FullQuestion) => FullQuestion) => void;
 }) {
   if (question.type === "long") {
+    const rubric = question.config.rubric ?? [];
     return (
-      <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center">
-        <p className="font-semibold text-ink">Corrección manual</p>
-        <p className="max-w-md text-sm leading-relaxed text-muted">El alumno escribe un desarrollo. Testra no asigna nota automática a este tipo de pregunta.</p>
+      <div className="grid gap-4">
+        <div><p className="font-semibold text-ink">Corrección manual</p><p className="mt-1 text-sm leading-relaxed text-muted">Podés sumar una rúbrica opcional. Sus criterios deben sumar {question.points} puntos.</p></div>
+        {rubric.map((criterion, index) => <Field key={criterion.id} orientation="horizontal" className="rounded-md border bg-paper p-2.5"><Input aria-label={`Criterio ${index + 1}`} value={criterion.label} placeholder="Claridad conceptual" onChange={(event) => onChange((current) => current.type === "long" ? { ...current, config: { rubric: (current.config.rubric ?? []).map((item) => item.id === criterion.id ? { ...item, label: event.target.value } : item) } } : current)} /><Input aria-label={`Máximo criterio ${index + 1}`} className="w-24" type="number" min={0.01} max={question.points} value={criterion.maxPoints} onChange={(event) => onChange((current) => current.type === "long" ? { ...current, config: { rubric: (current.config.rubric ?? []).map((item) => item.id === criterion.id ? { ...item, maxPoints: Number(event.target.value) } : item) } } : current)} /><Button type="button" variant="ghost" size="icon-sm" aria-label={`Eliminar criterio ${index + 1}`} onClick={() => onChange((current) => current.type === "long" ? { ...current, config: { rubric: (current.config.rubric ?? []).filter((item) => item.id !== criterion.id) } } : current)}><Trash2 /></Button></Field>)}
+        <Button type="button" variant="outline" size="sm" className="justify-self-start" disabled={rubric.length >= 20} onClick={() => onChange((current) => current.type === "long" ? { ...current, config: { rubric: [...(current.config.rubric ?? []), { id: id("criterion"), label: "", maxPoints: rubric.length ? 1 : current.points }] } } : current)}><Plus data-icon="inline-start" />Agregar criterio</Button>
+        {rubric.length ? <p className={`text-sm ${Math.abs(rubric.reduce((sum, item) => sum + item.maxPoints, 0) - question.points) < .001 ? "text-ok" : "text-alert"}`}>Total: {rubric.reduce((sum, item) => sum + item.maxPoints, 0)} / {question.points} puntos</p> : null}
       </div>
     );
   }
@@ -771,6 +842,7 @@ function AnswerKeyEditor({
     <FieldSet>
       <FieldLegend variant="label">Opciones y clave</FieldLegend>
       <FieldDescription>{single ? "Seleccioná una respuesta correcta." : "Podés marcar más de una respuesta correcta."}</FieldDescription>
+      {!single ? <Field><FieldLabel>Forma de corrección</FieldLabel><Select value={question.config.gradingMode ?? "exact"} onValueChange={(value) => onChange((current) => current.type === "ms" ? { ...current, config: { ...current.config, gradingMode: value as "exact" | "partial" } } : current)}><SelectTrigger className="max-w-64"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="exact">Exacta (predeterminada)</SelectItem><SelectItem value="partial">Crédito parcial con penalización</SelectItem></SelectContent></Select><FieldDescription>La parcial suma aciertos, resta selecciones erróneas y nunca baja de cero.</FieldDescription></Field> : null}
       <FieldGroup className="gap-2">
         {question.config.options.map((option, index) => {
           const checked = single

@@ -11,6 +11,8 @@ import { personalizeQuestions } from "@/domain/pool";
 import { gradeExam, type AnswerValue } from "@/server/grading";
 import { createRunCode } from "@/server/run-code";
 import { hashGuestToken, readGuestSession } from "@/server/student-access";
+import { getExamCapabilities, getRunCapabilities } from "@/server/exam-permissions";
+import { buildExamAnalytics, type AnalyticsAttempt } from "@/server/analytics";
 
 interface ExamRow {
   id: string;
@@ -35,6 +37,7 @@ interface ExamRow {
   violation_action: ExamDraft["violationAction"];
   results_display: ExamDraft["resultsDisplay"];
   results_when: ExamDraft["resultsWhen"];
+  passing_score_percent: number | null;
   status: "draft" | "ready";
   updated_at: number;
 }
@@ -47,6 +50,8 @@ interface QuestionRow {
   points: number;
   config: string;
   section: string | null;
+  difficulty: FullQuestion["difficulty"] | null;
+  assets: string;
 }
 
 interface RunRow {
@@ -75,6 +80,7 @@ interface RunRow {
   violation_action: ExamDraft["violationAction"];
   results_display: ExamDraft["resultsDisplay"];
   results_when: ExamDraft["resultsWhen"];
+  passing_score_percent: number | null;
   status: "lobby" | "running" | "ended";
   classroom_course_id: string | null;
   classroom_coursework_id: string | null;
@@ -94,6 +100,9 @@ interface ParticipantRow {
   status: "waiting" | "active" | "submitted" | "disconnected";
   submitted_at: number | null;
   submit_reason: string | null;
+  extra_time_s: number;
+  deadline_at: number | null;
+  reopened_count: number;
   last_seen: number;
 }
 
@@ -112,6 +121,8 @@ export interface ExamSummary {
   runCount: number;
   lastRunAt: number | null;
   updatedAt: number;
+  ownerName: string;
+  accessRole: "owner" | "view" | "edit" | "correct";
 }
 
 export interface RunSummary {
@@ -135,19 +146,20 @@ export async function runCommand(runId: string, path: string, body?: unknown) {
 
 export async function listExams(actor: Actor, query = "", subject = ""): Promise<ExamSummary[]> {
   const result = await db.prepare(
-    `SELECT e.id, e.title, e.subject, e.status, e.updated_at,
-      COUNT(DISTINCT q.id) AS question_count,
-      COALESCE(SUM(DISTINCT CASE WHEN q.id IS NOT NULL THEN q.points * 1000000 + q.position ELSE NULL END), 0) AS encoded_points,
-      COUNT(DISTINCT r.id) AS run_count,
-      MAX(r.created_at) AS last_run_at
+    `SELECT e.id, e.title, e.subject, e.status, e.updated_at, owner.name AS owner_name,
+      CASE WHEN e.author_id = ? THEN 'owner' ELSE c.permission END AS access_role,
+      (SELECT COUNT(*) FROM questions q WHERE q.exam_id = e.id) AS question_count,
+      (SELECT COALESCE(SUM(q.points), 0) FROM questions q WHERE q.exam_id = e.id) AS total_points,
+      (SELECT COUNT(*) FROM runs r WHERE r.exam_id = e.id) AS run_count,
+      (SELECT MAX(r.created_at) FROM runs r WHERE r.exam_id = e.id) AS last_run_at
      FROM exams e
-     LEFT JOIN questions q ON q.exam_id = e.id
-     LEFT JOIN runs r ON r.exam_id = e.id
-     WHERE e.author_id = ? AND e.title LIKE ? AND (? = '' OR e.subject = ?)
-     GROUP BY e.id
+     JOIN users owner ON owner.id = e.author_id
+     LEFT JOIN exam_collaborators c ON c.exam_id = e.id AND c.user_id = ?
+     WHERE (e.author_id = ? OR c.user_id IS NOT NULL)
+       AND lower(e.title) LIKE lower(?) AND (? = '' OR e.subject = ?)
      ORDER BY e.updated_at DESC`,
   )
-    .bind(actor.id, `%${query}%`, subject, subject)
+    .bind(actor.id, actor.id, actor.id, `%${query}%`, subject, subject)
     .all<{
       id: string;
       title: string;
@@ -155,39 +167,44 @@ export async function listExams(actor: Actor, query = "", subject = ""): Promise
       status: "draft" | "ready";
       updated_at: number;
       question_count: number;
-      encoded_points: number;
+      total_points: number;
       run_count: number;
       last_run_at: number | null;
+      owner_name: string;
+      access_role: "owner" | "view" | "edit" | "correct";
     }>();
 
-  // The encoded aggregate keeps points correct when a run join multiplies question rows.
   return result.results.map((row) => ({
     id: row.id,
     title: row.title,
     subject: row.subject,
     status: row.status,
     questionCount: Number(row.question_count),
-    totalPoints: Math.floor(Number(row.encoded_points) / 1_000_000),
+    totalPoints: Number(row.total_points),
     runCount: Number(row.run_count),
     lastRunAt: row.last_run_at,
     updatedAt: row.updated_at,
+    ownerName: row.owner_name,
+    accessRole: row.access_role,
   }));
 }
 
 export async function listSubjects(actor: Actor): Promise<string[]> {
   const result = await db.prepare(
-    "SELECT DISTINCT subject FROM exams WHERE author_id = ? ORDER BY subject",
-  ).bind(actor.id).all<{ subject: string }>();
+    `SELECT DISTINCT e.subject FROM exams e
+     LEFT JOIN exam_collaborators c ON c.exam_id = e.id AND c.user_id = ?
+     WHERE e.author_id = ? OR c.user_id IS NOT NULL ORDER BY e.subject`,
+  ).bind(actor.id, actor.id).all<{ subject: string }>();
   return result.results.map((row) => row.subject);
 }
 
 export async function getExam(examId: string, actor: Actor): Promise<ExamDraft | null> {
+  const capabilities = await getExamCapabilities(examId, actor);
+  if (!capabilities.view) return null;
   const [exam, questionResult] = await Promise.all([
+    db.prepare("SELECT * FROM exams WHERE id = ?").bind(examId).first<ExamRow>(),
     db.prepare(
-      "SELECT * FROM exams WHERE id = ? AND (? = 1 OR author_id = ?)",
-    ).bind(examId, actor.superadmin ? 1 : 0, actor.id).first<ExamRow>(),
-    db.prepare(
-      "SELECT id, position, type, prompt, points, config, section FROM questions WHERE exam_id = ? ORDER BY position",
+      "SELECT id, position, type, prompt, points, config, section, difficulty, assets FROM questions WHERE exam_id = ? ORDER BY position",
     ).bind(examId).all<QuestionRow>(),
   ]);
   if (!exam) return null;
@@ -214,6 +231,7 @@ export async function getExam(examId: string, actor: Actor): Promise<ExamDraft |
     violationAction: exam.violation_action,
     resultsDisplay: exam.results_display,
     resultsWhen: exam.results_when,
+    passingScorePercent: exam.passing_score_percent,
     status: exam.status,
     updatedAt: new Date(exam.updated_at).toISOString(),
     questions: questionResult.results.map(parseQuestion),
@@ -225,15 +243,18 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
   const existing = await db.prepare("SELECT author_id FROM exams WHERE id = ?")
     .bind(draft.id)
     .first<{ author_id: string }>();
-  if (existing && existing.author_id !== actor.id) throw new Error("La evaluación pertenece a otro docente");
+  if (existing) {
+    const capabilities = await getExamCapabilities(draft.id, actor);
+    if (!capabilities.edit) throw new Error("No tenés permiso para editar esta evaluación");
+  }
 
   const now = Date.now();
   const statements: PgStatement[] = [
     db.prepare(
       `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, questions_to_serve, long_to_serve, section_quotas, shuffle_questions, shuffle_options,
        allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
-       block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       block_clipboard, record_disconnects, violation_action, results_display, results_when, passing_score_percent, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET title = excluded.title, subject = excluded.subject,
        instructions = excluded.instructions, time_limit_s = excluded.time_limit_s,
        questions_to_serve = excluded.questions_to_serve, long_to_serve = excluded.long_to_serve,
@@ -245,6 +266,7 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
        detect_focus_loss = excluded.detect_focus_loss, block_clipboard = excluded.block_clipboard,
        record_disconnects = excluded.record_disconnects, violation_action = excluded.violation_action,
        results_display = excluded.results_display, results_when = excluded.results_when,
+       passing_score_percent = excluded.passing_score_percent,
        status = excluded.status, updated_at = excluded.updated_at`,
     ).bind(
       draft.id,
@@ -271,6 +293,7 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
       draft.violationAction,
       draft.resultsDisplay,
       draft.resultsWhen,
+      draft.passingScorePercent ?? null,
       draft.status,
       now,
       now,
@@ -280,7 +303,7 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
   for (const question of draft.questions) {
     statements.push(
       db.prepare(
-        "INSERT INTO questions (id, exam_id, position, type, prompt, points, config, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO questions (id, exam_id, position, type, prompt, points, config, section, difficulty, assets) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ).bind(
         question.id,
         draft.id,
@@ -290,6 +313,8 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
         question.points,
         JSON.stringify(question.config),
         question.section || null,
+        question.difficulty ?? null,
+        JSON.stringify(question.assets ?? []),
       ),
     );
   }
@@ -327,6 +352,8 @@ export async function deleteExam(examId: string, actor: Actor): Promise<boolean>
 }
 
 export async function createRun(actor: Actor, examId: string) {
+  const capabilities = await getExamCapabilities(examId, actor);
+  if (!capabilities.openRuns) return null;
   const exam = await getExam(examId, actor);
   if (!exam) return null;
   if (exam.status !== "ready") throw new Error("La evaluación debe estar preparada antes de abrir la sala");
@@ -347,8 +374,8 @@ export async function createRun(actor: Actor, examId: string) {
   await db.prepare(
     `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, questions_to_serve, long_to_serve, section_quotas, shuffle_questions, shuffle_options,
      allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
-     block_clipboard, record_disconnects, violation_action, results_display, results_when, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
+     block_clipboard, record_disconnects, violation_action, results_display, results_when, passing_score_percent, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
   ).bind(
     runId,
     actor.orgId,
@@ -375,6 +402,7 @@ export async function createRun(actor: Actor, examId: string) {
     exam.violationAction,
     exam.resultsDisplay,
     exam.resultsWhen,
+    exam.passingScorePercent ?? null,
     now,
   ).run();
   const response = await runCommand(runId, "/initialize", {
@@ -388,11 +416,9 @@ export async function createRun(actor: Actor, examId: string) {
 }
 
 export async function getRunForTeacher(runId: string, actor: Actor): Promise<RunRow | null> {
-  return db.prepare(
-    `SELECT r.* FROM runs r
-     LEFT JOIN exams e ON e.id = r.exam_id
-     WHERE r.id = ? AND (? = 1 OR COALESCE(r.author_id, e.author_id) = ?)`,
-  ).bind(runId, actor.superadmin ? 1 : 0, actor.id).first<RunRow>();
+  const capabilities = await getRunCapabilities(runId, actor);
+  if (!capabilities.view) return null;
+  return db.prepare("SELECT * FROM runs WHERE id = ?").bind(runId).first<RunRow>();
 }
 
 export async function listRuns(actor: Actor): Promise<RunSummary[]> {
@@ -413,11 +439,12 @@ export async function listRuns(actor: Actor): Promise<RunSummary[]> {
       s.average
      FROM runs r
      LEFT JOIN exams e ON e.id = r.exam_id
+     LEFT JOIN exam_collaborators c ON c.exam_id = e.id AND c.user_id = ?
      LEFT JOIN score_totals s ON s.run_id = r.id
      LEFT JOIN incident_totals i ON i.run_id = r.id
-     WHERE COALESCE(r.author_id, e.author_id) = ?
+     WHERE COALESCE(r.author_id, e.author_id) = ? OR c.user_id IS NOT NULL
      ORDER BY r.created_at DESC`,
-  ).bind(actor.id).all<{
+  ).bind(actor.id, actor.id).all<{
     id: string;
     title: string;
     code: string;
@@ -615,7 +642,8 @@ export async function participantOwnedBy(participantId: string, access: StudentA
 export async function saveAnswer(access: StudentAccess, participantId: string, questionId: string, value: AnswerValue) {
   const participant = await participantOwnedBy(participantId, access);
   if (!participant || participant.status === "submitted") return null;
-  if (participant.run_status !== "running" || (participant.ends_at !== null && participant.ends_at <= Date.now())) {
+  const effectiveDeadline = participant.deadline_at ?? participant.ends_at;
+  if (participant.run_status !== "running" || (effectiveDeadline !== null && effectiveDeadline <= Date.now())) {
     throw new Error("La sesión ya no acepta respuestas");
   }
   const questions = questionsForParticipant(
@@ -683,9 +711,10 @@ export async function submitParticipant(access: StudentAccess, participantId: st
 export async function getMonitorSnapshot(runId: string, actor: Actor) {
   const run = await getRunForTeacher(runId, actor);
   if (!run) return null;
-  const [participantResult, incidentResult, expectedResult] = await Promise.all([
+  const [participantResult, incidentResult, expectedResult, eventResult] = await Promise.all([
     db.prepare(
       `SELECT p.id, p.status, p.joined_at, p.submitted_at, p.last_seen, p.late,
+       p.extra_time_s, p.deadline_at, p.reopened_count,
        p.display_name AS name, u.email,
        (SELECT COUNT(*) FROM answers a WHERE a.participant_id = p.id) AS answered,
        (SELECT SUM(COALESCE(g.points_awarded, 0)) FROM grades g WHERE g.participant_id = p.id) AS score,
@@ -701,6 +730,12 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
     db.prepare(
       "SELECT google_user_id, name, email FROM expected_run_students WHERE run_id = ? ORDER BY name",
     ).bind(runId).all<Record<string, string | null>>(),
+    db.prepare(
+      `SELECT pe.id, pe.participant_id, pe.at, pe.type, pe.actor_user_id, pe.meta, u.name AS actor_name
+       FROM participant_events pe JOIN participants p ON p.id = pe.participant_id
+       LEFT JOIN users u ON u.id = pe.actor_user_id
+       WHERE p.run_id = ? ORDER BY pe.at DESC LIMIT 500`,
+    ).bind(runId).all<Record<string, string | number | null>>(),
   ]);
   const allQuestions = JSON.parse(run.questions_snapshot) as FullQuestion[];
   const representativeQuestions = questionsForParticipant(run, "__progress-preview__");
@@ -732,18 +767,21 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
       meta: typeof row.meta === "string" ? JSON.parse(row.meta) : {},
     })),
     expected: expectedResult.results,
+    events: eventResult.results.map((row) => ({ ...row, meta: typeof row.meta === "string" ? JSON.parse(row.meta) : {} })),
     serverNow: Date.now(),
   };
 }
 
 export async function getParticipantDetail(participantId: string, actor: Actor) {
+  const participantRun = await db.prepare("SELECT run_id FROM participants WHERE id = ?")
+    .bind(participantId).first<{ run_id: string }>();
+  if (!participantRun || !(await getRunCapabilities(participantRun.run_id, actor)).view) return null;
   const participant = await db.prepare(
     `SELECT p.*, r.id AS run_id, r.title, r.questions_snapshot,
             r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve, r.section_quotas
      FROM participants p JOIN runs r ON r.id = p.run_id
-     LEFT JOIN exams e ON e.id = r.exam_id
-     WHERE p.id = ? AND COALESCE(r.author_id, e.author_id) = ?`,
-  ).bind(participantId, actor.id).first<ParticipantRow & {
+     WHERE p.id = ?`,
+  ).bind(participantId).first<ParticipantRow & {
     title: string;
     questions_snapshot: string;
     shuffle_questions: number;
@@ -754,13 +792,15 @@ export async function getParticipantDetail(participantId: string, actor: Actor) 
   }>();
   if (!participant) return null;
 
-  const [answerResult, gradeResult, incidentResult] = await Promise.all([
+  const [answerResult, gradeResult, incidentResult, eventResult] = await Promise.all([
     db.prepare("SELECT question_id, value, updated_at FROM answers WHERE participant_id = ?")
       .bind(participantId).all<{ question_id: string; value: string; updated_at: number }>(),
     db.prepare("SELECT question_id, auto, override, points_awarded FROM grades WHERE participant_id = ?")
       .bind(participantId).all<{ question_id: string; auto: number | null; override: number | null; points_awarded: number | null }>(),
     db.prepare("SELECT id, at, duration_ms, type, meta, source, question_id FROM incidents WHERE participant_id = ? ORDER BY at")
       .bind(participantId).all<{ id: string; at: number; duration_ms: number; type: string; meta: string; source: string; question_id: string | null }>(),
+    db.prepare("SELECT pe.id, pe.at, pe.type, pe.meta, u.name AS actor_name FROM participant_events pe LEFT JOIN users u ON u.id = pe.actor_user_id WHERE pe.participant_id = ? ORDER BY pe.at")
+      .bind(participantId).all<{ id: string; at: number; type: string; meta: string; actor_name: string | null }>(),
   ]);
   const questions = questionsForParticipant(
     { ...participant, id: participant.run_id },
@@ -796,6 +836,10 @@ export async function getParticipantDetail(participantId: string, actor: Actor) 
       const question = questionId ? questionById.get(questionId) : null;
       return { ...incident, meta, questionId, questionNumber: question?.number ?? null, questionPrompt: question?.prompt ?? null };
     }),
+    timeline: [
+      ...eventResult.results.map((event) => ({ id: event.id, at: event.at, type: event.type, kind: "event", actorName: event.actor_name, meta: typeof event.meta === "string" ? JSON.parse(event.meta) : {} })),
+      ...incidentResult.results.map((incident) => ({ id: incident.id, at: incident.at, type: incident.type, kind: "incident", actorName: null, meta: typeof incident.meta === "string" ? JSON.parse(incident.meta) : {} })),
+    ].sort((left, right) => left.at - right.at),
   };
 }
 
@@ -811,16 +855,17 @@ export async function getRunAnalysisData(runId: string, actor: Actor) {
 export async function listPendingCorrections(actor: Actor, runId?: string) {
   const result = await db.prepare(
     `SELECT p.id AS participant_id, p.run_id, p.submitted_at, p.display_name AS name, r.title,
-      r.questions_snapshot, a.question_id, a.value, g.points_awarded
+      r.questions_snapshot, a.question_id, a.value, g.points_awarded, g.feedback, g.rubric_scores
      FROM participants p
      JOIN runs r ON r.id = p.run_id
      LEFT JOIN exams e ON e.id = r.exam_id
      JOIN answers a ON a.participant_id = p.id
      LEFT JOIN grades g ON g.participant_id = p.id AND g.question_id = a.question_id
-     WHERE p.status = 'submitted' AND COALESCE(r.author_id, e.author_id) = ?
+     LEFT JOIN exam_collaborators c ON c.exam_id = e.id AND c.user_id = ?
+     WHERE p.status = 'submitted' AND (COALESCE(r.author_id, e.author_id) = ? OR c.permission = 'correct')
        AND (? = '' OR p.run_id = ?)
      ORDER BY p.submitted_at DESC`,
-  ).bind(actor.id, runId ?? "", runId ?? "").all<{
+  ).bind(actor.id, actor.id, runId ?? "", runId ?? "").all<{
     participant_id: string;
     run_id: string;
     submitted_at: number;
@@ -830,6 +875,8 @@ export async function listPendingCorrections(actor: Actor, runId?: string) {
     question_id: string;
     value: string;
     points_awarded: number | null;
+    feedback: string | null;
+    rubric_scores: string | null;
   }>();
   return result.results.flatMap((row) => {
     const question = (JSON.parse(row.questions_snapshot) as FullQuestion[]).find(
@@ -847,32 +894,123 @@ export async function listPendingCorrections(actor: Actor, runId?: string) {
       maxPoints: question.points,
       answer: JSON.parse(row.value) as string,
       pointsAwarded: row.points_awarded,
+      feedback: row.feedback ?? "",
+      rubricScores: safeJsonObject(row.rubric_scores),
+      rubric: question.type === "long" ? question.config.rubric ?? [] : [],
     }];
   });
 }
 
 export async function saveManualGrade(
   actor: Actor,
-  input: { participantId: string; questionId: string; pointsAwarded: number },
+  input: { participantId: string; questionId: string; pointsAwarded: number; feedback?: string; rubricScores?: Record<string, number> },
 ) {
+  const participantRun = await db.prepare("SELECT run_id FROM participants WHERE id = ?").bind(input.participantId).first<{ run_id: string }>();
+  if (!participantRun || !(await getRunCapabilities(participantRun.run_id, actor)).correct) return false;
   const row = await db.prepare(
     `SELECT r.questions_snapshot FROM participants p JOIN runs r ON r.id = p.run_id
-     LEFT JOIN exams e ON e.id = r.exam_id
-     WHERE p.id = ? AND COALESCE(r.author_id, e.author_id) = ?`,
-  ).bind(input.participantId, actor.id).first<{ questions_snapshot: string }>();
+     WHERE p.id = ?`,
+  ).bind(input.participantId).first<{ questions_snapshot: string }>();
   if (!row) return false;
   const question = (JSON.parse(row.questions_snapshot) as FullQuestion[]).find(
     (candidate) => candidate.id === input.questionId && candidate.type === "long",
   );
-  if (!question || input.pointsAwarded < 0 || input.pointsAwarded > question.points) {
+  if (!question || question.type !== "long" || input.pointsAwarded < 0 || input.pointsAwarded > question.points) {
     throw new Error("El puntaje está fuera del rango permitido");
   }
+  const rubric = question.config.rubric ?? [];
+  if (rubric.length) {
+    const scores = input.rubricScores ?? {};
+    for (const criterion of rubric) {
+      const score = Number(scores[criterion.id] ?? 0);
+      if (score < 0 || score > criterion.maxPoints) throw new Error(`El criterio “${criterion.label}” está fuera de rango`);
+    }
+    const total = rubric.reduce((sum, criterion) => sum + Number(scores[criterion.id] ?? 0), 0);
+    if (Math.abs(total - input.pointsAwarded) > .001) throw new Error("El puntaje debe coincidir con la suma de la rúbrica");
+  }
   await db.prepare(
-    `INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded)
-     VALUES (?, ?, ?, NULL, 1, ?)
-     ON CONFLICT(participant_id, question_id) DO UPDATE SET override = 1, points_awarded = excluded.points_awarded`,
-  ).bind(crypto.randomUUID(), input.participantId, input.questionId, input.pointsAwarded).run();
+    `INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded, feedback, rubric_scores)
+     VALUES (?, ?, ?, NULL, 1, ?, ?, ?)
+     ON CONFLICT(participant_id, question_id) DO UPDATE SET override = 1, points_awarded = excluded.points_awarded, feedback = excluded.feedback, rubric_scores = excluded.rubric_scores`,
+  ).bind(crypto.randomUUID(), input.participantId, input.questionId, input.pointsAwarded, (input.feedback ?? "").slice(0, 4000), JSON.stringify(input.rubricScores ?? {})).run();
   return true;
+}
+
+export async function getExamAnalytics(runId: string, actor: Actor) {
+  const currentRun = await getRunForTeacher(runId, actor);
+  if (!currentRun) return null;
+  const examId = currentRun.exam_id;
+  const scopeColumn = examId ? "r.exam_id" : "r.id";
+  const scopeValue = examId ?? runId;
+  const runResult = await db.prepare(
+    `SELECT r.* FROM runs r WHERE ${scopeColumn} = ? ORDER BY r.created_at`,
+  ).bind(scopeValue).all<RunRow>();
+  const [participantResult, answerResult, gradeResult, incidentResult, expectedResult] = await Promise.all([
+    db.prepare(`SELECT p.* FROM participants p JOIN runs r ON r.id = p.run_id WHERE ${scopeColumn} = ?`)
+      .bind(scopeValue).all<ParticipantRow & { joined_at: number }>(),
+    db.prepare(`SELECT a.participant_id, a.question_id, a.value FROM answers a JOIN participants p ON p.id = a.participant_id JOIN runs r ON r.id = p.run_id WHERE ${scopeColumn} = ?`)
+      .bind(scopeValue).all<{ participant_id: string; question_id: string; value: string }>(),
+    db.prepare(`SELECT g.participant_id, g.question_id, g.auto, g.points_awarded FROM grades g JOIN participants p ON p.id = g.participant_id JOIN runs r ON r.id = p.run_id WHERE ${scopeColumn} = ?`)
+      .bind(scopeValue).all<{ participant_id: string; question_id: string; auto: number | null; points_awarded: number | null }>(),
+    db.prepare(`SELECT i.participant_id, i.type FROM incidents i JOIN participants p ON p.id = i.participant_id JOIN runs r ON r.id = p.run_id WHERE ${scopeColumn} = ?`)
+      .bind(scopeValue).all<{ participant_id: string; type: string }>(),
+    db.prepare(`SELECT ers.run_id, COUNT(*) AS expected FROM expected_run_students ers JOIN runs r ON r.id = ers.run_id WHERE ${scopeColumn} = ? GROUP BY ers.run_id`)
+      .bind(scopeValue).all<{ run_id: string; expected: number }>(),
+  ]);
+  const answersByParticipant = groupRows(answerResult.results, "participant_id");
+  const gradesByParticipant = groupRows(gradeResult.results, "participant_id");
+  const incidentsByParticipant = groupRows(incidentResult.results, "participant_id");
+  const runById = new Map(runResult.results.map((run) => [run.id, run]));
+  const attempts: AnalyticsAttempt[] = participantResult.results.map((participant) => {
+    const run = runById.get(participant.run_id)!;
+    return {
+      runId: run.id,
+      participantId: participant.id,
+      status: participant.status,
+      startedAt: run.started_at,
+      joinedAt: participant.joined_at,
+      submittedAt: participant.submitted_at,
+      assigned: questionsForParticipant(run, participant.id),
+      answers: new Map((answersByParticipant.get(participant.id) ?? []).map((answer) => [String(answer.question_id), JSON.parse(String(answer.value))])),
+      grades: new Map((gradesByParticipant.get(participant.id) ?? []).map((grade) => [String(grade.question_id), { auto: grade.auto === null ? null : Boolean(grade.auto), points: grade.points_awarded === null ? null : Number(grade.points_awarded) }])),
+      incidentTypes: (incidentsByParticipant.get(participant.id) ?? []).map((incident) => String(incident.type)),
+    };
+  });
+  const expectedByRun = new Map(expectedResult.results.map((row) => [row.run_id, Number(row.expected)]));
+  const perRun = runResult.results.map((run) => {
+    const runAttempts = attempts.filter((attempt) => attempt.runId === run.id);
+    const expected = Math.max(expectedByRun.get(run.id) ?? 0, runAttempts.length);
+    return { run: { id: run.id, title: run.title, code: run.code, createdAt: run.created_at }, analytics: buildExamAnalytics(runAttempts, expected, run.passing_score_percent) };
+  });
+  const aggregateExpected = runResult.results.reduce((sum, run) => sum + Math.max(expectedByRun.get(run.id) ?? 0, attempts.filter((attempt) => attempt.runId === run.id).length), 0);
+  return { current: perRun.find((item) => item.run.id === runId)!, aggregate: buildExamAnalytics(attempts, aggregateExpected, currentRun.passing_score_percent), perRun };
+}
+
+function groupRows<T extends Record<string, unknown>>(rows: T[], key: keyof T) {
+  const grouped = new Map<string, T[]>();
+  for (const row of rows) { const value = String(row[key]); grouped.set(value, [...(grouped.get(value) ?? []), row]); }
+  return grouped;
+}
+
+export async function listQuickComments(actor: Actor) {
+  const result = await db.prepare("SELECT id, text FROM quick_comments WHERE user_id = ? ORDER BY updated_at DESC").bind(actor.id).all<{ id: string; text: string }>();
+  return result.results;
+}
+
+export async function saveQuickComment(actor: Actor, input: { id?: string; text: string }) {
+  const now = Date.now();
+  const id = input.id ?? crypto.randomUUID();
+  const text = input.text.trim().slice(0, 500);
+  if (!text) throw new Error("El comentario está vacío");
+  await db.prepare(`INSERT INTO quick_comments (id, user_id, text, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at WHERE quick_comments.user_id = excluded.user_id`)
+    .bind(id, actor.id, text, now, now).run();
+  return { id, text };
+}
+
+export async function deleteQuickComment(actor: Actor, id: string) {
+  const result = await db.prepare("DELETE FROM quick_comments WHERE id = ? AND user_id = ?").bind(id, actor.id).run();
+  return result.meta.changes > 0;
 }
 
 /** Cuántas respuestas de desarrollo siguen sin nota en esta toma. */
@@ -894,6 +1032,7 @@ export async function pendingManualCount(runId: string): Promise<number> {
 export async function publishRunResults(actor: Actor, runId: string) {
   const run = await getRunForTeacher(runId, actor);
   if (!run) return null;
+  if (!(await getRunCapabilities(runId, actor)).publishResults) throw new Error("No tenés permiso para publicar resultados");
   if (run.status !== "ended") throw new Error("La sesión todavía está en curso");
 
   const pending = await pendingManualCount(runId);
@@ -931,6 +1070,8 @@ function parseQuestion(row: QuestionRow): FullQuestion {
     prompt: row.prompt,
     points: row.points,
     section: row.section ?? undefined,
+    difficulty: row.difficulty ?? undefined,
+    assets: safeJsonArray(row.assets),
     config: JSON.parse(row.config),
   } as FullQuestion;
 }
@@ -986,6 +1127,22 @@ export interface PlatformLiveRun {
   participants: number;
   active: number;
   submitted: number;
+}
+
+function safeJsonArray(raw: string | null | undefined): unknown[] {
+  if (!raw) return [];
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function safeJsonObject(raw: string | null | undefined): Record<string, number> {
+  if (!raw) return {};
+  try { const value = JSON.parse(raw) as unknown; return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, number> : {}; }
+  catch { return {}; }
 }
 
 export interface PlatformExam {

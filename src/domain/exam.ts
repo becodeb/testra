@@ -3,6 +3,25 @@ import { z } from "zod";
 export const questionTypeSchema = z.enum(["mc", "ms", "tf", "sa", "long"]);
 export type QuestionType = z.infer<typeof questionTypeSchema>;
 
+export const questionDifficultySchema = z.enum(["easy", "medium", "hard"]);
+export type QuestionDifficulty = z.infer<typeof questionDifficultySchema>;
+
+export const questionAssetSchema = z.object({
+  id: z.uuid(),
+  name: z.string().trim().min(1).max(180),
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/gif"]),
+  width: z.number().int().positive().max(8000),
+  height: z.number().int().positive().max(8000),
+});
+export type QuestionAsset = z.infer<typeof questionAssetSchema>;
+
+export const rubricCriterionSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().trim().min(1).max(180),
+  maxPoints: z.number().positive().max(1000),
+});
+export type RubricCriterion = z.infer<typeof rubricCriterionSchema>;
+
 const optionSchema = z.object({
   id: z.string().min(1),
   text: z.string().max(1000),
@@ -17,6 +36,8 @@ const baseQuestionShape = {
   // "2 de teoria, 4 de practica". Vacio significa que la pregunta no esta en
   // ninguna seccion. Ver `sectionQuotas` en el examen.
   section: z.string().trim().max(60).optional(),
+  difficulty: questionDifficultySchema.nullable().optional(),
+  assets: z.array(questionAssetSchema).max(4).optional(),
 };
 
 export const multipleChoiceQuestionSchema = z.object({
@@ -45,6 +66,7 @@ export const multipleSelectQuestionSchema = z.object({
     .object({
       options: z.array(optionSchema).min(2, "Agregá al menos dos opciones"),
       correctOptionIds: z.array(z.string()),
+      gradingMode: z.enum(["exact", "partial"]).optional(),
     })
     .superRefine((config, context) => {
       const optionIds = new Set(config.options.map((option) => option.id));
@@ -77,7 +99,20 @@ export const shortAnswerQuestionSchema = z.object({
 export const longAnswerQuestionSchema = z.object({
   ...baseQuestionShape,
   type: z.literal("long"),
-  config: z.object({}),
+  config: z.object({
+    rubric: z.array(rubricCriterionSchema).max(20).optional(),
+  }),
+}).superRefine((question, context) => {
+  const rubric = question.config.rubric ?? [];
+  if (!rubric.length) return;
+  const total = rubric.reduce((sum, criterion) => sum + criterion.maxPoints, 0);
+  if (Math.abs(total - question.points) > 0.001) {
+    context.addIssue({
+      code: "custom",
+      path: ["config", "rubric"],
+      message: `La rúbrica debe sumar ${question.points} puntos`,
+    });
+  }
 });
 
 export const fullQuestionSchema = z.discriminatedUnion("type", [
@@ -125,6 +160,7 @@ export const examDraftSchema = z.object({
   violationAction: violationActionSchema.default("warn_and_record"),
   resultsDisplay: resultsDisplaySchema.default("score_only"),
   resultsWhen: resultsWhenSchema.default("teacher_publishes"),
+  passingScorePercent: z.number().min(0).max(100).nullable().optional(),
   status: z.enum(["draft", "ready"]),
   questions: z.array(fullQuestionSchema).min(1, "Agregá al menos una pregunta"),
   updatedAt: z.iso.datetime(),
@@ -201,6 +237,8 @@ export type StudentQuestion =
       position: number;
       prompt: string;
       points: number;
+      section?: string;
+      assets: QuestionAsset[];
       type: "mc";
       config: { options: Array<{ id: string; text: string }> };
     }
@@ -209,6 +247,8 @@ export type StudentQuestion =
       position: number;
       prompt: string;
       points: number;
+      section?: string;
+      assets: QuestionAsset[];
       type: "ms";
       config: { options: Array<{ id: string; text: string }> };
     }
@@ -217,6 +257,8 @@ export type StudentQuestion =
       position: number;
       prompt: string;
       points: number;
+      section?: string;
+      assets: QuestionAsset[];
       type: "tf";
       config: Record<string, never>;
     }
@@ -225,6 +267,8 @@ export type StudentQuestion =
       position: number;
       prompt: string;
       points: number;
+      section?: string;
+      assets: QuestionAsset[];
       type: "sa";
       config: Record<string, never>;
     }
@@ -233,6 +277,8 @@ export type StudentQuestion =
       position: number;
       prompt: string;
       points: number;
+      section?: string;
+      assets: QuestionAsset[];
       type: "long";
       config: Record<string, never>;
     };
@@ -243,6 +289,8 @@ export function toStudentQuestion(question: FullQuestion): StudentQuestion {
     position: question.position,
     prompt: question.prompt,
     points: question.points,
+    section: question.section,
+    assets: question.assets ?? [],
   };
 
   switch (question.type) {

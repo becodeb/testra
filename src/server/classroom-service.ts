@@ -4,6 +4,7 @@ import { serverEnv } from "@/server/env";
 import type { Actor } from "@/server/actors";
 import { createLinkedCoursework, getCoursework, listCourseStudents, listCourseworkSubmissions, listTeacherCourses, matchClassroomStudent, returnSubmission, sendGradeToClassroom } from "@/server/classroom";
 import { getRunForTeacher, questionsForParticipant } from "@/server/repository";
+import { getRunCapabilities } from "@/server/exam-permissions";
 
 
 // `accounts` es tabla de better-auth: sus timestamps son timestamptz, así que
@@ -44,6 +45,7 @@ export async function classroomCourses(actor: Actor) {
 }
 
 export async function publishRunToClassroom(actor: Actor, runId: string, courseId: string, origin: string) {
+  if (!(await getRunCapabilities(runId, actor)).manageClassroom) throw new Error("No tenés permiso para operar Classroom en esta evaluación");
   const run = await getRunForTeacher(runId, actor);
   if (!run) return null;
   const token = await googleAccessToken(actor);
@@ -80,6 +82,7 @@ export async function publishRunToClassroom(actor: Actor, runId: string, courseI
 }
 
 export async function classroomGradePreview(actor: Actor, runId: string) {
+  if (!(await getRunCapabilities(runId, actor)).manageClassroom) throw new Error("No tenés permiso para operar Classroom en esta evaluación");
   const run = await getRunForTeacher(runId, actor);
   if (!run) return null;
   if (!run.classroom_course_id || !run.classroom_coursework_id) throw new Error("Esta sesión no está vinculada con Classroom");
