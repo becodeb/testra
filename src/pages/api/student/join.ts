@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAuthenticatedActor } from "@/server/actors";
 import { apiError, readJson } from "@/server/api";
 import { getJoinableRun, getStudentSession, joinRunByCode } from "@/server/repository";
+import { normalizeStudentEmail } from "@/lib/student-identity";
 import {
   createGuestToken,
   encodeGuestSession,
@@ -14,16 +15,21 @@ import {
 const inputSchema = z.object({
   code: z.string().trim().length(6),
   name: z.string().trim().min(2).max(80).optional(),
+  email: z.email().max(254).optional(),
 });
 
 export const POST: APIRoute = async ({ cookies, locals, request, url }) => {
   const actor = getAuthenticatedActor(locals);
   try {
-    const { code: rawCode, name } = inputSchema.parse(await readJson(request));
+    const { code: rawCode, name, email } = inputSchema.parse(await readJson(request));
     const code = rawCode.toUpperCase();
     const run = await getJoinableRun(code);
     if (!run) return Response.json({ error: "No encontramos una evaluación activa con ese código" }, { status: 404 });
     if (!name) return Response.json({ code: run.code, title: run.title });
+    const classroomEmail = normalizeStudentEmail(email);
+    if (run.classroom_course_id && run.classroom_coursework_id && !classroomEmail) {
+      return Response.json({ error: "Ingresá el correo con el que figurás en Google Classroom" }, { status: 400 });
+    }
 
     const access = { actor, request };
     const existing = await getStudentSession(access, code);
@@ -35,6 +41,7 @@ export const POST: APIRoute = async ({ cookies, locals, request, url }) => {
       code,
       name.replace(/\s+/g, " "),
       guestToken ? await hashGuestToken(guestToken) : undefined,
+      classroomEmail,
     );
     if (joined && guestToken) {
       cookies.set(

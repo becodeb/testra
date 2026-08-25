@@ -282,6 +282,8 @@ export const participants = pgTable(
     submittedAt: epochMs("submitted_at"),
     submitReason: text("submit_reason"),
     classroomSubmissionId: text("classroom_submission_id"),
+    classroomGoogleUserId: text("classroom_google_user_id"),
+    classroomEmail: text("classroom_email"),
     late: flag("late").notNull().default(0),
     extraTimeS: integer("extra_time_s").notNull().default(0),
     // Deadline efectivo del alumno. Antes de empezar queda NULL; al iniciar se
@@ -293,6 +295,7 @@ export const participants = pgTable(
   (table) => [
     uniqueIndex("participants_run_user_uq").on(table.runId, table.userId),
     uniqueIndex("participants_guest_token_uq").on(table.guestTokenHash),
+    uniqueIndex("participants_run_classroom_user_uq").on(table.runId, table.classroomGoogleUserId),
     index("participants_run_idx").on(table.runId),
   ],
 );

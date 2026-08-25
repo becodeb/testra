@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, KeyRound, UserRound } from "lucide-react";
+import { ArrowRight, KeyRound, Mail, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
@@ -12,13 +12,16 @@ interface JoinRunProps {
   code?: string;
   runTitle?: string;
   defaultName?: string;
+  defaultEmail?: string;
+  requiresClassroomEmail?: boolean;
   monitoringSummary?: string;
 }
 
-export function JoinRun({ step = "code", code: initialCode = "", runTitle, defaultName = "", monitoringSummary = "cambios de visibilidad y conexión" }: JoinRunProps) {
+export function JoinRun({ step = "code", code: initialCode = "", runTitle, defaultName = "", defaultEmail = "", requiresClassroomEmail = false, monitoringSummary = "cambios de visibilidad y conexión" }: JoinRunProps) {
   const [ready, setReady] = useState(false);
   const [code, setCode] = useState(initialCode);
   const [name, setName] = useState(defaultName);
+  const [email, setEmail] = useState(defaultEmail);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -35,12 +38,17 @@ export function JoinRun({ step = "code", code: initialCode = "", runTitle, defau
       setError("Escribí tu nombre para que el docente pueda reconocerte.");
       return;
     }
+    const normalizedEmail = email.trim().toLocaleLowerCase();
+    if (step === "name" && requiresClassroomEmail && !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      setError("Ingresá el correo con el que figurás en Google Classroom.");
+      return;
+    }
     setLoading(true);
     setError("");
     const response = await fetch("/api/student/join", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code: normalized, ...(step === "name" ? { name: name.trim() } : {}) }),
+      body: JSON.stringify({ code: normalized, ...(step === "name" ? { name: name.trim(), ...(requiresClassroomEmail ? { email: normalizedEmail } : {}) } : {}) }),
     });
     const body = await response.json() as { code?: string; error?: string };
     if (response.ok && body.code) window.location.assign(`/rendir/${encodeURIComponent(body.code)}`);
@@ -55,35 +63,51 @@ export function JoinRun({ step = "code", code: initialCode = "", runTitle, defau
   return (
     <form onSubmit={submit} className="w-full rounded-xl border bg-paper p-6 shadow-card sm:p-8" data-join-ready={ready} inert={!ready}>
       <div className="flex size-11 items-center justify-center rounded-lg bg-brand-soft text-brand-deep" aria-hidden="true">
-        {isNameStep ? <UserRound className="size-5" /> : <KeyRound className="size-5" />}
+        {isNameStep ? requiresClassroomEmail ? <Mail className="size-5" /> : <UserRound className="size-5" /> : <KeyRound className="size-5" />}
       </div>
       <p className="mt-5 text-xs font-semibold tracking-[.08em] text-muted uppercase">
         {isNameStep ? `Código ${code}` : "Ingreso de alumnos"}
       </p>
       <h1 className="mt-2 text-2xl font-semibold text-ink">
-        {isNameStep ? "¿Cómo te llamás?" : "Entrá a tu evaluación"}
+        {isNameStep ? requiresClassroomEmail ? "Confirmá tus datos" : "¿Cómo te llamás?" : "Entrá a tu evaluación"}
       </h1>
       <p className="mt-2 text-sm leading-relaxed text-muted">
         {isNameStep
-          ? <>Vas a ingresar a <strong className="font-semibold text-ink-2">{runTitle}</strong>. Tu docente verá este nombre en la sala.</>
+          ? <>Vas a ingresar a <strong className="font-semibold text-ink-2">{runTitle}</strong>. Tu docente verá este nombre en la sala.{requiresClassroomEmail ? " Usá el mismo correo que figura en Google Classroom para que la entrega y la nota lleguen automáticamente." : ""}</>
           : "Usá el código de seis caracteres que muestra tu docente. No necesitás una cuenta."}
       </p>
 
       {isNameStep ? (
-        <Field className="mt-6" data-invalid={Boolean(error) || undefined}>
-          <FieldLabel htmlFor="student-name">Tu nombre y apellido</FieldLabel>
-          <Input
-            id="student-name"
-            value={name}
-            onChange={(event) => setName(event.target.value.slice(0, 80))}
-            className="h-12 text-base"
-            autoComplete="name"
-            aria-invalid={Boolean(error)}
-            aria-describedby={error ? "join-error" : undefined}
-            autoFocus
-          />
+        <div className="mt-6 grid gap-4">
+          <Field data-invalid={Boolean(error) || undefined}>
+            <FieldLabel htmlFor="student-name">Tu nombre y apellido</FieldLabel>
+            <Input
+              id="student-name"
+              value={name}
+              onChange={(event) => setName(event.target.value.slice(0, 80))}
+              className="h-12 text-base"
+              autoComplete="name"
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? "join-error" : undefined}
+              autoFocus
+            />
+          </Field>
+          {requiresClassroomEmail ? <Field data-invalid={Boolean(error) || undefined}>
+            <FieldLabel htmlFor="student-email">Correo de Google Classroom</FieldLabel>
+            <Input
+              id="student-email"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value.slice(0, 254))}
+              className="h-12 text-base"
+              autoComplete="email"
+              inputMode="email"
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? "join-error" : undefined}
+            />
+          </Field> : null}
           {error ? <FieldError id="join-error">{error}</FieldError> : null}
-        </Field>
+        </div>
       ) : (
         <Field className="mt-6" data-invalid={Boolean(error) || undefined}>
           <FieldLabel htmlFor="run-code">Código de la evaluación</FieldLabel>

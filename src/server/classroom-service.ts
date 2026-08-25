@@ -91,8 +91,8 @@ export async function classroomGradePreview(actor: Actor, runId: string) {
     listCourseworkSubmissions(token, run.classroom_course_id, run.classroom_coursework_id),
     getCoursework(token, run.classroom_course_id, run.classroom_coursework_id),
     db.prepare(
-      `SELECT p.id AS participant_id, p.display_name AS name, u.email,
-        (SELECT a.account_id FROM accounts a WHERE a.user_id = u.id AND a.provider_id = 'google' ORDER BY a.updated_at DESC LIMIT 1) AS google_user_id
+      `SELECT p.id AS participant_id, p.display_name AS name, COALESCE(p.classroom_email, u.email) AS email,
+        COALESCE(p.classroom_google_user_id, (SELECT a.account_id FROM accounts a WHERE a.user_id = u.id AND a.provider_id = 'google' ORDER BY a.updated_at DESC LIMIT 1)) AS google_user_id
        FROM participants p LEFT JOIN users u ON u.id = p.user_id
        WHERE p.run_id = ? AND p.status = 'submitted'`,
     ).bind(runId).all<{ participant_id: string; name: string; email: string | null; google_user_id: string | null }>(),

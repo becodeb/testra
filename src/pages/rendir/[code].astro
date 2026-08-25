@@ -44,7 +44,7 @@ const monitored = [
     />
   ) : (
     <main id="contenido" class="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-lg place-items-center px-4 py-12">
-      <JoinRun client:load step="name" code={run.code} runTitle={run.title} defaultName={actor?.name ?? ""} monitoringSummary={monitored} />
+      <JoinRun client:load step="name" code={run.code} runTitle={run.title} defaultName={actor?.name ?? ""} defaultEmail={actor?.email ?? ""} requiresClassroomEmail={Boolean(run.classroom_course_id && run.classroom_coursework_id)} monitoringSummary={monitored} />
     </main>
   )}
 </StudentLayout>

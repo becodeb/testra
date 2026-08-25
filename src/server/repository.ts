@@ -13,6 +13,8 @@ import { createRunCode } from "@/server/run-code";
 import { hashGuestToken, readGuestSession } from "@/server/student-access";
 import { getExamCapabilities, getRunCapabilities } from "@/server/exam-permissions";
 import { buildExamAnalytics, type AnalyticsAttempt } from "@/server/analytics";
+import { normalizeStudentEmail } from "@/lib/student-identity";
+import { syncAutomaticClassroomGrade } from "@/server/classroom-submission-service";
 
 interface ExamRow {
   id: string;
@@ -100,6 +102,8 @@ interface ParticipantRow {
   status: "waiting" | "active" | "submitted" | "disconnected";
   submitted_at: number | null;
   submit_reason: string | null;
+  classroom_google_user_id: string | null;
+  classroom_email: string | null;
   extra_time_s: number;
   deadline_at: number | null;
   reopened_count: number;
@@ -479,22 +483,44 @@ export async function joinRunByCode(
   rawCode: string,
   displayName: string,
   guestTokenHash?: string,
+  classroomEmail?: string | null,
 ) {
   const run = await getJoinableRun(rawCode);
   if (!run) return null;
+
+  let classroomIdentity: { googleUserId: string; email: string } | null = null;
+  if (run.classroom_course_id && run.classroom_coursework_id) {
+    const email = normalizeStudentEmail(classroomEmail);
+    if (!email) throw new Error("Ingresá el correo con el que figurás en Google Classroom");
+    const expected = await db.prepare(
+      "SELECT google_user_id, email FROM expected_run_students WHERE run_id = ? AND LOWER(email) = ?",
+    ).bind(run.id, email).all<{ google_user_id: string; email: string | null }>();
+    if (expected.results.length !== 1 || !expected.results[0].email) {
+      throw new Error("Ese correo no figura en el curso de Google Classroom publicado para esta evaluación");
+    }
+    classroomIdentity = { googleUserId: expected.results[0].google_user_id, email: normalizeStudentEmail(expected.results[0].email)! };
+    const claimed = await db.prepare(
+      "SELECT id, user_id FROM participants WHERE run_id = ? AND classroom_google_user_id = ?",
+    ).bind(run.id, classroomIdentity.googleUserId).first<{ id: string; user_id: string | null }>();
+    if (claimed && (!actor || claimed.user_id !== actor.id)) {
+      throw new Error("Ese alumno ya ingresó a esta evaluación. Debe continuar desde el mismo dispositivo.");
+    }
+  }
 
   const participantId = crypto.randomUUID();
   const now = Date.now();
   if (actor) {
     await db.prepare(
-      `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, status, joined_at, last_seen, late)
-       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)
-       ON CONFLICT(run_id, user_id) DO UPDATE SET display_name = excluded.display_name, last_seen = excluded.last_seen`,
+      `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, classroom_google_user_id, classroom_email, status, joined_at, last_seen, late)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(run_id, user_id) DO UPDATE SET display_name = excluded.display_name, classroom_google_user_id = excluded.classroom_google_user_id, classroom_email = excluded.classroom_email, last_seen = excluded.last_seen`,
     ).bind(
       participantId,
       run.id,
       actor.id,
       displayName,
+      classroomIdentity?.googleUserId ?? null,
+      classroomIdentity?.email ?? null,
       run.status === "running" ? "active" : "waiting",
       now,
       now,
@@ -503,13 +529,15 @@ export async function joinRunByCode(
   } else {
     if (!guestTokenHash) throw new Error("Falta la sesión temporal del alumno");
     await db.prepare(
-      `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, status, joined_at, last_seen, late)
-       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, classroom_google_user_id, classroom_email, status, joined_at, last_seen, late)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       participantId,
       run.id,
       displayName,
       guestTokenHash,
+      classroomIdentity?.googleUserId ?? null,
+      classroomIdentity?.email ?? null,
       run.status === "running" ? "active" : "waiting",
       now,
       now,
@@ -706,6 +734,10 @@ export async function submitParticipant(access: StudentAccess, participantId: st
   }
   await db.batch(statements);
   await runCommand(participant.run_id, "/submit", { participantId, reason, at: now });
+  const score = grade.questions.reduce((total, question) => total + (question.pointsAwarded ?? 0), 0);
+  const maxPoints = questions.reduce((total, question) => total + question.points, 0);
+  void syncAutomaticClassroomGrade({ runId: participant.run_id, participantId, score, maxPoints, hasPendingManual: grade.questions.some((question) => question.pointsAwarded === null) })
+    .catch((error) => console.error("[classroom] no se pudo devolver una nota automática", error));
   return { submittedAt: now, grade };
 }
 
@@ -716,7 +748,7 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
     db.prepare(
       `SELECT p.id, p.status, p.joined_at, p.submitted_at, p.last_seen, p.late,
        p.extra_time_s, p.deadline_at, p.reopened_count,
-       p.display_name AS name, u.email,
+       p.display_name AS name, COALESCE(p.classroom_email, u.email) AS email,
        (SELECT COUNT(*) FROM answers a WHERE a.participant_id = p.id) AS answered,
        (SELECT SUM(COALESCE(g.points_awarded, 0)) FROM grades g WHERE g.participant_id = p.id) AS score,
        (SELECT COUNT(*) FROM grades g WHERE g.participant_id = p.id AND g.points_awarded IS NULL) AS pending_manual

@@ -7,6 +7,7 @@ import { db, type PgStatement } from "@/server/db/client";
 import { gradeExam } from "@/server/grading";
 import { allDeadlinesComplete, normalizeExtraTime, participantDeadline, shiftDeadline } from "@/server/run-time";
 import { nextWritingCadence, type WritingCadenceEntry } from "@/server/writing-cadence";
+import { syncAutomaticClassroomGrade } from "@/server/classroom-submission-service";
 
 // Reemplazo del Durable Object `ExamRunDO`. Cada toma en vivo tiene un actor en
 // memoria dentro del proceso Node: el estado, los WebSockets y el temporizador
@@ -834,6 +835,10 @@ export class ExamRunActor {
       );
     }
     await db.batch(statements);
+    const score = result.questions.reduce((total, question) => total + (question.pointsAwarded ?? 0), 0);
+    const maxPoints = assignedQuestions.reduce((total, question) => total + question.points, 0);
+    void syncAutomaticClassroomGrade({ runId: this.run.runId, participantId, score, maxPoints, hasPendingManual: result.questions.some((question) => question.pointsAwarded === null) })
+      .catch((error) => console.error("[classroom] no se pudo devolver una nota automática", error));
   }
 }
 
