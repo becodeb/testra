@@ -20,6 +20,16 @@ export function canAutomaticallyReturnClassroomGrade(input: Pick<AutomaticGradeI
   return input.maxPoints > 0 && !input.hasPendingManual;
 }
 
+export function classroomErrorForTeacher(error: unknown) {
+  const raw = error instanceof Error ? error.message : "";
+  if (raw.includes("FAILED_PRECONDITION") || raw.includes("Precondition check failed")) {
+    return "Classroom no pudo devolver la nota porque el alumno todavía no presionó Entregar en esa tarea.";
+  }
+  if (raw.includes("PERMISSION_DENIED")) return "Google Classroom rechazó el permiso. Volvé a conectar Classroom e intentá de nuevo.";
+  if (raw.includes("NOT_FOUND")) return "No encontramos esa tarea o entrega en Google Classroom.";
+  return "No se pudo actualizar esta nota en Google Classroom. Podés reintentarla desde este panel.";
+}
+
 async function teacherAccessToken(userId: string) {
   const account = await db.prepare(
     "SELECT access_token, refresh_token, access_token_expires_at FROM accounts WHERE user_id = ? AND provider_id = 'google' ORDER BY updated_at DESC LIMIT 1",
@@ -84,7 +94,7 @@ export async function syncAutomaticClassroomGrade(input: AutomaticGradeInput) {
     submissionId: submission.id,
     grade,
   });
-  if (submission.state !== "RETURNED") {
+  if (submission.state === "TURNED_IN") {
     await returnSubmission(token, {
       courseId: context.classroom_course_id,
       courseworkId: context.classroom_coursework_id,
@@ -93,5 +103,5 @@ export async function syncAutomaticClassroomGrade(input: AutomaticGradeInput) {
   }
   await db.prepare("UPDATE participants SET classroom_submission_id = ? WHERE id = ?")
     .bind(submission.id, input.participantId).run();
-  return { status: "sent" as const, grade };
+  return { status: submission.state === "TURNED_IN" ? "sent" as const : "awaiting-turn-in" as const, grade };
 }

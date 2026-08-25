@@ -48,10 +48,10 @@ export function ClassroomPanel({ runId, linked: initialLinked, ended }: Classroo
   async function publish() {
     setLoading(true);
     const response = await fetch("/api/classroom/publish", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId, courseId }) });
-    const body = await response.json() as { studentCount?: number; error?: string };
+    const body = await response.json() as { studentCount?: number; joinedBeforeLink?: number; error?: string };
     if (response.ok) {
       setLinked(true);
-      setMessage(`Tarea publicada. Se cargó la lista de ${body.studentCount ?? 0} alumnos.`);
+      setMessage(`Tarea publicada. Se cargó la lista de ${body.studentCount ?? 0} alumnos.${body.joinedBeforeLink ? ` ${body.joinedBeforeLink} ya habían ingresado: en esta toma no verán el campo de correo; publicá Classroom antes de abrir la sala para exigir esa validación.` : ""}`);
     } else setMessage(body.error ?? "No se pudo publicar la tarea");
     setLoading(false);
   }
@@ -68,9 +68,9 @@ export function ClassroomPanel({ runId, linked: initialLinked, ended }: Classroo
   async function sendGrades() {
     setLoading(true);
     const response = await fetch("/api/classroom/grades", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId, confirmed: true }) });
-    const body = await response.json() as { sent?: number; unlinked?: Array<{ name: string }>; pending?: string[]; failures?: Array<{ name: string; reason: string }>; error?: string };
+    const body = await response.json() as { sent?: number; unlinked?: Array<{ name: string }>; pending?: string[]; awaitingTurnIn?: string[]; failures?: Array<{ name: string; reason: string }>; error?: string };
     setMessage(response.ok
-      ? `Classroom: ${body.sent ?? 0} notas devueltas · ${body.unlinked?.length ?? 0} alumnos sin vincular · ${body.failures?.length ?? 0} errores${body.pending?.length ? ` · ${body.pending.length} pendientes de corrección` : ""}.`
+      ? `Classroom: ${body.sent ?? 0} notas devueltas · ${body.awaitingTurnIn?.length ?? 0} esperan que el alumno entregue · ${body.unlinked?.length ?? 0} alumnos sin vincular · ${body.failures?.length ?? 0} errores${body.pending?.length ? ` · ${body.pending.length} pendientes de corrección` : ""}.`
       : body.error ?? "No se pudieron enviar las notas");
     setLoading(false);
   }

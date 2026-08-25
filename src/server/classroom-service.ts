@@ -3,6 +3,7 @@ import { db, type PgStatement } from "@/server/db/client";
 import { serverEnv } from "@/server/env";
 import type { Actor } from "@/server/actors";
 import { createLinkedCoursework, getCoursework, listCourseStudents, listCourseworkSubmissions, listTeacherCourses, matchClassroomStudent, returnSubmission, sendGradeToClassroom } from "@/server/classroom";
+import { classroomErrorForTeacher } from "@/server/classroom-submission-service";
 import { getRunForTeacher, questionsForParticipant } from "@/server/repository";
 import { getRunCapabilities } from "@/server/exam-permissions";
 
@@ -49,7 +50,7 @@ export async function publishRunToClassroom(actor: Actor, runId: string, courseI
   const run = await getRunForTeacher(runId, actor);
   if (!run) return null;
   const token = await googleAccessToken(actor);
-  const [{ students }, coursework] = await Promise.all([
+  const [{ students }, coursework, joined] = await Promise.all([
     listCourseStudents(token, courseId),
     createLinkedCoursework(token, {
       courseId,
@@ -61,12 +62,14 @@ export async function publishRunToClassroom(actor: Actor, runId: string, courseI
         "Entrá al enlace de abajo para rendir la evaluación en Testra.",
         `Si preferís entrar a mano, el código de la sala es ${run.code}.`,
         "Si ingresás con la misma cuenta de Google o correo de Classroom, Testra podrá vincular tu nota de forma segura.",
+        "Al terminar en Testra, volvé a esta tarea y presioná Entregar. Classroom exige que ese paso lo haga cada alumno para poder devolverle la nota.",
       ].join("\n\n"),
       runUrl: `${origin}/rendir/${run.code}`,
       // Cada alumno puede recibir preguntas con puntajes distintos. Classroom
       // necesita un maximo comun, por eso las nuevas tareas usan porcentaje.
       maxPoints: 100,
     }),
+    db.prepare("SELECT COUNT(*) AS count FROM participants WHERE run_id = ?").bind(runId).first<{ count: number }>(),
   ]);
   const statements: PgStatement[] = [
     db.prepare("UPDATE runs SET classroom_course_id = ?, classroom_coursework_id = ? WHERE id = ?").bind(courseId, coursework.id, runId),
@@ -78,7 +81,7 @@ export async function publishRunToClassroom(actor: Actor, runId: string, courseI
     ).bind(runId, student.userId, student.profile.name.fullName, student.profile.emailAddress ?? null));
   }
   await db.batch(statements);
-  return { coursework, studentCount: students.length };
+  return { coursework, studentCount: students.length, joinedBeforeLink: Number(joined?.count ?? 0) };
 }
 
 export async function classroomGradePreview(actor: Actor, runId: string) {
@@ -148,19 +151,21 @@ export async function sendRunGrades(actor: Actor, runId: string) {
   const pending = preview.rows.filter((row) => row.linked && row.pendingManual > 0).map((row) => row.name);
 
   let sent = 0;
+  const awaitingTurnIn: string[] = [];
   const failures: Array<{ name: string; reason: string }> = [];
 
   for (const row of eligible) {
     try {
-      // Escribir la nota y devolver la entrega son dos pasos distintos de la
-      // API. Si sólo se escribe, el alumno no ve nada.
+      // Classroom deja que el docente cargue una nota antes de la entrega,
+      // pero sólo el alumno puede pasarla a TURNED_IN. En CREATED/NEW no se
+      // intenta devolver: eso genera FAILED_PRECONDITION y confundía al docente.
       await sendGradeToClassroom(preview.token, {
         courseId: preview.courseId,
         courseworkId: preview.courseworkId,
         submissionId: row.submissionId!,
         grade: row.grade,
       });
-      if (row.submissionState !== "RETURNED") {
+      if (row.submissionState === "TURNED_IN") {
         await returnSubmission(preview.token, {
           courseId: preview.courseId,
           courseworkId: preview.courseworkId,
@@ -169,10 +174,11 @@ export async function sendRunGrades(actor: Actor, runId: string) {
       }
       await db.prepare("UPDATE participants SET classroom_submission_id = ? WHERE id = ?")
         .bind(row.submissionId, row.participantId).run();
-      sent += 1;
+      if (row.submissionState === "TURNED_IN" || row.submissionState === "RETURNED") sent += 1;
+      else awaitingTurnIn.push(row.name);
     } catch (error) {
       // Un alumno que falla no puede dejar sin nota a los demás.
-      failures.push({ name: row.name, reason: error instanceof Error ? error.message.slice(0, 200) : "error desconocido" });
+      failures.push({ name: row.name, reason: classroomErrorForTeacher(error) });
     }
   }
 
@@ -181,6 +187,7 @@ export async function sendRunGrades(actor: Actor, runId: string) {
     skipped: preview.rows.length - eligible.length,
     unlinked,
     pending,
+    awaitingTurnIn,
     failures,
     rows: preview.rows,
   };

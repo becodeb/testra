@@ -16,7 +16,7 @@ interface PublishResponse {
   publishedAt: number;
   alreadyPublished: boolean;
   classroomLinked: boolean;
-  classroom: { sent: number; skipped: number; unlinked: Array<{ name: string; email: string | null }>; pending: string[]; failures: Array<{ name: string; reason: string }> } | null;
+  classroom: { sent: number; skipped: number; unlinked: Array<{ name: string; email: string | null }>; pending: string[]; awaitingTurnIn: string[]; failures: Array<{ name: string; reason: string }> } | null;
   classroomError?: string;
   error?: string;
 }
@@ -71,7 +71,7 @@ export function PublishResults({ runId, status, publishedAt, classroomLinked, pe
                 : pendingManual > 0
                   ? `Faltan corregir ${pendingManual} respuesta${pendingManual === 1 ? "" : "s"} de desarrollo.`
                   : classroomLinked
-                    ? "Al publicar, las notas se devuelven a la tarea de Classroom."
+                    ? "Al publicar, las notas se cargan en Classroom. Para devolverlas, cada alumno debe presionar Entregar en su tarea."
                     : "Al publicar, los resultados quedan definitivos."}
           </p>
         </div>
@@ -91,7 +91,7 @@ export function PublishResults({ runId, status, publishedAt, classroomLinked, pe
         <div className="mt-3 space-y-2" role="status">
           {result.classroom ? (
             <p className="rounded-md bg-paper px-3 py-2 text-sm text-ink-2">
-              Classroom: {result.classroom.sent} nota{result.classroom.sent === 1 ? "" : "s"} devuelta{result.classroom.sent === 1 ? "" : "s"} · {result.classroom.unlinked.length} alumno{result.classroom.unlinked.length === 1 ? "" : "s"} sin vincular · {result.classroom.failures.length} error{result.classroom.failures.length === 1 ? "" : "es"}.
+              Classroom: {result.classroom.sent} nota{result.classroom.sent === 1 ? "" : "s"} devuelta{result.classroom.sent === 1 ? "" : "s"} · {result.classroom.awaitingTurnIn.length} espera{result.classroom.awaitingTurnIn.length === 1 ? "" : "n"} que el alumno entregue · {result.classroom.unlinked.length} alumno{result.classroom.unlinked.length === 1 ? "" : "s"} sin vincular · {result.classroom.failures.length} error{result.classroom.failures.length === 1 ? "" : "es"}.
             </p>
           ) : null}
           {result.classroomError ? (
@@ -105,6 +105,11 @@ export function PublishResults({ runId, status, publishedAt, classroomLinked, pe
                 <li key={failure.name}>{failure.name}: {failure.reason}</li>
               ))}
             </ul>
+          ) : null}
+          {result.classroom?.awaitingTurnIn.length ? (
+            <p className="rounded-md bg-warn/10 px-3 py-2 text-sm text-warn">
+              Nota cargada para {result.classroom.awaitingTurnIn.join(", ")}. Falta que presione Entregar en Classroom para que pueda recibirla.
+            </p>
           ) : null}
         </div>
       ) : null}

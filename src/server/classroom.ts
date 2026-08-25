@@ -216,7 +216,7 @@ export async function sendGradeToClassroom(
   );
 }
 
-/** Devuelve la entrega al alumno. Sin esto la nota queda invisible para él. */
+/** Devuelve una entrega que el alumno ya presentó. Classroom no permite que el docente la presente por él. */
 export async function returnSubmission(
   accessToken: string,
   input: { courseId: string; courseworkId: string; submissionId: string },
