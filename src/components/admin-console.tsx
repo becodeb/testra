@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Building2, CircleDot, Clock3, Radio, Users } from "lucide-react";
+import { CircleDot, ClipboardList, Clock3, Radio, Square, Users } from "lucide-react";
 
 import type { PlatformOverview } from "@/server/repository";
 
@@ -20,6 +20,7 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
   const [overview, setOverview] = useState(initial);
   const [now, setNow] = useState(initial.serverNow);
   const [stale, setStale] = useState(false);
+  const [closingRunId, setClosingRunId] = useState("");
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow((value) => value + 1_000), 1_000);
@@ -44,7 +45,22 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
     return () => { active = false; window.clearInterval(poll); };
   }, []);
 
-  const { totals, organizations, liveRuns, recentRuns } = overview;
+  const { totals, liveRuns, recentRuns, platformExams } = overview;
+
+  async function closeRun(run: (typeof liveRuns)[number]) {
+    const hasStudents = Number(run.active) > 0 || Number(run.participants) > 0;
+    if (hasStudents && !window.confirm(`Hay ${run.participants} alumno${Number(run.participants) === 1 ? "" : "s"} en esta sala. ¿Querés cerrarla para todos?`)) return;
+    setClosingRunId(run.id);
+    const response = await fetch(`/api/admin/runs/${encodeURIComponent(run.id)}/close`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
+    if (response.ok) {
+      setOverview((current) => ({ ...current, liveRuns: current.liveRuns.filter((candidate) => candidate.id !== run.id), totals: { ...current.totals, live_runs: Math.max(0, Number(current.totals.live_runs) - 1) } }));
+    } else setStale(true);
+    setClosingRunId("");
+  }
 
   return (
     <div className="grid gap-6">
@@ -52,7 +68,6 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
         <h2 id="totales-title" className="sr-only">Totales de la plataforma</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
-            { label: "Organizaciones", value: totals.organizations },
             { label: "Docentes", value: totals.teachers },
             { label: "Alumnos", value: totals.students },
             { label: "Evaluaciones", value: totals.exams },
@@ -87,11 +102,11 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
               <thead className="bg-inset text-xs text-ink-2">
                 <tr>
                   <th className="px-4 py-3">Evaluación</th>
-                  <th className="px-4 py-3">Organización</th>
                   <th className="px-4 py-3">Docente</th>
                   <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3 text-right">Alumnos</th>
                   <th className="px-4 py-3 text-right">Restante</th>
+                  <th className="px-4 py-3 text-right">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -103,7 +118,6 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
                         <a href={`/sesiones/${encodeURIComponent(run.id)}`} className="font-semibold text-brand hover:underline">{run.title}</a>
                         <span className="mono-number mt-0.5 block text-xs text-muted">{run.code}</span>
                       </th>
-                      <td className="px-4 py-3 text-ink-2">{run.org_name ?? "—"}</td>
                       <td className="px-4 py-3">
                         <span className="block text-ink-2">{run.teacher_name ?? "—"}</span>
                         <span className="block text-xs text-muted">{run.teacher_email ?? ""}</span>
@@ -118,6 +132,7 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
                         {run.active}/{run.participants}
                         {run.submitted ? <span className="mt-0.5 block text-xs text-muted">{run.submitted} entregaron</span> : null}
                       </td>
+                      <td className="px-4 py-3 text-right"><button type="button" disabled={closingRunId === run.id} onClick={() => void closeRun(run)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-alert/25 px-2.5 text-xs font-semibold text-alert hover:bg-alert/5 disabled:opacity-50"><Square className="size-3.5" />{closingRunId === run.id ? "Cerrando…" : "Cerrar sala"}</button></td>
                       <td className="mono-number px-4 py-3 text-right">
                         {remaining === null ? "—" : <span className="inline-flex items-center gap-1.5"><Clock3 className="size-3.5 text-muted" aria-hidden="true" />{formatTime(remaining)}</span>}
                       </td>
@@ -132,41 +147,37 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
         )}
       </section>
 
-      <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="orgs-title">
+      <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="exams-title">
         <div className="border-b p-5">
-          <h2 id="orgs-title" className="flex items-center gap-2 font-semibold text-ink">
-            <Building2 className="size-4 text-brand" aria-hidden="true" />
-            Organizaciones
+          <h2 id="exams-title" className="flex items-center gap-2 font-semibold text-ink">
+            <ClipboardList className="size-4 text-brand" aria-hidden="true" />
+            Todas las evaluaciones
           </h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="bg-inset text-xs text-ink-2">
               <tr>
-                <th className="px-4 py-3">Nombre</th>
-                <th className="px-4 py-3">Dominio</th>
-                <th className="px-4 py-3 text-right">Docentes</th>
-                <th className="px-4 py-3 text-right">Alumnos</th>
-                <th className="px-4 py-3 text-right">Evaluaciones</th>
+                <th className="px-4 py-3">Evaluación</th>
+                <th className="px-4 py-3">Materia</th>
+                <th className="px-4 py-3">Docente</th>
+                <th className="px-4 py-3">Estado</th>
+                <th className="px-4 py-3 text-right">Preguntas</th>
                 <th className="px-4 py-3 text-right">Tomas</th>
-                <th className="px-4 py-3 text-right">Abiertas</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {organizations.map((organization) => (
-                <tr key={organization.id} className="hover:bg-canvas">
-                  <th scope="row" className="px-4 py-3 font-semibold text-ink">{organization.name}</th>
-                  <td className="px-4 py-3 text-ink-2">{organization.google_domain ?? <span className="text-muted">sin dominio</span>}</td>
-                  <td className="mono-number px-4 py-3 text-right">{organization.teachers}</td>
-                  <td className="mono-number px-4 py-3 text-right">{organization.students}</td>
-                  <td className="mono-number px-4 py-3 text-right">{organization.exams}</td>
-                  <td className="mono-number px-4 py-3 text-right">{organization.runs}</td>
-                  <td className="mono-number px-4 py-3 text-right">
-                    {organization.live_runs ? <span className="font-semibold text-ok">{organization.live_runs}</span> : "—"}
-                  </td>
+              {platformExams.map((exam) => (
+                <tr key={exam.id} className="hover:bg-canvas">
+                  <th scope="row" className="px-4 py-3"><a href={`/admin/evaluaciones/${encodeURIComponent(exam.id)}`} className="font-semibold text-brand hover:underline">{exam.title}</a></th>
+                  <td className="px-4 py-3 text-ink-2">{exam.subject}</td>
+                  <td className="px-4 py-3"><span className="block text-ink-2">{exam.teacher_name ?? "—"}</span><span className="block text-xs text-muted">{exam.teacher_email ?? ""}</span></td>
+                  <td className="px-4 py-3 text-xs font-semibold">{exam.status === "ready" ? "Lista" : "Borrador"}</td>
+                  <td className="mono-number px-4 py-3 text-right">{exam.questions}</td>
+                  <td className="mono-number px-4 py-3 text-right">{exam.runs}</td>
                 </tr>
               ))}
-              {!organizations.length ? <tr><td colSpan={7} className="px-4 py-10 text-center text-muted"><Users className="mx-auto mb-2 size-5" />No hay organizaciones.</td></tr> : null}
+              {!platformExams.length ? <tr><td colSpan={6} className="px-4 py-10 text-center text-muted"><Users className="mx-auto mb-2 size-5" />No hay evaluaciones.</td></tr> : null}
             </tbody>
           </table>
         </div>
@@ -181,7 +192,6 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
             <thead className="bg-inset text-xs text-ink-2">
               <tr>
                 <th className="px-4 py-3">Evaluación</th>
-                <th className="px-4 py-3">Organización</th>
                 <th className="px-4 py-3">Docente</th>
                 <th className="px-4 py-3">Cerrada</th>
                 <th className="px-4 py-3 text-right">Alumnos</th>
@@ -192,10 +202,9 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
               {recentRuns.map((run) => (
                 <tr key={run.id} className="hover:bg-canvas">
                   <th scope="row" className="px-4 py-3">
-                    <a href={`/resultados?run=${encodeURIComponent(run.id)}`} className="font-semibold text-brand hover:underline">{run.title}</a>
+                    <a href={`/sesiones/${encodeURIComponent(run.id)}`} className="font-semibold text-brand hover:underline">{run.title}</a>
                     <span className="mono-number mt-0.5 block text-xs text-muted">{run.code}</span>
                   </th>
-                  <td className="px-4 py-3 text-ink-2">{run.org_name ?? "—"}</td>
                   <td className="px-4 py-3 text-ink-2">{run.teacher_name ?? "—"}</td>
                   <td className="px-4 py-3 text-xs text-muted">{run.ended_at ? dateFormatter.format(run.ended_at) : "—"}</td>
                   <td className="mono-number px-4 py-3 text-right">{run.participants}</td>

@@ -1,6 +1,7 @@
 import type { WebSocket } from "ws";
 
 import type { FullQuestion } from "@/domain/exam";
+import { personalizeQuestions } from "@/domain/pool";
 import { shouldCompareConnectionValue } from "@/server/connection-signals";
 import { db, type PgStatement } from "@/server/db/client";
 import { gradeExam } from "@/server/grading";
@@ -301,6 +302,17 @@ export class ExamRunActor {
 
     if (path === "/end") {
       await this.endRun("teacher");
+      return Response.json(this.publicState());
+    }
+
+    if (path === "/admin-end") {
+      await this.endRun("admin");
+      return Response.json(this.publicState());
+    }
+
+    if (path === "/expire-lobby") {
+      if (this.run.status !== "lobby") return Response.json(this.publicState());
+      await this.endRun("abandoned");
       return Response.json(this.publicState());
     }
 
@@ -630,23 +642,26 @@ export class ExamRunActor {
     this.schedule();
   }
 
-  private async endRun(reason: "timer" | "teacher"): Promise<void> {
+  private async endRun(reason: "timer" | "teacher" | "admin" | "abandoned"): Promise<void> {
     if (this.run.status === "ended") return;
     this.run.status = "ended";
     this.run.endsAt = Math.min(this.run.endsAt ?? Date.now(), Date.now());
     const endedAt = Date.now();
+    // Persistir el cierre antes de corregir impide que una ruta de guardado que
+    // corre en paralelo siga aceptando respuestas durante el cierre.
+    await db.prepare("UPDATE runs SET status = 'ended', ends_at = ?, ended_at = ? WHERE id = ?")
+      .bind(this.run.endsAt, endedAt, this.run.runId)
+      .run();
     for (const participant of Object.values(this.run.participants)) {
       if (participant.status === "active" || participant.status === "disconnected") {
         await this.gradeAndSubmit(participant.participantId, reason === "timer" ? "timer" : "teacher");
         participant.status = "submitted";
       }
     }
-    await db.prepare("UPDATE runs SET status = 'ended', ends_at = ?, ended_at = ? WHERE id = ?")
-      .bind(this.run.endsAt, endedAt, this.run.runId)
-      .run();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.broadcastRunState("run-ended", { reason });
+    this.memory.clear();
   }
 
   private async recordIncident(
@@ -671,15 +686,26 @@ export class ExamRunActor {
   }
 
   private async gradeAndSubmit(participantId: string, reason: "timer" | "teacher"): Promise<void> {
-    const run = await db.prepare("SELECT questions_snapshot FROM runs WHERE id = ?")
+    const run = await db.prepare("SELECT questions_snapshot, shuffle_questions, shuffle_options, questions_to_serve, long_to_serve, section_quotas FROM runs WHERE id = ?")
       .bind(this.run.runId)
-      .first<{ questions_snapshot: string }>();
+      .first<{ questions_snapshot: string; shuffle_questions: number; shuffle_options: number; questions_to_serve: number | null; long_to_serve: number; section_quotas: string }>();
     if (!run) return;
     const answers = await db.prepare("SELECT question_id, value FROM answers WHERE participant_id = ?")
       .bind(participantId)
       .all<{ question_id: string; value: string }>();
-    const result = gradeExam(
+    let sectionQuotas: Record<string, number> = {};
+    try { sectionQuotas = JSON.parse(run.section_quotas) as Record<string, number>; } catch { /* compatibilidad con tomas viejas */ }
+    const assignedQuestions = personalizeQuestions(
       JSON.parse(run.questions_snapshot) as FullQuestion[],
+      `${this.run.runId}:${participantId}`,
+      Boolean(run.shuffle_questions),
+      Boolean(run.shuffle_options),
+      run.questions_to_serve,
+      run.long_to_serve,
+      sectionQuotas,
+    );
+    const result = gradeExam(
+      assignedQuestions,
       answers.results.map((answer) => ({ questionId: answer.question_id, value: JSON.parse(answer.value) })),
     );
     const now = Date.now();
@@ -747,4 +773,21 @@ export function pruneIdleRunActors(): number {
     }
   }
   return removed;
+}
+
+/**
+ * Barrido durable: decide por created_at en Postgres, por lo que tambien
+ * encuentra salas vencidas durante un reinicio. El actor solo distribuye el
+ * cierre a los sockets que sigan conectados.
+ */
+export async function closeAbandonedLobbyRuns(now = Date.now()): Promise<number> {
+  const cutoff = abandonedLobbyCutoff(now);
+  const stale = await db.prepare("SELECT id FROM runs WHERE status = 'lobby' AND started_at IS NULL AND created_at <= ?")
+    .bind(cutoff).all<{ id: string }>();
+  for (const row of stale.results) await dispatchRunCommand(row.id, "/expire-lobby");
+  return stale.results.length;
+}
+
+export function abandonedLobbyCutoff(now: number) {
+  return now - 60 * 60 * 1000;
 }

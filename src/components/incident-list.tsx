@@ -1,4 +1,5 @@
 import { Eye, ShieldAlert } from "lucide-react";
+import { copyForIncident } from "@/lib/incident-copy";
 
 export interface Incident {
   id: string;
@@ -39,12 +40,13 @@ const SALIDA_DE_PANTALLA = new Set([
 ]);
 
 function IncidentCard({ incident }: { incident: Incident }) {
+  const copy = copyForIncident(incident.type);
   return (
     <article className="rounded-md border p-4">
       <div className="flex items-start gap-3">
         <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden="true" />
         <div>
-          <p className="text-sm font-semibold text-ink">{incidentLabels[incident.type] ?? incident.type}</p>
+          <p className="text-sm font-semibold text-ink">{copy.title}</p>
           <p className="mt-1 text-xs text-muted">
             {dateFormatter.format(incident.at)}
             {incident.duration_ms ? ` · ${(incident.duration_ms / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} s` : ""}
@@ -54,6 +56,9 @@ function IncidentCard({ incident }: { incident: Incident }) {
               ? `Estaba en la pregunta ${incident.questionNumber}: ${incident.questionPrompt}`
               : "No hay pregunta asociada (registro anterior a esta mejora o alumno fuera de una pregunta)."}
           </p>
+          <p className="mt-2 text-sm leading-6 text-ink-2">{copy.what} <span className="text-muted">{copy.normal}</span></p>
+          <p className="mt-2 text-xs font-medium text-brand-deep">Qué conviene revisar: {copy.review}</p>
+          <details className="mt-2 text-xs text-muted"><summary className="cursor-pointer font-medium">Ver detalle técnico</summary><p className="mt-1">Tipo interno: {incident.type} · origen: {incident.source === "server" ? "servidor" : "navegador"}</p></details>
         </div>
       </div>
     </article>
@@ -68,7 +73,7 @@ function Resumen({ incidents }: { incidents: Incident[] }) {
     <ul className="mt-3 flex flex-wrap gap-2">
       {ordenados.map(([type, count]) => (
         <li key={type} className="rounded-sm border bg-inset px-2 py-1 text-xs text-ink-2">
-          {incidentLabels[type] ?? type}
+          {copyForIncident(type).title}
           <span className="mono-number ms-1.5 font-semibold text-ink">{count}</span>
         </li>
       ))}

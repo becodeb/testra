@@ -29,12 +29,52 @@ interface Absence {
   sawHidden: boolean;
 }
 
+interface ClipboardLikeEvent {
+  type: string;
+  clipboardData?: { getData(type: string): string } | null;
+  target?: EventTarget | null;
+}
+
+/** Devuelve solamente la longitud; el texto nunca sale de esta funcion. */
+export function clipboardCharacterCount(
+  event: ClipboardLikeEvent,
+  selectionText = typeof window === "undefined" ? "" : window.getSelection()?.toString() ?? "",
+): number | null {
+  if (event.type === "paste") {
+    const pasted = event.clipboardData?.getData("text/plain") ?? "";
+    return pasted.length > 0 ? pasted.length : null;
+  }
+
+  const target = event.target;
+  if (typeof HTMLInputElement !== "undefined" && typeof HTMLTextAreaElement !== "undefined"
+    && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    if (start !== null && end !== null && end > start) return end - start;
+  }
+  return selectionText.length > 0 ? selectionText.length : null;
+}
+
+export function isDuplicateClipboardIncident(
+  previous: { action: string; characters: number | null; questionId: string; at: number } | null,
+  next: { action: string; characters: number | null; questionId: string; at: number },
+  windowMs = 750,
+) {
+  return Boolean(previous
+    && previous.action === next.action
+    && previous.characters === next.characters
+    && previous.questionId === next.questionId
+    && next.at - previous.at >= 0
+    && next.at - previous.at <= windowMs);
+}
+
 export function useExamMonitoring({ active, participantId, onIncident, activeQuestionId, detectFocusLoss = true, blockClipboard = false, requireFullscreen = false }: UseExamMonitoringOptions) {
   const activeRef = useRef(active);
   const callbackRef = useRef(onIncident);
   const absenceRef = useRef<Absence | null>(null);
   const wasFullscreenRef = useRef(false);
   const questionRef = useRef(activeQuestionId);
+  const lastClipboardRef = useRef<{ action: string; characters: number | null; questionId: string; at: number } | null>(null);
 
   useEffect(() => {
     activeRef.current = active;
@@ -87,28 +127,30 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (!watching()) return;
-      if (!blockClipboard) return;
-      // Solo se cancelan los atajos que se quieren bloquear. Cancelar el evento
-      // para cualquier tecla dejaba al alumno sin poder escribir las respuestas
-      // de desarrollo y las de respuesta corta.
       if (event.key === "F12") {
-        event.preventDefault();
+        if (blockClipboard) event.preventDefault();
         emit({ type: "atajo-f12", at: Date.now(), durationMs: 0, meta: {} });
-        return;
       }
-      const esAtajoDePortapapeles = (event.ctrlKey || event.metaKey)
-        && ["c", "v", "x"].includes(event.key.toLowerCase());
-      if (esAtajoDePortapapeles) event.preventDefault();
     };
     const onClipboard = (event: ClipboardEvent) => {
       if (!watching()) return;
-      const text = event.clipboardData?.getData("text/plain") ?? "";
+      const at = Date.now();
+      const action = event.type;
+      const characters = clipboardCharacterCount(event);
+      const fingerprint = { action, characters, questionId: questionRef.current, at };
+      if (isDuplicateClipboardIncident(lastClipboardRef.current, fingerprint)) {
+        if (blockClipboard) event.preventDefault();
+        return;
+      }
+      lastClipboardRef.current = fingerprint;
       emit({
         type: "atajo-copiar-pegar",
-        at: Date.now(),
+        at,
         durationMs: 0,
-        meta: { action: event.type, characters: text.length },
+        meta: { action, characters },
       });
+      // Bloquear el evento real preserva la deteccion de Ctrl/Cmd+C/V.
+      if (blockClipboard) event.preventDefault();
     };
     const onFullscreen = () => {
       if (document.fullscreenElement) {

@@ -10,6 +10,12 @@ const code = Astro.params.code!.trim().toUpperCase();
 const session = await getStudentSession({ actor, request: Astro.request }, code);
 const run = session?.run ?? await getJoinableRun(code);
 if (!run) return new Response("No encontramos una evaluación activa con ese código", { status: 404 });
+const monitored = [
+  run.detect_focus_loss ? "cambios de pestaña o ventana" : null,
+  "interrupciones de conexión",
+  run.block_clipboard ? "acciones de copiar o pegar (solo la cantidad de caracteres cuando está disponible)" : null,
+  run.require_fullscreen ? "salidas de pantalla completa" : null,
+].filter(Boolean).join(", ");
 ---
 
 <StudentLayout title={run.title}>
@@ -38,7 +44,7 @@ if (!run) return new Response("No encontramos una evaluación activa con ese có
     />
   ) : (
     <main id="contenido" class="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-lg place-items-center px-4 py-12">
-      <JoinRun client:load step="name" code={run.code} runTitle={run.title} defaultName={actor?.name ?? ""} />
+      <JoinRun client:load step="name" code={run.code} runTitle={run.title} defaultName={actor?.name ?? ""} monitoringSummary={monitored} />
     </main>
   )}
 </StudentLayout>

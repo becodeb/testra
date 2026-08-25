@@ -80,7 +80,6 @@ Variables de entorno:
 | `GOOGLE_CLIENT_ID` | no | Acceso con Google y Classroom |
 | `GOOGLE_CLIENT_SECRET` | no | Ídem |
 | `OPENROUTER_API_KEY` | no | Informes de integridad por IA |
-| `TEACHER_EMAILS` | no | Lista separada por comas de docentes habilitados |
 | `ALLOW_DEMO_AUTH` | no | Debe quedar sin definir o en `false` |
 | `DATABASE_POOL_MAX` | no | Conexiones del pool, 12 por omisión |
 
@@ -100,14 +99,13 @@ Crear credenciales OAuth Web y autorizar:
 https://testra.becode.com.ar/api/auth/callback/google
 ```
 
-El acceso principal usa correo y contraseña y no depende de Google. Configurar la
+El acceso principal usa Google; correo y contraseña sigue disponible como alternativa. Configurar la
 pantalla de consentimiento y solicitar verificación para los scopes sensibles de
 Classroom documentados en `docs/classroom.md` antes de habilitar esa integración.
 
-La primera cuenta que crea un espacio puede elegir el rol docente. En dominios
-institucionales ya existentes, definir `TEACHER_EMAILS` como variable separada
-por comas para habilitar docentes adicionales. Los correos personales crean
-espacios independientes y no se agrupan por dominio.
+Cualquier persona puede crear una cuenta docente sin organización, agrupación por
+dominio ni aprobación previa. Las relaciones históricas con organizaciones se
+conservan como datos opcionales.
 
 ## 4. Migrar los datos de la D1 anterior
 

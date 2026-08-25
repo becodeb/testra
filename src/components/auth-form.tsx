@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
@@ -22,12 +22,15 @@ function readableError(code?: string, fallback?: string) {
 }
 
 export function AuthForm({ callbackURL }: { callbackURL: string }) {
+  const [hydrated, setHydrated] = useState(false);
   const [mode, setMode] = useState<Mode>("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => setHydrated(true), []);
 
   function changeMode(next: Mode) {
     setMode(next);
@@ -83,7 +86,15 @@ export function AuthForm({ callbackURL }: { callbackURL: string }) {
   }
 
   return (
-    <div>
+    <div data-auth-ready={hydrated ? "true" : "false"}>
+      <Button type="button" size="lg" className="w-full" disabled={loading} onClick={() => void signInWithGoogle()}>
+        <svg viewBox="0 0 24 24" className="size-4" aria-hidden="true"><path fill="#fff" d="M21.6 12.23c0-.71-.06-1.4-.18-2.07H12v3.91h5.38a4.6 4.6 0 0 1-2 3.02v2.54h3.24c1.9-1.75 2.98-4.33 2.98-7.4Z"/><path fill="#fff" d="M12 22c2.7 0 4.97-.9 6.62-2.43l-3.24-2.54c-.9.6-2.05.96-3.38.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.62A10 10 0 0 0 12 22Z"/><path fill="#fff" d="M6.39 13.86A6 6 0 0 1 6.07 12c0-.65.11-1.28.32-1.86V7.52H3.04A10 10 0 0 0 2 12c0 1.61.39 3.14 1.04 4.48l3.35-2.62Z"/><path fill="#fff" d="M12 6.01c1.47 0 2.79.51 3.83 1.5l2.87-2.88A9.65 9.65 0 0 0 12 2a10 10 0 0 0-8.96 5.52l3.35 2.62C7.18 7.77 9.39 6.01 12 6.01Z"/></svg>
+        Continuar con Google
+      </Button>
+      <p className="mt-2 text-center text-xs text-muted">Acceso recomendado · usa tu nombre y foto de perfil</p>
+
+      <div className="my-5 flex items-center gap-3 text-xs text-muted"><span className="h-px flex-1 bg-line" /><span>o continuá con correo</span><span className="h-px flex-1 bg-line" /></div>
+
       <div className="grid grid-cols-2 rounded-md bg-inset p-1" aria-label="Elegir forma de acceso">
         <button
           type="button"
@@ -155,16 +166,10 @@ export function AuthForm({ callbackURL }: { callbackURL: string }) {
 
         {error ? <FieldError role="alert">{error}</FieldError> : null}
 
-        <Button type="submit" size="lg" className="w-full" disabled={loading}>
+        <Button type="submit" variant="outline" size="lg" className="w-full" disabled={loading}>
           {loading ? "Procesando…" : mode === "signup" ? "Crear mi cuenta" : "Entrar a Testra"}
         </Button>
       </form>
-
-      <div className="my-5 flex items-center gap-3 text-xs text-muted"><span className="h-px flex-1 bg-line" /><span>o</span><span className="h-px flex-1 bg-line" /></div>
-      <Button type="button" variant="outline" size="lg" className="w-full" disabled={loading} onClick={() => void signInWithGoogle()}>
-        <svg viewBox="0 0 24 24" className="size-4" aria-hidden="true"><path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.07H12v3.91h5.38a4.6 4.6 0 0 1-2 3.02v2.54h3.24c1.9-1.75 2.98-4.33 2.98-7.4Z"/><path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.62-2.43l-3.24-2.54c-.9.6-2.05.96-3.38.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.62A10 10 0 0 0 12 22Z"/><path fill="#FBBC05" d="M6.39 13.86A6 6 0 0 1 6.07 12c0-.65.11-1.28.32-1.86V7.52H3.04A10 10 0 0 0 2 12c0 1.61.39 3.14 1.04 4.48l3.35-2.62Z"/><path fill="#EA4335" d="M12 6.01c1.47 0 2.79.51 3.83 1.5l2.87-2.88A9.65 9.65 0 0 0 12 2a10 10 0 0 0-8.96 5.52l3.35 2.62C7.18 7.77 9.39 6.01 12 6.01Z"/></svg>
-        Continuar con Google
-      </Button>
 
       <p className="mt-5 text-center text-xs leading-relaxed text-muted">
         Google es opcional. También podés usar solamente tu correo y contraseña.

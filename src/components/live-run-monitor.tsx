@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Clock3, Minus, Plus, Radio, Square, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { copyForIncident } from "@/lib/incident-copy";
+import { formatAssignedProgress } from "@/lib/exam-progress";
 
 interface MonitorSnapshot {
   run: {
@@ -81,6 +83,8 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
   const remaining = snapshot.run.ends_at ? Math.max(0, Math.ceil((snapshot.run.ends_at - now) / 1000)) : null;
 
   async function control(action: "start" | "end" | "adjust-time", deltaS?: number) {
+    if (action === "end" && snapshot.participants.some((participant) => participant.status === "active")
+      && !window.confirm("Hay alumnos rindiendo. ¿Querés finalizar la evaluación para todos?")) return;
     setWorking(true);
     const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/control`, {
       method: "POST",
@@ -134,7 +138,7 @@ export function LiveRunMonitor({ runId, initialSnapshot }: LiveRunMonitorProps) 
             <table className="w-full min-w-[580px] text-left text-sm">
               <thead className="sticky top-0 bg-inset text-xs text-ink-2"><tr><th className="px-4 py-2.5">Alumno</th><th className="px-4 py-2.5">Estado</th><th className="px-4 py-2.5 text-right">Avance</th><th className="px-4 py-2.5 text-right">Puntaje</th><th className="px-4 py-2.5 text-right">Última señal</th></tr></thead>
               <tbody className="divide-y">
-                {snapshot.participants.map((participant) => <tr key={String(participant.id)}><th scope="row" className="px-4 py-3 font-medium text-ink">{String(participant.name)}</th><td className="px-4 py-3"><Status value={String(participant.status)} /></td><td className="mono-number px-4 py-3 text-right">{Number(participant.answered)}/{snapshot.questionCount}</td><td className="mono-number px-4 py-3 text-right">{participant.score === null ? "—" : `${Number(participant.percent ?? 0)}%`}{Number(participant.pending_manual) ? " + pendiente" : ""}</td><td className="mono-number px-4 py-3 text-right text-muted">{timeFormatter.format(Number(participant.last_seen))}</td></tr>)}
+                {snapshot.participants.map((participant) => <tr key={String(participant.id)}><th scope="row" className="px-4 py-3 font-medium text-ink">{String(participant.name)}</th><td className="px-4 py-3"><Status value={String(participant.status)} /></td><td className="mono-number px-4 py-3 text-right">{formatAssignedProgress(Number(participant.answered), Number(participant.assigned_questions ?? snapshot.questionCount))}</td><td className="mono-number px-4 py-3 text-right">{participant.score === null ? "—" : `${Number(participant.percent ?? 0)}%`}{Number(participant.pending_manual) ? " + pendiente" : ""}</td><td className="mono-number px-4 py-3 text-right text-muted">{timeFormatter.format(Number(participant.last_seen))}</td></tr>)}
                 {!snapshot.participants.length ? <tr><td colSpan={5} className="px-4 py-10 text-center text-muted">Todavía no ingresó ningún alumno.</td></tr> : null}
               </tbody>
             </table>
@@ -169,19 +173,6 @@ function Status({ value }: { value: string }) {
 }
 
 function incidentLabel(type: string, durationMs: number) {
-  const labels: Record<string, string> = {
-    "cambio-de-pestana": "Cambió de pestaña",
-    "ventana-sin-foco": "La ventana perdió el foco",
-    "atajo-f12": "Usó F12",
-    "atajo-copiar-pegar": "Usó el portapapeles",
-    "salida-pantalla-completa": "Salió de pantalla completa",
-    "cierre-pestana": "Cerró u ocultó la pestaña",
-    desconexion: "Se perdió la conexión por unos segundos",
-    "sesion-duplicada": "Abrió una segunda sesión",
-    "cambio-ip": "Cambió de red o conexión (por ejemplo, Wi-Fi a datos)",
-    "cambio-user-agent": "Volvió a entrar desde otro navegador o dispositivo",
-    "cadencia-respuestas": "Cadencia de respuestas inusual",
-  };
   const duration = durationMs > 0 ? ` (${(durationMs / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} s)` : "";
-  return `${labels[type] ?? type}${duration}`;
+  return `${copyForIncident(type).title}${duration}`;
 }

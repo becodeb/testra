@@ -36,6 +36,8 @@ function createAuth() {
         accessType: "offline",
         prompt: "select_account consent",
         scope: ["openid", "email", "profile"],
+        // Actualiza nombre y foto en cada acceso desde el perfil de Google.
+        overrideUserInfoOnSignIn: true,
       },
     },
     account: {
@@ -51,7 +53,7 @@ function createAuth() {
         role: {
           type: ["teacher", "student"],
           required: true,
-          defaultValue: "student",
+          defaultValue: "teacher",
           input: false,
         },
         orgId: {

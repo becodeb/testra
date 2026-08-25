@@ -132,9 +132,8 @@ export const exams = pgTable(
   "exams",
   {
     id: text("id").primaryKey(),
-    orgId: text("org_id")
-      .notNull()
-      .references(() => organizations.id),
+    // Relacion historica opcional. El producto ya no exige organizaciones.
+    orgId: text("org_id").references(() => organizations.id),
     authorId: text("author_id")
       .notNull()
       .references(() => users.id),

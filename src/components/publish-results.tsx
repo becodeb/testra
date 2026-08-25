@@ -16,7 +16,7 @@ interface PublishResponse {
   publishedAt: number;
   alreadyPublished: boolean;
   classroomLinked: boolean;
-  classroom: { sent: number; skipped: number; failures: Array<{ name: string; reason: string }> } | null;
+  classroom: { sent: number; skipped: number; unlinked: Array<{ name: string; email: string | null }>; pending: string[]; failures: Array<{ name: string; reason: string }> } | null;
   classroomError?: string;
   error?: string;
 }
@@ -91,8 +91,7 @@ export function PublishResults({ runId, status, publishedAt, classroomLinked, pe
         <div className="mt-3 space-y-2" role="status">
           {result.classroom ? (
             <p className="rounded-md bg-paper px-3 py-2 text-sm text-ink-2">
-              Classroom: {result.classroom.sent} nota{result.classroom.sent === 1 ? "" : "s"} enviada{result.classroom.sent === 1 ? "" : "s"}
-              {result.classroom.skipped ? `, ${result.classroom.skipped} sin entrega asociada` : ""}.
+              Classroom: {result.classroom.sent} nota{result.classroom.sent === 1 ? "" : "s"} devuelta{result.classroom.sent === 1 ? "" : "s"} · {result.classroom.unlinked.length} alumno{result.classroom.unlinked.length === 1 ? "" : "s"} sin vincular · {result.classroom.failures.length} error{result.classroom.failures.length === 1 ? "" : "es"}.
             </p>
           ) : null}
           {result.classroomError ? (

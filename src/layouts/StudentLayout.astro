@@ -2,7 +2,7 @@
 import { Image } from "astro:assets";
 
 import testraMark from "@/assets/testra-mark.png";
-import { SignOutButton } from "@/components/sign-out-button";
+import { ProfileMenu } from "@/components/profile-menu";
 import "@/styles/global.css";
 import { getAuthenticatedActor } from "@/server/actors";
 
@@ -30,7 +30,7 @@ const actor = getAuthenticatedActor(Astro.locals);
           {actor ? <a href="/rendir" class="hover:text-ink">Ingresar código</a> : null}
           <a href="/acerca" class="hover:text-ink">Acerca de</a>
           <a href="/docs/vigilancia" class="hover:text-ink">Qué se registra</a>
-          {actor ? <SignOutButton client:load /> : null}
+          {actor ? <ProfileMenu client:load name={actor.name} email={actor.email} image={actor.image} role={actor.role === "teacher" ? "Docente" : "Alumno"} /> : null}
         </nav>
       </div>
     </header>

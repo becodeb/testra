@@ -12,5 +12,6 @@ if (!exam) return new Response("Evaluación inexistente", { status: 404 });
 ---
 
 <AppLayout title={exam.title || "Evaluación"} active="evaluaciones" fullBleed>
+  <aside class="border-b border-brand/20 bg-brand-soft/40 px-4 py-2.5 text-center text-xs text-ink-2">Google Classroom es opcional: al abrir una sala podés publicar la tarea, cargar el padrón y luego devolver las notas.</aside>
   <ExamEditor client:load initialExam={exam} />
 </AppLayout>

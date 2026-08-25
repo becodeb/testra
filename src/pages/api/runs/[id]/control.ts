@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { z } from "zod";
 
-import { getActor, isTeacher, unauthenticated, forbidden } from "@/server/actors";
+import { getActor, isSuperadmin, isTeacher, unauthenticated, forbidden } from "@/server/actors";
 import { apiError, readJson } from "@/server/api";
 import { getRunForTeacher, runCommand } from "@/server/repository";
 
@@ -14,7 +14,7 @@ const schema = z.discriminatedUnion("action", [
 export const POST: APIRoute = async ({ locals, request, params }) => {
   const actor = getActor(locals, "teacher");
   if (!actor) return unauthenticated();
-  if (!isTeacher(actor)) return forbidden();
+  if (!isTeacher(actor) && !isSuperadmin(actor)) return forbidden();
   if (!(await getRunForTeacher(params.id!, actor))) return forbidden();
   try {
     const input = schema.parse(await readJson(request));

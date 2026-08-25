@@ -184,8 +184,8 @@ export async function listSubjects(actor: Actor): Promise<string[]> {
 export async function getExam(examId: string, actor: Actor): Promise<ExamDraft | null> {
   const [exam, questionResult] = await Promise.all([
     db.prepare(
-      "SELECT * FROM exams WHERE id = ? AND author_id = ?",
-    ).bind(examId, actor.id).first<ExamRow>(),
+      "SELECT * FROM exams WHERE id = ? AND (? = 1 OR author_id = ?)",
+    ).bind(examId, actor.superadmin ? 1 : 0, actor.id).first<ExamRow>(),
     db.prepare(
       "SELECT id, position, type, prompt, points, config, section FROM questions WHERE exam_id = ? ORDER BY position",
     ).bind(examId).all<QuestionRow>(),
@@ -221,7 +221,6 @@ export async function getExam(examId: string, actor: Actor): Promise<ExamDraft |
 }
 
 export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft> {
-  if (!actor.orgId) throw new Error("Tu cuenta todavía no pertenece a una institución");
   const draft = examDraftSchema.parse(input);
   const existing = await db.prepare("SELECT author_id FROM exams WHERE id = ?")
     .bind(draft.id)
@@ -392,8 +391,8 @@ export async function getRunForTeacher(runId: string, actor: Actor): Promise<Run
   return db.prepare(
     `SELECT r.* FROM runs r
      LEFT JOIN exams e ON e.id = r.exam_id
-     WHERE r.id = ? AND COALESCE(r.author_id, e.author_id) = ?`,
-  ).bind(runId, actor.id).first<RunRow>();
+     WHERE r.id = ? AND (? = 1 OR COALESCE(r.author_id, e.author_id) = ?)`,
+  ).bind(runId, actor.superadmin ? 1 : 0, actor.id).first<RunRow>();
 }
 
 export async function listRuns(actor: Actor): Promise<RunSummary[]> {
@@ -704,23 +703,24 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
     ).bind(runId).all<Record<string, string | null>>(),
   ]);
   const allQuestions = JSON.parse(run.questions_snapshot) as FullQuestion[];
-  const served = run.questions_to_serve;
-  const questionCount = served && served > 0 && served < allQuestions.length ? served : allQuestions.length;
+  const representativeQuestions = questionsForParticipant(run, "__progress-preview__");
+  const questionCount = representativeQuestions.length;
   // Con pozo de preguntas cada alumno recibe un subconjunto propio, y esos
   // subconjuntos pueden sumar puntajes distintos. El porcentaje es entonces lo
   // único comparable entre alumnos, así que se calcula acá contra el máximo real
   // de cada uno en vez de contra un total único de la toma.
   const participants = participantResult.results.map((participant) => {
-    const maxPoints = questionsForParticipant(run, String(participant.id))
-      .reduce((sum, question) => sum + question.points, 0);
+    const assignedQuestions = questionsForParticipant(run, String(participant.id));
+    const maxPoints = assignedQuestions.reduce((sum, question) => sum + question.points, 0);
     const score = Number(participant.score ?? 0);
     return {
       ...participant,
+      assigned_questions: assignedQuestions.length,
       max_points: maxPoints,
       percent: maxPoints > 0 ? Math.round((score / maxPoints) * 100) : 0,
     };
   });
-  const totalPoints = allQuestions.reduce((sum, question) => sum + question.points, 0);
+  const totalPoints = representativeQuestions.reduce((sum, question) => sum + question.points, 0);
   return {
     run: { ...run, questions_snapshot: undefined },
     questionCount,
@@ -988,6 +988,18 @@ export interface PlatformLiveRun {
   submitted: number;
 }
 
+export interface PlatformExam {
+  id: string;
+  title: string;
+  subject: string;
+  status: "draft" | "ready";
+  updated_at: number;
+  teacher_name: string | null;
+  teacher_email: string | null;
+  questions: number;
+  runs: number;
+}
+
 export async function getPlatformOverview() {
   // Los conteos van como subconsultas y no como JOIN + COUNT DISTINCT: un JOIN
   // multiplica filas y los totales salen inflados.
@@ -1046,16 +1058,42 @@ export async function getPlatformOverview() {
     org_name: string | null; teacher_name: string | null; participants: number;
   }>();
 
+  const platformExams = await db.prepare(
+    `SELECT e.id, e.title, e.subject, e.status, e.updated_at,
+       u.name AS teacher_name, u.email AS teacher_email,
+       (SELECT COUNT(*) FROM questions q WHERE q.exam_id = e.id) AS questions,
+       (SELECT COUNT(*) FROM runs r WHERE r.exam_id = e.id) AS runs
+     FROM exams e LEFT JOIN users u ON u.id = e.author_id
+     ORDER BY e.updated_at DESC`,
+  ).all<PlatformExam>();
+
   return {
     organizations: organizations.results,
     liveRuns: liveRuns.results,
     recentRuns: recentRuns.results,
+    platformExams: platformExams.results,
     totals: totals ?? {
       organizations: 0, teachers: 0, students: 0, exams: 0,
       runs: 0, participants: 0, answers: 0, live_runs: 0,
     },
     serverNow: Date.now(),
   };
+}
+
+export async function getPlatformExamDetail(examId: string) {
+  const exam = await db.prepare(
+    `SELECT e.id, e.title, e.subject, e.instructions, e.status, e.updated_at,
+       u.name AS teacher_name, u.email AS teacher_email,
+       (SELECT COUNT(*) FROM questions q WHERE q.exam_id = e.id) AS questions
+     FROM exams e LEFT JOIN users u ON u.id = e.author_id WHERE e.id = ?`,
+  ).bind(examId).first<Record<string, string | number | null>>();
+  if (!exam) return null;
+  const runs = await db.prepare(
+    `SELECT id, code, status, created_at, started_at, ended_at,
+       (SELECT COUNT(*) FROM participants p WHERE p.run_id = runs.id) AS participants
+     FROM runs WHERE exam_id = ? ORDER BY created_at DESC`,
+  ).bind(examId).all<Record<string, string | number | null>>();
+  return { exam, runs: runs.results };
 }
 
 export type PlatformOverview = Awaited<ReturnType<typeof getPlatformOverview>>;

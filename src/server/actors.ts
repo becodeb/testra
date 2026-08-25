@@ -7,6 +7,7 @@ export interface Actor {
   id: string;
   email: string;
   name: string;
+  image: string | null;
   role: ActorRole;
   orgId: string | null;
   /** Administra su propia organizacion: aprueba docentes. */
@@ -31,11 +32,12 @@ function isSuperadminEmail(email: string): boolean {
 
 export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor | null {
   if (locals.user) {
-    const user = locals.user as typeof locals.user & { role?: ActorRole; orgId?: string | null; orgAdmin?: boolean };
+    const user = locals.user as typeof locals.user & { role?: ActorRole; orgId?: string | null; orgAdmin?: boolean; image?: string | null };
     return {
       id: user.id,
       email: user.email,
       name: user.name,
+      image: user.image ?? null,
       role: user.role ?? "student",
       orgId: user.orgId ?? null,
       orgAdmin: user.orgAdmin ?? false,
@@ -49,6 +51,7 @@ export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor |
       id: "student-demo",
       email: "sofia@escuela.example.edu",
       name: "Sofía Álvarez",
+      image: null,
       role: "student",
       orgId: "org-demo",
       orgAdmin: false,
@@ -59,6 +62,7 @@ export function getActor(locals: App.Locals, preferredRole?: ActorRole): Actor |
     id: "teacher-demo",
     email: "mariana@escuela.example.edu",
     name: "Mariana Costa",
+    image: null,
     role: "teacher",
     orgId: "org-demo",
     orgAdmin: true,

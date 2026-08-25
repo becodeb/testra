@@ -1,0 +1,24 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getActor, isSuperadmin } from "@/server/actors";
+import { getPlatformExamDetail } from "@/server/repository";
+
+const actor = getActor(Astro.locals);
+if (!isSuperadmin(actor)) return new Response("No encontrado", { status: 404 });
+const detail = await getPlatformExamDetail(Astro.params.id!);
+if (!detail) return new Response("No encontrado", { status: 404 });
+---
+
+<AppLayout title={String(detail.exam.title)} active="admin">
+  <a href="/admin" class="text-sm font-semibold text-brand hover:underline">← Volver a la consola</a>
+  <header class="mt-5 rounded-lg border bg-paper p-5 shadow-card">
+    <p class="text-xs font-semibold tracking-[.08em] text-muted uppercase">Evaluación de la plataforma</p>
+    <h1 class="mt-2 text-2xl font-semibold text-ink">{detail.exam.title}</h1>
+    <p class="mt-2 text-sm text-muted">{detail.exam.subject} · {detail.exam.questions} preguntas · {detail.exam.teacher_name ?? "Docente no disponible"} ({detail.exam.teacher_email ?? "sin correo"})</p>
+    {detail.exam.instructions ? <p class="mt-4 rounded-md bg-inset p-4 text-sm leading-6 text-ink-2">{detail.exam.instructions}</p> : null}
+  </header>
+  <section class="mt-5 overflow-hidden rounded-lg border bg-paper shadow-card" aria-labelledby="runs-title">
+    <div class="border-b p-4"><h2 id="runs-title" class="font-semibold text-ink">Salas y tomas</h2></div>
+    <div class="divide-y">{detail.runs.map((run) => <a href={`/sesiones/${run.id}`} class="flex items-center justify-between gap-4 p-4 text-sm hover:bg-canvas"><span><strong class="text-brand">Código {run.code}</strong><span class="mt-1 block text-xs text-muted">{new Date(Number(run.created_at)).toLocaleString("es-AR")}</span></span><span class="text-right text-ink-2">{run.status === "lobby" ? "En espera" : run.status === "running" ? "En curso" : "Cerrada"}<span class="mono-number mt-1 block text-xs text-muted">{run.participants} alumnos</span></span></a>)}{!detail.runs.length ? <p class="p-8 text-center text-sm text-muted">Esta evaluación todavía no tiene tomas.</p> : null}</div>
+  </section>
+</AppLayout>

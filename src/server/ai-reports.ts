@@ -45,8 +45,8 @@ export async function generateAiReport(scopeType: "run" | "participant", scopeId
 
   const schema = scopeType === "run" ? runAiReportSchema : personAiReportSchema;
   const instructions = scopeType === "run"
-    ? "Analizá la evaluación completa. Identificá, sin acusar como hecho, quiénes presentan más indicios compatibles con copia. Compará patrones de respuestas, tiempos e incidentes; devolvé participantId exacto."
-    : "Analizá a esta persona. Distinguí incidentes probablemente accidentales (notificación, popup, selector del sistema, pérdida brevísima de foco) de cambios sostenidos o repetidos de pestaña/ventana. Considerá duración, secuencia y pregunta activa.";
+    ? "Analizá la evaluación completa para un profesor. Señalá únicamente qué alumnos conviene revisar, sin acusar ni inferir copia como hecho. Explicá qué ocurrió, cuándo, cuántas veces, explicaciones normales y qué revisar; devolvé participantId exacto."
+    : "Analizá a esta persona para su profesor. Explicá qué ocurrió, cuándo y cuántas veces. Distinguí explicaciones normales de patrones que conviene revisar y proponé preguntas concretas para esa revisión.";
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -61,7 +61,7 @@ export async function generateAiReport(scopeType: "run" | "participant", scopeId
       max_tokens: 1800,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: `Sos un analista de integridad académica. Respondé SOLO JSON en español válido para este esquema: ${JSON.stringify(z.toJSONSchema(schema))}. Nunca declares que alguien copió como certeza: son indicadores orientativos y toda decisión exige revisión docente. Un cambio de IP o navegador aislado es evidencia débil.` },
+        { role: "system", content: `Sos un asistente para docentes, no un perito técnico. Respondé SOLO JSON en español válido para este esquema: ${JSON.stringify(z.toJSONSchema(schema))}. Usá lenguaje cotidiano. No escribas IP, proxy, user agent, WebSocket, fingerprint, visibilitychange ni heurística: traducí cada término a lo que vivió la persona. Nunca declares que alguien copió o hizo trampa. Ninguna señal cambia una nota. Incluí explicaciones normales y una recomendación de revisión humana. La IA no califica ni sanciona.` },
         { role: "user", content: `${instructions}\n\nDatos:\n${compactInput.slice(0, 100_000)}` },
       ],
     }),

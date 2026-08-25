@@ -29,6 +29,8 @@ Referencia oficial: [Choose Google Classroom API scopes](https://developers.goog
 6. `studentSubmissions.patch` escribe `draftGrade` y `assignedGrade` con `updateMask=draftGrade,assignedGrade`.
 7. `studentSubmissions.return` devuelve la entrega. **Sin este paso la nota existe pero el alumno no la ve**, porque `assignedGrade` sólo se le muestra a partir de que la entrega fue devuelta.
 
+La vinculación nunca depende del nombre. Testra usa primero el identificador estable de la cuenta Google y, si no está disponible, un correo normalizado y único. Las coincidencias ambiguas quedan como alumnos sin vincular. Como un pozo o las cuotas pueden dar máximos distintos, la nota se escala al máximo real configurado en la tarea de Classroom (100 para tareas nuevas).
+
 ## Restricciones que no se pueden ocultar
 
 - Una tarea sólo puede crearse en nombre de un docente del curso. Se usa su token OAuth, nunca una service account genérica.

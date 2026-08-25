@@ -12,7 +12,7 @@ const CLASSROOM_SCOPES = [
 
 interface ClassroomPanelProps { runId: string; linked: boolean; ended: boolean }
 interface Course { id: string; name: string; section?: string }
-interface GradeRow { name: string; email: string; grade: number; pendingManual: number; submissionState: string | null; canSend: boolean }
+interface GradeRow { name: string; email: string | null; grade: number; pendingManual: number; submissionState: string | null; canSend: boolean; linked: boolean; matchMethod: "google_id" | "email" | null }
 
 export function ClassroomPanel({ runId, linked: initialLinked, ended }: ClassroomPanelProps) {
   const [linked, setLinked] = useState(initialLinked);
@@ -68,8 +68,10 @@ export function ClassroomPanel({ runId, linked: initialLinked, ended }: Classroo
   async function sendGrades() {
     setLoading(true);
     const response = await fetch("/api/classroom/grades", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId, confirmed: true }) });
-    const body = await response.json() as { sent?: number; skipped?: number; error?: string };
-    setMessage(response.ok ? `Se enviaron ${body.sent ?? 0} notas. ${body.skipped ?? 0} quedaron sin enviar.` : body.error ?? "No se pudieron enviar las notas");
+    const body = await response.json() as { sent?: number; unlinked?: Array<{ name: string }>; pending?: string[]; failures?: Array<{ name: string; reason: string }>; error?: string };
+    setMessage(response.ok
+      ? `Classroom: ${body.sent ?? 0} notas devueltas · ${body.unlinked?.length ?? 0} alumnos sin vincular · ${body.failures?.length ?? 0} errores${body.pending?.length ? ` · ${body.pending.length} pendientes de corrección` : ""}.`
+      : body.error ?? "No se pudieron enviar las notas");
     setLoading(false);
   }
 
@@ -90,7 +92,7 @@ export function ClassroomPanel({ runId, linked: initialLinked, ended }: Classroo
       </div>
       {message ? <p className="mt-4 rounded-md bg-inset px-3 py-2 text-sm text-ink-2" role="status">{message}</p> : null}
       {!linked && courses.length ? <div className="mt-4 flex flex-wrap items-end gap-2"><label className="flex min-w-64 flex-1 flex-col gap-1.5 text-sm font-semibold text-ink-2">Curso<select value={courseId} onChange={(event) => setCourseId(event.target.value)} className="h-9 rounded-md border bg-white px-3 font-normal">{courses.map((course) => <option value={course.id} key={course.id}>{course.name}{course.section ? ` · ${course.section}` : ""}</option>)}</select></label><Button type="button" disabled={!courseId || loading} onClick={() => void publish()}>Publicar tarea</Button></div> : null}
-      {linked && ended && grades ? <div className="mt-5"><div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[620px] text-left text-sm"><thead className="bg-inset text-xs"><tr><th className="px-3 py-2">Alumno</th><th className="px-3 py-2 text-right">Nota</th><th className="px-3 py-2">Entrega</th><th className="px-3 py-2">Resultado</th></tr></thead><tbody className="divide-y">{grades.map((row) => <tr key={row.email}><th scope="row" className="px-3 py-2.5 font-medium">{row.name}</th><td className="mono-number px-3 py-2.5 text-right">{row.grade}</td><td className="px-3 py-2.5 text-xs">{row.submissionState ?? "No encontrada"}</td><td className="px-3 py-2.5 text-xs">{row.canSend ? "Lista para enviar" : row.pendingManual ? "Falta corrección manual" : "El alumno aún no entregó en Classroom"}</td></tr>)}</tbody></table></div><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-muted">Las notas se envían sólo después de tu confirmación.</p><Button type="button" disabled={loading || !grades.some((row) => row.canSend)} onClick={() => void sendGrades()}><Send data-icon="inline-start" />Enviar notas a Classroom</Button></div></div> : null}
+      {linked && ended && grades ? <div className="mt-5"><div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[620px] text-left text-sm"><thead className="bg-inset text-xs"><tr><th className="px-3 py-2">Alumno</th><th className="px-3 py-2 text-right">Nota</th><th className="px-3 py-2">Vínculo</th><th className="px-3 py-2">Resultado</th></tr></thead><tbody className="divide-y">{grades.map((row, index) => <tr key={`${row.email ?? row.name}:${index}`}><th scope="row" className="px-3 py-2.5 font-medium">{row.name}<span className="mt-0.5 block text-xs font-normal text-muted">{row.email ?? "Rindió como invitado"}</span></th><td className="mono-number px-3 py-2.5 text-right">{row.grade}</td><td className="px-3 py-2.5 text-xs">{row.linked ? row.matchMethod === "google_id" ? "Cuenta de Google" : "Correo verificado" : "Sin vincular"}</td><td className="px-3 py-2.5 text-xs">{row.canSend ? "Lista para devolver" : row.pendingManual ? "Falta corrección manual" : !row.linked ? "No hay una coincidencia segura" : row.submissionState ? "Entrega no disponible" : "No se encontró la entrega"}</td></tr>)}</tbody></table></div><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-muted">Testra nunca vincula notas por nombre. Las notas se envían sólo después de tu confirmación.</p><Button type="button" disabled={loading || !grades.some((row) => row.canSend)} onClick={() => void sendGrades()}><Send data-icon="inline-start" />Enviar notas a Classroom</Button></div></div> : null}
     </section>
   );
 }

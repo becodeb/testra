@@ -345,7 +345,11 @@ function StudentAnswer({ question, value, onChange }: { question: StudentQuestio
 
 function incidentMessage(incident: ClientIncident) {
   if (incident.type === "cambio-de-pestana" || incident.type === "ventana-sin-foco") return `Estuviste fuera de la ventana ${(incident.durationMs / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} s.`;
-  if (incident.type === "atajo-copiar-pegar") return `Usaste ${String(incident.meta.action ?? "el portapapeles")} con ${Number(incident.meta.characters ?? 0)} caracteres.`;
+  if (incident.type === "atajo-copiar-pegar") {
+    const action = incident.meta.action === "copy" ? "copiar" : incident.meta.action === "cut" ? "cortar" : incident.meta.action === "paste" ? "pegar" : "el portapapeles";
+    const characters = typeof incident.meta.characters === "number" ? ` (${incident.meta.characters} caracteres)` : " (cantidad no disponible)";
+    return `Usaste ${action}${characters}. Testra no guarda el contenido.`;
+  }
   if (incident.type === "salida-pantalla-completa") return "Saliste de pantalla completa.";
   return "Se detectó el uso de F12. Testra lo registra; no pretende bloquear las herramientas del navegador.";
 }

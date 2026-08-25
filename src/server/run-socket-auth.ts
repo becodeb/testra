@@ -1,4 +1,4 @@
-import { getActor, isTeacher } from "@/server/actors";
+import { getActor, isSuperadmin, isTeacher } from "@/server/actors";
 import { auth } from "@/server/auth";
 import type { SocketIdentity } from "@/server/exam-run-actor";
 import { getRunForTeacher, participantOwnedBy } from "@/server/repository";
@@ -30,7 +30,7 @@ export async function authorizeRunSocket({ runId, searchParams, request }: Autho
 
   if (role === "teacher") {
     if (!actor) return { ok: false, status: 401, error: "Iniciá sesión para continuar" };
-    if (!isTeacher(actor)) return { ok: false, status: 403, error: "No tenés permiso para realizar esta acción" };
+    if (!isTeacher(actor) && !isSuperadmin(actor)) return { ok: false, status: 403, error: "No tenés permiso para realizar esta acción" };
     if (!(await getRunForTeacher(runId, actor))) {
       return { ok: false, status: 403, error: "No tenés permiso para realizar esta acción" };
     }

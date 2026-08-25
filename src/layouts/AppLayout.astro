@@ -2,19 +2,18 @@
 import { Image } from "astro:assets";
 
 import testraMark from "@/assets/testra-mark.png";
-import { SignOutButton } from "@/components/sign-out-button";
+import { ProfileMenu } from "@/components/profile-menu";
 import "@/styles/global.css";
 import { getActor } from "@/server/actors";
 
 interface Props {
   title: string;
-  active?: "evaluaciones" | "sesiones" | "resultados" | "solicitudes" | "admin";
+  active?: "evaluaciones" | "sesiones" | "resultados" | "admin";
   fullBleed?: boolean;
 }
 
 const { title, active, fullBleed = false } = Astro.props;
 const actor = getActor(Astro.locals, "teacher");
-const initials = actor?.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() ?? "T";
 ---
 
 <!doctype html>
@@ -63,23 +62,14 @@ const initials = actor?.name.split(/\s+/).map((part) => part[0]).join("").slice(
               active === "resultados" && "font-semibold text-brand after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand",
             ]}
           >Resultados</a>
-          {actor?.orgAdmin ? <a href="/solicitudes" aria-current={active === "solicitudes" ? "page" : undefined} class:list={["relative flex h-full items-center px-3 text-sm font-medium text-ink-2 hover:text-ink", active === "solicitudes" && "font-semibold text-brand after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand"]}>Solicitudes</a> : null}
           {actor?.superadmin ? <a href="/admin" aria-current={active === "admin" ? "page" : undefined} class:list={["relative flex h-full items-center px-3 text-sm font-medium text-ink-2 hover:text-ink", active === "admin" && "font-semibold text-brand after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand"]}>Consola</a> : null}
         </nav>
-        <div class="flex items-center justify-self-end gap-2">
-          <span class="hidden text-right sm:block">
-            <span class="block text-sm font-semibold text-ink">{actor?.name ?? "Testra"}</span>
-            <span class="block text-xs text-muted">{actor?.role === "teacher" ? "Docente" : "Cuenta"}{!Astro.locals.user ? " · Demo local" : ""}</span>
-          </span>
-          <span class="grid size-8 place-items-center rounded-full bg-brand-soft text-xs font-bold text-brand" aria-hidden="true">{initials}</span>
-          {Astro.locals.user ? <SignOutButton client:load /> : null}
-        </div>
+        <div class="flex items-center justify-self-end">{Astro.locals.user && actor ? <ProfileMenu client:load name={actor.name} email={actor.email} image={actor.image} role={actor.role === "teacher" ? "Docente" : "Alumno"} /> : <span class="text-xs text-muted">Demo local</span>}</div>
       </div>
       <nav aria-label="Navegación principal móvil" class="mx-auto flex max-w-[1280px] overflow-x-auto border-t px-4 md:hidden">
         <a href="/evaluaciones" aria-current={active === "evaluaciones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "evaluaciones" && "border-b-2 border-brand font-semibold text-brand"]}>Evaluaciones</a>
         <a href="/sesiones" aria-current={active === "sesiones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "sesiones" && "border-b-2 border-brand font-semibold text-brand"]}>Sesiones</a>
         <a href="/resultados" aria-current={active === "resultados" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "resultados" && "border-b-2 border-brand font-semibold text-brand"]}>Resultados</a>
-        {actor?.orgAdmin ? <a href="/solicitudes" aria-current={active === "solicitudes" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "solicitudes" && "border-b-2 border-brand font-semibold text-brand"]}>Solicitudes</a> : null}
               {actor?.superadmin ? <a href="/admin" aria-current={active === "admin" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "admin" && "border-b-2 border-brand font-semibold text-brand"]}>Consola</a> : null}
 </nav>
     </header>

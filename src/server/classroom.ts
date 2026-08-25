@@ -24,6 +24,40 @@ export function uniqueGoogleUsersByName(rows: Array<{ google_user_id: string; na
   return users;
 }
 
+export function normalizeStudentEmail(email: string | null | undefined) {
+  return email?.trim().toLocaleLowerCase() || null;
+}
+
+export interface ClassroomRosterIdentity {
+  google_user_id: string;
+  email: string | null;
+}
+
+export interface TestraStudentIdentity {
+  googleUserId: string | null;
+  email: string | null;
+}
+
+/**
+ * Vinculacion conservadora: primero el identificador Google de la cuenta y
+ * despues un correo unico normalizado. El nombre no participa porque dos
+ * personas homonimas nunca deben compartir una nota.
+ */
+export function matchClassroomStudent(
+  student: TestraStudentIdentity,
+  roster: ClassroomRosterIdentity[],
+): { googleUserId: string; method: "google_id" | "email" } | null {
+  if (student.googleUserId) {
+    const byId = roster.filter((row) => row.google_user_id === student.googleUserId);
+    if (byId.length === 1) return { googleUserId: byId[0].google_user_id, method: "google_id" };
+  }
+
+  const email = normalizeStudentEmail(student.email);
+  if (!email) return null;
+  const byEmail = roster.filter((row) => normalizeStudentEmail(row.email) === email);
+  return byEmail.length === 1 ? { googleUserId: byEmail[0].google_user_id, method: "email" } : null;
+}
+
 const courseSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -112,6 +146,14 @@ export async function listCourseworkSubmissions(accessToken: string, courseId: s
     pageToken = page.nextPageToken;
   } while (pageToken);
   return { submissions };
+}
+
+export async function getCoursework(accessToken: string, courseId: string, courseworkId: string) {
+  return classroomFetch(
+    accessToken,
+    `/courses/${encodeURIComponent(courseId)}/courseWork/${encodeURIComponent(courseworkId)}`,
+    z.object({ id: z.string(), maxPoints: z.number().positive().default(100) }),
+  );
 }
 
 export async function createLinkedCoursework(

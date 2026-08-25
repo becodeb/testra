@@ -32,6 +32,7 @@ function examPayload(title: string, status: "draft" | "ready" = "ready", questio
 
 async function enterDemoRun(page: Page, name = `Alumno prueba ${Date.now()}`) {
   await page.goto("/rendir/demo");
+  await page.locator("[data-join-ready=true]").waitFor();
   if (await page.getByRole("heading", { name: "¿Cómo te llamás?" }).isVisible()) {
     await page.getByLabel("Tu nombre y apellido").fill(name);
     await page.getByRole("button", { name: "Entrar a la sala" }).click();
@@ -42,22 +43,25 @@ async function enterDemoRun(page: Page, name = `Alumno prueba ${Date.now()}`) {
 
 async function createExamFromSetup(page: Page, title: string, subject = "Ciencias") {
   await page.goto("/evaluaciones/nueva");
+  await page.locator("[data-setup-ready=true]").waitFor();
   await page.getByLabel("Título").fill(title);
   await page.getByLabel("Materia").fill(subject);
   await page.getByRole("button", { name: "Crear y agregar preguntas" }).click();
   await page.locator("[data-editor-ready=true]").waitFor();
 }
 
-test("a new user can create an account with email and password", async ({ page }) => {
+test("a new teacher can create an account without institutional approval", async ({ page }) => {
   const email = `cuenta-${Date.now()}-${Math.random().toString(36).slice(2)}@gmail.com`;
   await page.goto("/login");
+  await page.locator("[data-auth-ready=true]").waitFor();
   await page.getByRole("button", { name: "Crear cuenta" }).click();
   await page.getByLabel("Nombre y apellido").fill("Cuenta de prueba");
   await page.getByLabel("Correo electrónico").fill(email);
   await page.getByLabel("Contraseña").fill("Testra-Prueba-2026");
   await page.getByRole("button", { name: "Crear mi cuenta" }).click();
-  await expect(page).toHaveURL(/\/onboarding(?:\?|$)/, { timeout: 15_000 });
-  await expect(page.getByRole("heading", { name: "Configurá tu espacio" })).toBeVisible();
+  await expect(page).toHaveURL(/\/evaluaciones(?:\?|$)/, { timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Evaluaciones", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Cuenta de prueba.*Docente/ })).toBeVisible();
 });
 
 test("the teacher editor adds a question from the keyboard shortcut", async ({ page }) => {
@@ -191,9 +195,11 @@ test("deleting an exam keeps its prior session history", async ({ page, isMobile
   const run = await runCreation.json() as { id: string };
 
   await page.goto("/evaluaciones");
+  await page.locator("[data-library-ready=true]").waitFor();
   const card = page.locator("article").filter({ hasText: title });
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: `Borrar ${title}` }).click();
+  await expect(card.getByText("Confirmar borrado")).toBeVisible();
   await card.getByRole("button", { name: `Borrar ${title}` }).click();
   await expect(card).toHaveCount(0);
 
@@ -277,6 +283,7 @@ test("an incident reaches teacher state in under one second", async ({ page, isM
   const run = await runCreation.json() as { id: string; code: string };
   const studentName = `Incidente ${Date.now()}`;
   await page.goto(`/rendir/${run.code}`);
+  await page.locator("[data-join-ready=true]").waitFor();
   await page.getByLabel("Tu nombre y apellido").fill(studentName);
   await page.getByRole("button", { name: "Entrar a la sala" }).click();
   await expect(page.getByText(new RegExp(`Sala de espera · ${run.code}`))).toBeVisible();

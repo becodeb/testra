@@ -2,8 +2,8 @@
 import { db, type PgStatement } from "@/server/db/client";
 import { serverEnv } from "@/server/env";
 import type { Actor } from "@/server/actors";
-import { createLinkedCoursework, listCourseStudents, listCourseworkSubmissions, listTeacherCourses, normalizeStudentName, returnSubmission, sendGradeToClassroom, uniqueGoogleUsersByName } from "@/server/classroom";
-import { getRunForTeacher } from "@/server/repository";
+import { createLinkedCoursework, getCoursework, listCourseStudents, listCourseworkSubmissions, listTeacherCourses, matchClassroomStudent, returnSubmission, sendGradeToClassroom } from "@/server/classroom";
+import { getRunForTeacher, questionsForParticipant } from "@/server/repository";
 
 
 // `accounts` es tabla de better-auth: sus timestamps son timestamptz, así que
@@ -58,10 +58,12 @@ export async function publishRunToClassroom(actor: Actor, runId: string, courseI
       description: [
         "Entrá al enlace de abajo para rendir la evaluación en Testra.",
         `Si preferís entrar a mano, el código de la sala es ${run.code}.`,
-        "Escribí tu nombre y apellido tal como figuran en Classroom para que la nota vuelva a esta tarea.",
+        "Si ingresás con la misma cuenta de Google o correo de Classroom, Testra podrá vincular tu nota de forma segura.",
       ].join("\n\n"),
       runUrl: `${origin}/rendir/${run.code}`,
-      maxPoints: (JSON.parse(run.questions_snapshot) as Array<{ points: number }>).reduce((sum, question) => sum + question.points, 0),
+      // Cada alumno puede recibir preguntas con puntajes distintos. Classroom
+      // necesita un maximo comun, por eso las nuevas tareas usan porcentaje.
+      maxPoints: 100,
     }),
   ]);
   const statements: PgStatement[] = [
@@ -82,40 +84,54 @@ export async function classroomGradePreview(actor: Actor, runId: string) {
   if (!run) return null;
   if (!run.classroom_course_id || !run.classroom_coursework_id) throw new Error("Esta sesión no está vinculada con Classroom");
   const token = await googleAccessToken(actor);
-  const { submissions } = await listCourseworkSubmissions(token, run.classroom_course_id, run.classroom_coursework_id);
-  const result = await db.prepare(
-    `SELECT p.id AS participant_id, u.name, u.email,
-      SUM(CASE WHEN g.points_awarded IS NOT NULL THEN g.points_awarded ELSE 0 END) AS grade,
-      SUM(CASE WHEN g.points_awarded IS NULL THEN 1 ELSE 0 END) AS pending
-     FROM participants p JOIN users u ON u.id = p.user_id
-     LEFT JOIN grades g ON g.participant_id = p.id
-     WHERE p.run_id = ? AND p.status = 'submitted' GROUP BY p.id`,
-  ).bind(runId).all<{ participant_id: string; name: string; email: string; grade: number; pending: number }>();
-  const expected = await db.prepare(
-    "SELECT google_user_id, name, email FROM expected_run_students WHERE run_id = ?",
-  ).bind(runId).all<{ google_user_id: string; name: string; email: string | null }>();
-  const googleByEmail = new Map(expected.results.filter((row) => row.email).map((row) => [row.email!.toLocaleLowerCase(), row.google_user_id]));
-  const googleByName = uniqueGoogleUsersByName(expected.results);
+  const [{ submissions }, coursework, result, expected, gradeResult] = await Promise.all([
+    listCourseworkSubmissions(token, run.classroom_course_id, run.classroom_coursework_id),
+    getCoursework(token, run.classroom_course_id, run.classroom_coursework_id),
+    db.prepare(
+      `SELECT p.id AS participant_id, p.display_name AS name, u.email,
+        (SELECT a.account_id FROM accounts a WHERE a.user_id = u.id AND a.provider_id = 'google' ORDER BY a.updated_at DESC LIMIT 1) AS google_user_id
+       FROM participants p LEFT JOIN users u ON u.id = p.user_id
+       WHERE p.run_id = ? AND p.status = 'submitted'`,
+    ).bind(runId).all<{ participant_id: string; name: string; email: string | null; google_user_id: string | null }>(),
+    db.prepare("SELECT google_user_id, name, email FROM expected_run_students WHERE run_id = ?")
+      .bind(runId).all<{ google_user_id: string; name: string; email: string | null }>(),
+    db.prepare(
+      `SELECT g.participant_id, g.question_id, g.points_awarded
+       FROM grades g JOIN participants p ON p.id = g.participant_id WHERE p.run_id = ?`,
+    ).bind(runId).all<{ participant_id: string; question_id: string; points_awarded: number | null }>(),
+  ]);
   const submissionByUser = new Map(submissions.map((submission) => [submission.userId, submission]));
   return {
     courseId: run.classroom_course_id,
     courseworkId: run.classroom_coursework_id,
     token,
     rows: result.results.map((row) => {
-      const googleUserId = googleByEmail.get(row.email.toLocaleLowerCase()) ?? googleByName.get(normalizeStudentName(row.name));
-      const submission = submissionByUser.get(googleUserId ?? "");
+      const match = matchClassroomStudent({ googleUserId: row.google_user_id, email: row.email }, expected.results);
+      const submission = submissionByUser.get(match?.googleUserId ?? "");
+      const assignedQuestions = questionsForParticipant(run, row.participant_id);
+      const assignedIds = new Set(assignedQuestions.map((question) => question.id));
+      const assignedGrades = gradeResult.results.filter((grade) => grade.participant_id === row.participant_id && assignedIds.has(grade.question_id));
+      const assignedMax = assignedQuestions.reduce((total, question) => total + question.points, 0);
+      const score = assignedGrades.reduce((total, item) => total + Number(item.points_awarded ?? 0), 0);
+      const pendingManual = assignedGrades.filter((item) => item.points_awarded === null).length;
+      const grade = assignedMax > 0 ? Math.round((score / assignedMax) * coursework.maxPoints * 100) / 100 : 0;
       return {
         participantId: row.participant_id,
         name: row.name,
         email: row.email,
-        grade: Number(row.grade),
-        pendingManual: Number(row.pending),
+        matchMethod: match?.method ?? null,
+        linked: Boolean(match),
+        grade,
+        score,
+        assignedMax,
+        classroomMax: coursework.maxPoints,
+        pendingManual,
         submissionId: submission?.id ?? null,
         submissionState: submission?.state ?? null,
         // Alcanza con que exista la entrega en Classroom y que no queden
         // desarrollos sin corregir. No se pide TURNED_IN: ver el comentario de
         // sendGradeToClassroom.
-        canSend: Boolean(submission && row.pending === 0),
+        canSend: Boolean(match && submission && pendingManual === 0),
       };
     }),
   };
@@ -125,6 +141,8 @@ export async function sendRunGrades(actor: Actor, runId: string) {
   const preview = await classroomGradePreview(actor, runId);
   if (!preview) return null;
   const eligible = preview.rows.filter((row) => row.canSend && row.submissionId);
+  const unlinked = preview.rows.filter((row) => !row.linked).map((row) => ({ name: row.name, email: row.email }));
+  const pending = preview.rows.filter((row) => row.linked && row.pendingManual > 0).map((row) => row.name);
 
   let sent = 0;
   const failures: Array<{ name: string; reason: string }> = [];
@@ -158,6 +176,8 @@ export async function sendRunGrades(actor: Actor, runId: string) {
   return {
     sent,
     skipped: preview.rows.length - eligible.length,
+    unlinked,
+    pending,
     failures,
     rows: preview.rows,
   };

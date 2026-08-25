@@ -12,7 +12,7 @@ import http from "node:http";
 process.env.ASTRO_NODE_AUTOSTART = "disabled";
 
 const { handler } = await import("./dist/server/entry.mjs");
-const { handleUpgrade, closeDatabase } = await import("./dist/ws-upgrade.mjs");
+const { handleUpgrade, closeDatabase, closeAbandonedLobbyRuns, pruneIdleRunActors } = await import("./dist/ws-upgrade.mjs");
 
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -41,11 +41,26 @@ server.listen(port, host, () => {
   console.log(`[server] Testra escuchando en http://${host}:${port}`);
 });
 
+async function runMaintenance() {
+  try {
+    const closed = await closeAbandonedLobbyRuns();
+    pruneIdleRunActors();
+    if (closed) console.log(`[server] ${closed} sala(s) de espera abandonada(s) cerrada(s)`);
+  } catch (error) {
+    console.error("[server] falló el mantenimiento de salas", error);
+  }
+}
+
+void runMaintenance();
+const maintenanceTimer = setInterval(() => void runMaintenance(), 60_000);
+maintenanceTimer.unref?.();
+
 let closing = false;
 
 async function shutdown(signal) {
   if (closing) return;
   closing = true;
+  clearInterval(maintenanceTimer);
   console.log(`[server] ${signal} recibido, cerrando`);
   server.close();
   await closeDatabase().catch((error) => console.error("[server] error cerrando el pool", error));

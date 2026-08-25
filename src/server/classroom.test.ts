@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { listTeacherCourses, returnSubmission, sendGradeToClassroom } from "@/server/classroom";
+import { getCoursework, listTeacherCourses, returnSubmission, sendGradeToClassroom } from "@/server/classroom";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -42,5 +42,10 @@ describe("Google Classroom client", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(String(url)).toContain("/studentSubmissions/submission:return");
     expect(init.method).toBe("POST");
+  });
+
+  it("reads the real Classroom maximum for historical and pooled exams", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "work", maxPoints: 30 }), { status: 200 })));
+    await expect(getCoursework("token", "course", "work")).resolves.toEqual({ id: "work", maxPoints: 30 });
   });
 });

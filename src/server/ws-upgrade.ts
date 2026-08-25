@@ -3,12 +3,13 @@ import type { Duplex } from "node:stream";
 
 import { WebSocketServer, type WebSocket } from "ws";
 
-import { getRunActor } from "@/server/exam-run-actor";
+import { closeAbandonedLobbyRuns, getRunActor, pruneIdleRunActors } from "@/server/exam-run-actor";
 import { authorizeRunSocket } from "@/server/run-socket-auth";
 
 // server.mjs cierra el pool al apagarse a través de este re-export: es el único
 // módulo de la aplicación que la entrada de producción importa directamente.
 export { closeDatabase } from "@/server/db/client";
+export { closeAbandonedLobbyRuns, pruneIdleRunActors };
 
 // Atiende el upgrade de `GET /api/runs/:id/socket`. En Cloudflare esto lo hacía
 // el Durable Object devolviendo un 101 con `webSocket`; en Node el upgrade nunca

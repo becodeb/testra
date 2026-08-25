@@ -336,3 +336,9 @@
     stroke-dashoffset: 0;
   }
 }
+
+/* Densidad moderada para notebooks; pantallas grandes conservan la escala. */
+@media (min-width: 1024px) and (max-width: 1536px) and (max-height: 900px) {
+  html { font-size: 15px; }
+  .page-content { padding-block: 1.35rem; }
+}
