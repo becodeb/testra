@@ -1,4 +1,4 @@
-import { Eye, ShieldAlert } from "lucide-react";
+import { Clock3, Eye, ShieldAlert } from "lucide-react";
 import { copyForIncident } from "@/lib/incident-copy";
 
 export interface Incident {
@@ -22,6 +22,7 @@ export const incidentLabels: Record<string, string> = {
   "cambio-ip": "Cambió de red o conexión",
   "cambio-user-agent": "Cambió de navegador o dispositivo",
   "cadencia-respuestas": "Respondió varias preguntas muy seguidas",
+  "ritmo-desarrollo": "Respondió desarrollos muy rápido",
   desconexion: "Se interrumpió la conexión",
   "cierre-pestana": "Cerró o recargó la pestaña",
 };
@@ -38,6 +39,7 @@ const SALIDA_DE_PANTALLA = new Set([
   "salida-pantalla-completa",
   "cierre-pestana",
 ]);
+const RITMO_DE_RESOLUCION = new Set(["cadencia-respuestas", "ritmo-desarrollo"]);
 
 function IncidentCard({ incident }: { incident: Incident }) {
   const copy = copyForIncident(incident.type);
@@ -87,7 +89,8 @@ export function IncidentList({ incidents }: { incidents: Incident[] }) {
   }
 
   const salida = incidents.filter((incident) => SALIDA_DE_PANTALLA.has(incident.type));
-  const resto = incidents.filter((incident) => !SALIDA_DE_PANTALLA.has(incident.type));
+  const ritmo = incidents.filter((incident) => RITMO_DE_RESOLUCION.has(incident.type));
+  const resto = incidents.filter((incident) => !SALIDA_DE_PANTALLA.has(incident.type) && !RITMO_DE_RESOLUCION.has(incident.type));
 
   return (
     <div className="mt-3 space-y-5">
@@ -114,6 +117,17 @@ export function IncidentList({ incidents }: { incidents: Incident[] }) {
           <div className="mt-2 space-y-2">
             {salida.map((incident) => <IncidentCard incident={incident} key={incident.id} />)}
           </div>
+        </section>
+      ) : null}
+
+      {ritmo.length ? (
+        <section aria-labelledby="avisos-ritmo">
+          <h4 id="avisos-ritmo" className="flex items-center gap-2 text-sm font-semibold text-ink-2">
+            <Clock3 className="size-4 text-muted" aria-hidden="true" />
+            Ritmo de resolución <span className="mono-number font-normal text-muted">({ritmo.length})</span>
+          </h4>
+          <p className="mt-1 text-xs text-muted">Es contexto de corrección, no una señal de integridad ni una prueba de copia.</p>
+          <div className="mt-2 space-y-2">{ritmo.map((incident) => <IncidentCard incident={incident} key={incident.id} />)}</div>
         </section>
       ) : null}
     </div>

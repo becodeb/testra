@@ -37,6 +37,11 @@ describe("exam analytics", () => {
     expect(result.summary.average).toBe(0);
   });
 
+  it("does not turn resolution pace into an integrity signal", () => {
+    const result = buildExamAnalytics([{ ...attempt("1", "a", true), incidentTypes: ["cadencia-respuestas", "ritmo-desarrollo"] }], 1, null);
+    expect(result.integrity).toMatchObject({ totalSignals: 0, affectedParticipants: 0, byType: [] });
+  });
+
   it("never exposes development answer text in general analytics", () => {
     const development: FullQuestion = { id: "long", position: 0, type: "long", prompt: "Explicá", points: 5, config: {} };
     const result = buildExamAnalytics([{

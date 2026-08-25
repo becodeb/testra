@@ -662,6 +662,7 @@ export async function saveAnswer(access: StudentAccess, participantId: string, q
     participantId,
     questionId,
     questionType: question.type,
+    answerLength: typeof value === "string" ? value.trim().length : 0,
     at: now,
   });
   return { updatedAt: now };

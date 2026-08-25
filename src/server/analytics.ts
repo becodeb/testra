@@ -1,5 +1,7 @@
 import type { FullQuestion, QuestionAsset, QuestionDifficulty, QuestionType } from "@/domain/exam";
 
+const RHYTHM_INCIDENT_TYPES = new Set(["cadencia-respuestas", "ritmo-desarrollo"]);
+
 export interface AnalyticsAttempt {
   runId: string;
   participantId: string;
@@ -40,6 +42,7 @@ export function buildExamAnalytics(attempts: AnalyticsAttempt[], expected: numbe
   const difficulty = usesDifficulty ? groupQuestions(questions, "difficulty") : [];
   const incidentTypes = new Map<string, { count: number; participants: Set<string> }>();
   for (const attempt of attempts) for (const type of attempt.incidentTypes) {
+    if (RHYTHM_INCIDENT_TYPES.has(type)) continue;
     const current = incidentTypes.get(type) ?? { count: 0, participants: new Set<string>() };
     current.count += 1;
     current.participants.add(attempt.participantId);
@@ -72,7 +75,7 @@ export function buildExamAnalytics(attempts: AnalyticsAttempt[], expected: numbe
     usesDifficulty,
     integrity: {
       totalSignals: [...incidentTypes.values()].reduce((sum, value) => sum + value.count, 0),
-      affectedParticipants: attempts.filter((attempt) => attempt.incidentTypes.length > 0).length,
+      affectedParticipants: attempts.filter((attempt) => attempt.incidentTypes.some((type) => !RHYTHM_INCIDENT_TYPES.has(type))).length,
       byType: [...incidentTypes].map(([type, value]) => ({ type, count: value.count, participants: value.participants.size })).sort((a, b) => b.participants - a.participants || b.count - a.count),
       caveat: "Son señales técnicas para revisar con contexto; no demuestran una conducta por sí solas.",
     },

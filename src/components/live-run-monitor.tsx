@@ -29,6 +29,7 @@ interface LiveRunMonitorProps {
 }
 
 const timeFormatter = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const RHYTHM_INCIDENT_TYPES = new Set(["cadencia-respuestas", "ritmo-desarrollo"]);
 
 export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: LiveRunMonitorProps) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
@@ -97,6 +98,8 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
   const missing = snapshot.expected.filter((student) => !student.email || !joinedEmails.has(student.email.toLocaleLowerCase()));
   const allExpectedPresent = snapshot.expected.length === 0 || missing.length === 0;
   const remaining = snapshot.run.ends_at ? Math.max(0, Math.ceil((snapshot.run.ends_at - now) / 1000)) : null;
+  const activityIncidents = useMemo(() => snapshot.incidents.filter((incident) => !RHYTHM_INCIDENT_TYPES.has(String(incident.type))), [snapshot.incidents]);
+  const rhythmIncidents = useMemo(() => snapshot.incidents.filter((incident) => RHYTHM_INCIDENT_TYPES.has(String(incident.type))), [snapshot.incidents]);
 
   async function control(action: "start" | "end" | "adjust-time", deltaS?: number) {
     if (action === "end" && snapshot.participants.some((participant) => participant.status === "active")
@@ -176,12 +179,14 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
         </section>
 
         <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="incidents-title">
-          <div className="flex items-center justify-between border-b px-4 py-3"><div><h2 id="incidents-title" className="font-semibold text-ink">Avisos de actividad</h2><p className="mt-0.5 text-xs text-muted">Señales para revisar; no prueban una conducta por sí solas.</p></div><span className="mono-number text-sm text-warn">{snapshot.incidents.length}</span></div>
+          <div className="flex items-center justify-between border-b px-4 py-3"><div><h2 id="incidents-title" className="font-semibold text-ink">Avisos de actividad</h2><p className="mt-0.5 text-xs text-muted">Señales para revisar; no prueban una conducta por sí solas.</p></div><span className="mono-number text-sm text-warn">{activityIncidents.length}</span></div>
           <div className="max-h-[32rem] divide-y overflow-auto">
-            {snapshot.incidents.map((incident) => <article key={String(incident.id)} className="p-4"><div className="flex items-start gap-2"><AlertTriangle className={`mt-0.5 size-4 shrink-0 ${incident.source === "server" ? "text-alert" : "text-warn"}`} aria-hidden="true" /><div><p className="text-sm font-semibold text-ink">{String(incident.name)}</p><p className="mt-0.5 text-sm text-ink-2">{incidentLabel(String(incident.type), Number(incident.duration_ms))}</p><p className="mt-1 text-xs text-muted">{incident.source === "server" ? "Detectado automáticamente" : "Informado por el navegador"} · {timeFormatter.format(Number(incident.at))}</p></div></div></article>)}
-            {!snapshot.incidents.length ? <p className="p-6 text-center text-sm text-muted">No hay avisos registrados.</p> : null}
+            {activityIncidents.map((incident) => <article key={String(incident.id)} className="p-4"><div className="flex items-start gap-2"><AlertTriangle className={`mt-0.5 size-4 shrink-0 ${incident.source === "server" ? "text-alert" : "text-warn"}`} aria-hidden="true" /><div><p className="text-sm font-semibold text-ink">{String(incident.name)}</p><p className="mt-0.5 text-sm text-ink-2">{incidentLabel(String(incident.type), Number(incident.duration_ms))}</p><p className="mt-1 text-xs text-muted">{incident.source === "server" ? "Detectado automáticamente" : "Informado por el navegador"} · {timeFormatter.format(Number(incident.at))}</p></div></div></article>)}
+            {!activityIncidents.length ? <p className="p-6 text-center text-sm text-muted">No hay avisos de actividad registrados.</p> : null}
           </div>
         </section>
+
+        {rhythmIncidents.length ? <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="rhythm-title"><div className="flex items-center justify-between border-b px-4 py-3"><div><h2 id="rhythm-title" className="flex items-center gap-2 font-semibold text-ink"><Clock3 className="size-4 text-muted" />Ritmo de resolución</h2><p className="mt-0.5 text-xs text-muted">Contexto secundario; no es una señal de integridad ni prueba una conducta.</p></div><span className="mono-number text-sm text-muted">{rhythmIncidents.length}</span></div><div className="max-h-72 divide-y overflow-auto">{rhythmIncidents.map((incident) => <article key={String(incident.id)} className="p-4"><div className="flex items-start gap-2"><Clock3 className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" /><div><p className="text-sm font-semibold text-ink">{String(incident.name)}</p><p className="mt-0.5 text-sm text-ink-2">{incidentLabel(String(incident.type), Number(incident.duration_ms))}</p><p className="mt-1 text-xs text-muted">Observación automática · {timeFormatter.format(Number(incident.at))}</p></div></div></article>)}</div></section> : null}
       </div>
 
       <aside className="rounded-md border border-warn/25 bg-paper p-4 text-sm leading-relaxed text-ink-2"><strong className="text-ink">Los avisos necesitan contexto.</strong> Cambiar de Wi-Fi, perder conexión o alternar ventanas puede generar señales legítimas. Testra nunca cambia una nota automáticamente por estos eventos. <a href="/docs/vigilancia" className="font-semibold text-brand underline-offset-2 hover:underline">Qué significa cada aviso</a>.</aside>
