@@ -109,7 +109,7 @@ export async function classroomGradePreview(actor: Actor, runId: string) {
     courseworkId: run.classroom_coursework_id,
     token,
     rows: result.results.map((row) => {
-      const match = matchClassroomStudent({ googleUserId: row.google_user_id, email: row.email }, expected.results);
+      const match = matchClassroomStudent({ googleUserId: row.google_user_id, email: row.email, name: row.name }, expected.results);
       const submission = submissionByUser.get(match?.googleUserId ?? "");
       const assignedQuestions = questionsForParticipant(run, row.participant_id);
       const assignedIds = new Set(assignedQuestions.map((question) => question.id));

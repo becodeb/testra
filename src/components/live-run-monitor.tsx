@@ -4,6 +4,7 @@ import { AlertTriangle, Clock3, Minus, Plus, Radio, Square, Users } from "lucide
 import { Button } from "@/components/ui/button";
 import { copyForIncident } from "@/lib/incident-copy";
 import { formatAssignedProgress } from "@/lib/exam-progress";
+import { matchedExpectedStudentIndexes } from "@/lib/student-identity";
 
 interface MonitorSnapshot {
   run: {
@@ -91,11 +92,11 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
     };
   }, [refresh, runId]);
 
-  const joinedEmails = useMemo(
-    () => new Set(snapshot.participants.map((participant) => String(participant.email ?? "").toLocaleLowerCase())),
-    [snapshot.participants],
+  const presentExpectedIndexes = useMemo(
+    () => matchedExpectedStudentIndexes(snapshot.expected, snapshot.participants),
+    [snapshot.expected, snapshot.participants],
   );
-  const missing = snapshot.expected.filter((student) => !student.email || !joinedEmails.has(student.email.toLocaleLowerCase()));
+  const missing = snapshot.expected.filter((_, index) => !presentExpectedIndexes.has(index));
   const allExpectedPresent = snapshot.expected.length === 0 || missing.length === 0;
   const remaining = snapshot.run.ends_at ? Math.max(0, Math.ceil((snapshot.run.ends_at - now) / 1000)) : null;
   const activityIncidents = useMemo(() => snapshot.incidents.filter((incident) => !RHYTHM_INCIDENT_TYPES.has(String(incident.type))), [snapshot.incidents]);

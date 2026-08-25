@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { namesAreCompatible, normalizeStudentEmail, normalizeStudentName } from "@/lib/student-identity";
 
 const CLASSROOM_API = "https://classroom.googleapis.com/v1";
 
@@ -8,9 +9,7 @@ export const CLASSROOM_SCOPES = {
   coursework: "https://www.googleapis.com/auth/classroom.coursework.students",
 } as const;
 
-export function normalizeStudentName(name: string) {
-  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLocaleLowerCase();
-}
+export { normalizeStudentEmail, normalizeStudentName } from "@/lib/student-identity";
 
 export function uniqueGoogleUsersByName(rows: Array<{ google_user_id: string; name: string }>) {
   const users = new Map<string, string>();
@@ -24,38 +23,41 @@ export function uniqueGoogleUsersByName(rows: Array<{ google_user_id: string; na
   return users;
 }
 
-export function normalizeStudentEmail(email: string | null | undefined) {
-  return email?.trim().toLocaleLowerCase() || null;
-}
-
 export interface ClassroomRosterIdentity {
   google_user_id: string;
   email: string | null;
+  name?: string | null;
 }
 
 export interface TestraStudentIdentity {
   googleUserId: string | null;
   email: string | null;
+  name?: string | null;
 }
 
 /**
  * Vinculacion conservadora: primero el identificador Google de la cuenta y
- * despues un correo unico normalizado. El nombre no participa porque dos
- * personas homonimas nunca deben compartir una nota.
+ * despues un correo unico normalizado. Como último recurso acepta un nombre
+ * completo o abreviado, pero exclusivamente cuando el roster deja una sola
+ * persona posible; dos homónimos nunca pueden compartir una nota.
  */
 export function matchClassroomStudent(
   student: TestraStudentIdentity,
   roster: ClassroomRosterIdentity[],
-): { googleUserId: string; method: "google_id" | "email" } | null {
+): { googleUserId: string; method: "google_id" | "email" | "name" } | null {
   if (student.googleUserId) {
     const byId = roster.filter((row) => row.google_user_id === student.googleUserId);
     if (byId.length === 1) return { googleUserId: byId[0].google_user_id, method: "google_id" };
   }
 
   const email = normalizeStudentEmail(student.email);
-  if (!email) return null;
-  const byEmail = roster.filter((row) => normalizeStudentEmail(row.email) === email);
-  return byEmail.length === 1 ? { googleUserId: byEmail[0].google_user_id, method: "email" } : null;
+  if (email) {
+    const byEmail = roster.filter((row) => normalizeStudentEmail(row.email) === email);
+    if (byEmail.length === 1) return { googleUserId: byEmail[0].google_user_id, method: "email" };
+  }
+
+  const byName = roster.filter((row) => namesAreCompatible(student.name, row.name));
+  return byName.length === 1 ? { googleUserId: byName[0].google_user_id, method: "name" } : null;
 }
 
 const courseSchema = z.object({

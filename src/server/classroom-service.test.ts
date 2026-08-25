@@ -19,20 +19,29 @@ describe("Classroom student matching", () => {
 
   it("prefers the stable Google id, then a normalized unique email", () => {
     const roster = [
-      { google_user_id: "g-1", email: "ana@escuela.edu" },
-      { google_user_id: "g-2", email: "juan@escuela.edu" },
+      { google_user_id: "g-1", email: "ana@escuela.edu", name: "Ana Pérez" },
+      { google_user_id: "g-2", email: "juan@escuela.edu", name: "Juan López" },
     ];
-    expect(matchClassroomStudent({ googleUserId: "g-2", email: "otro@escuela.edu" }, roster)).toEqual({ googleUserId: "g-2", method: "google_id" });
-    expect(matchClassroomStudent({ googleUserId: null, email: "  ANA@ESCUELA.EDU " }, roster)).toEqual({ googleUserId: "g-1", method: "email" });
+    expect(matchClassroomStudent({ googleUserId: "g-2", email: "otro@escuela.edu", name: "Ana" }, roster)).toEqual({ googleUserId: "g-2", method: "google_id" });
+    expect(matchClassroomStudent({ googleUserId: null, email: "  ANA@ESCUELA.EDU ", name: "Juan" }, roster)).toEqual({ googleUserId: "g-1", method: "email" });
     expect(normalizeStudentEmail("  ANA@ESCUELA.EDU ")).toBe("ana@escuela.edu");
   });
 
-  it("never links ambiguous emails or names alone", () => {
+  it("links a unique abbreviated Classroom name only as a last resort", () => {
     const roster = [
-      { google_user_id: "g-1", email: "ana@escuela.edu" },
-      { google_user_id: "g-2", email: "ANA@ESCUELA.EDU" },
+      { google_user_id: "g-1", email: "maria.laura@escuela.edu", name: "María Laura" },
+      { google_user_id: "g-2", email: "juan@escuela.edu", name: "Juan Pérez" },
     ];
-    expect(matchClassroomStudent({ googleUserId: null, email: "ana@escuela.edu" }, roster)).toBeNull();
-    expect(matchClassroomStudent({ googleUserId: null, email: null }, roster)).toBeNull();
+    expect(matchClassroomStudent({ googleUserId: null, email: null, name: "Laura" }, roster)).toEqual({ googleUserId: "g-1", method: "name" });
+    expect(matchClassroomStudent({ googleUserId: null, email: null, name: "MARIA   LAURA" }, roster)).toEqual({ googleUserId: "g-1", method: "name" });
+  });
+
+  it("never links ambiguous emails or abbreviated names", () => {
+    const roster = [
+      { google_user_id: "g-1", email: "ana@escuela.edu", name: "Laura Gómez" },
+      { google_user_id: "g-2", email: "ANA@ESCUELA.EDU", name: "Laura Pérez" },
+    ];
+    expect(matchClassroomStudent({ googleUserId: null, email: "ana@escuela.edu", name: null }, roster)).toBeNull();
+    expect(matchClassroomStudent({ googleUserId: null, email: null, name: "Laura" }, roster)).toBeNull();
   });
 });

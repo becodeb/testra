@@ -1,6 +1,10 @@
 ---
 import { JoinRun } from "@/components/join-run";
 import StudentLayout from "@/layouts/StudentLayout.astro";
+import { getActor, isTeacher } from "@/server/actors";
+
+const actor = getActor(Astro.locals, "teacher");
+if (actor && isTeacher(actor)) return Astro.redirect("/evaluaciones");
 ---
 
 <StudentLayout title="Ingresar a una evaluación">
