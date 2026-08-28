@@ -121,6 +121,12 @@
 
 .page-content { view-transition-name: page-content; }
 
+/* `view-transition-name` convierte a .page-content en bloque contenedor de sus
+   descendientes `fixed`. La bandeja de corrección a pantalla completa quedaba
+   atrapada adentro y por debajo del encabezado, así que mientras está abierta
+   se le saca el nombre: no hay navegación en ese rato, no se pierde nada. */
+html[data-overlay-open="true"] .page-content { view-transition-name: none; }
+
 ::view-transition-old(page-content) { animation: testra-page-out 120ms ease both; }
 ::view-transition-new(page-content) { animation: testra-page-in 220ms cubic-bezier(.2,.7,.3,1) both; }
 

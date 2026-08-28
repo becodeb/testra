@@ -79,7 +79,7 @@ Variables de entorno:
 | `BETTER_AUTH_SECRET` | sí | 32 caracteres aleatorios como mínimo |
 | `GOOGLE_CLIENT_ID` | no | Acceso con Google y Classroom |
 | `GOOGLE_CLIENT_SECRET` | no | Ídem |
-| `OPENROUTER_API_KEY` | no | Informes de integridad por IA |
+| `GMI_API_KEY` | no | Corrección, informes y variantes con IA (MiniMax M3 en GMI Cloud) |
 | `ALLOW_DEMO_AUTH` | no | Debe quedar sin definir o en `false` |
 | `DATABASE_POOL_MAX` | no | Conexiones del pool, 12 por omisión |
 

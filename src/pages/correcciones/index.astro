@@ -1,3 +1,15 @@
 ---
-return Astro.redirect(`/resultados${Astro.url.search}`, 308);
+import { CorrectionQueue } from "@/components/correction-queue";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getActor, isTeacher } from "@/server/actors";
+import { listPendingCorrections } from "@/server/repository";
+
+const actor = getActor(Astro.locals, "teacher");
+if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
+if (!isTeacher(actor)) return Astro.redirect("/rendir");
+const corrections = await listPendingCorrections(actor, Astro.url.searchParams.get("run") ?? undefined);
 ---
+
+<AppLayout title="Correcciones pendientes" active="correcciones">
+  <CorrectionQueue client:load initialItems={corrections} />
+</AppLayout>

@@ -27,7 +27,12 @@ interface StudentRuntimeProps {
   questions: StudentQuestion[];
   initialAnswers?: Record<string, StudentAnswerValue>;
   initialStatus: "lobby" | "running" | "ended";
-  participantStatus?: "waiting" | "active" | "submitted" | "disconnected";
+  participantStatus?: "waiting" | "active" | "submitted" | "disconnected" | "expired";
+  deliveryMode?: "sync" | "async";
+  availableFrom?: number | null;
+  availableUntil?: number | null;
+  attemptStartedAt?: number | null;
+  timeLimitS?: number;
   serverNow: number;
   endsAt: number | null;
   allowBackwards?: boolean;
@@ -67,6 +72,11 @@ export function StudentRuntime({
   initialAnswers = {},
   initialStatus,
   participantStatus = "waiting",
+  deliveryMode = "sync",
+  availableFrom = null,
+  availableUntil = null,
+  attemptStartedAt = null,
+  timeLimitS = 0,
   serverNow,
   endsAt: initialEndsAt,
   allowBackwards = true,
@@ -89,7 +99,11 @@ export function StudentRuntime({
   const [remaining, setRemaining] = useState(() => initialEndsAt ? Math.max(0, Math.ceil((initialEndsAt - serverNow) / 1000)) : 0);
   const [incident, setIncident] = useState<ClientIncident | null>(null);
   const [incidentCount, setIncidentCount] = useState(0);
-  const [submitted, setSubmitted] = useState(participantStatus === "submitted" || initialStatus === "ended");
+  const [submitted, setSubmitted] = useState(participantStatus === "submitted");
+  const [attemptActive, setAttemptActive] = useState(participantStatus === "active" || participantStatus === "disconnected" || attemptStartedAt !== null);
+  const [availabilityNow, setAvailabilityNow] = useState(serverNow);
+  const [startError, setStartError] = useState("");
+  const [starting, setStarting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== "undefined" && Boolean(document.fullscreenElement));
   const announcedRef = useRef(new Set<number>());
@@ -124,7 +138,7 @@ export function StudentRuntime({
     });
   }, [participantId, violationAction]);
 
-  useExamMonitoring({ active: runStatus === "running" && !submitted, participantId, activeQuestionId: active.id, detectFocusLoss, blockClipboard, requireFullscreen, onIncident });
+  useExamMonitoring({ active: runStatus === "running" && attemptActive && !submitted, participantId, activeQuestionId: active.id, detectFocusLoss, blockClipboard, requireFullscreen, onIncident });
 
   const persistAnswer = useCallback(async (questionId: string, value: StudentAnswerValue) => {
     setSaveState("loading");
@@ -171,14 +185,14 @@ export function StudentRuntime({
   }, [participantId, persistAnswer]);
 
   useEffect(() => {
-    if (runStatus !== "running" || endsAt === null || submitted) return;
+    if (runStatus !== "running" || !attemptActive || endsAt === null || submitted) return;
     const timer = window.setInterval(() => {
       const next = Math.max(0, Math.ceil((endsAt - (Date.now() + clockOffset.current)) / 1000));
       setRemaining(next);
       if (next === 0 && autoSubmit) void finish("timer");
     }, 1_000);
     return () => window.clearInterval(timer);
-  }, [autoSubmit, endsAt, finish, runStatus, submitted]);
+  }, [attemptActive, autoSubmit, endsAt, finish, runStatus, submitted]);
 
   useEffect(() => {
     if (submitted) return;
@@ -194,12 +208,12 @@ export function StudentRuntime({
       clockOffset.current = body.serverNow - Date.now();
       setEndsAt(body.endsAt);
       setRunStatus(body.status);
-      if (body.status === "ended") void finish("timer");
+      if (body.status === "ended" && attemptActive) void finish("timer");
     };
     void sendHeartbeat();
     const heartbeat = window.setInterval(() => void sendHeartbeat(), runStatus === "lobby" ? 1_500 : 5_000);
     return () => window.clearInterval(heartbeat);
-  }, [active.id, finish, participantId, runStatus, submitted]);
+  }, [active.id, attemptActive, finish, participantId, runStatus, submitted]);
 
   useEffect(() => {
     if (!submitted || runStatus === "ended") return;
@@ -211,6 +225,7 @@ export function StudentRuntime({
         submittingRef.current = false;
         setSubmitting(false);
         setSubmitted(false);
+        setAttemptActive(true);
         setRunStatus("running");
         setEndsAt(body.endsAt);
         clockOffset.current = body.serverNow - Date.now();
@@ -239,7 +254,8 @@ export function StudentRuntime({
           setRunStatus("running");
           setEndsAt(payload.run?.endsAt ?? null);
         }
-        if (payload.type === "run-ended") void finish("timer");
+        if (payload.type === "attempt-started") setAttemptActive(true);
+        if (payload.type === "run-ended" && attemptActive) void finish("timer");
       });
       socket.addEventListener("close", () => {
         if (disposed || submitted || !allowReconnect) return;
@@ -253,7 +269,37 @@ export function StudentRuntime({
       window.clearTimeout(retryTimer);
       socket?.close();
     };
-  }, [allowReconnect, finish, participantId, runId, submitted]);
+  }, [allowReconnect, attemptActive, finish, participantId, runId, submitted]);
+
+  useEffect(() => {
+    if (deliveryMode !== "async" || attemptActive) return;
+    const update = () => setAvailabilityNow(Date.now() + clockOffset.current);
+    update();
+    const timer = window.setInterval(update, 1_000);
+    return () => window.clearInterval(timer);
+  }, [attemptActive, deliveryMode]);
+
+  async function startAttempt() {
+    setStarting(true);
+    setStartError("");
+    const response = await fetch("/api/student/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ participantId }),
+    });
+    const body = await response.json().catch(() => ({})) as { error?: string; deadlineAt?: number; serverNow?: number };
+    if (!response.ok || !body.deadlineAt) {
+      setStartError(body.error ?? "No se pudo iniciar el intento");
+      setStarting(false);
+      return;
+    }
+    if (body.serverNow) clockOffset.current = body.serverNow - Date.now();
+    setEndsAt(body.deadlineAt);
+    setRemaining(Math.max(0, Math.ceil((body.deadlineAt - (body.serverNow ?? Date.now())) / 1000)));
+    setRunStatus("running");
+    setAttemptActive(true);
+    setStarting(false);
+  }
 
   useEffect(() => {
     if (!(remaining === 300 || remaining === 60) || announcedRef.current.has(remaining)) return;
@@ -285,6 +331,13 @@ export function StudentRuntime({
     } catch {
       // Pantalla completa es una invitación; un rechazo nunca bloquea la evaluación.
     }
+  }
+
+  if (deliveryMode === "async" && !attemptActive && !submitted) {
+    const upcoming = availableFrom !== null && availabilityNow < availableFrom;
+    const closed = participantStatus === "expired" || runStatus === "ended" || availableUntil === null || availabilityNow >= availableUntil;
+    const formatDate = (value: number | null) => value === null ? "—" : new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Argentina/Buenos_Aires" }).format(value).replace(/\s/g, " ");
+    return <main id="contenido" className="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-2xl place-items-center px-4 py-12"><section className="w-full rounded-xl border bg-paper p-7 shadow-card sm:p-9"><p className="text-xs font-bold tracking-[.1em] text-brand uppercase">Evaluación asincrónica · {code}</p><h1 className="mt-3 text-2xl font-semibold text-ink">{title}</h1><p className="mt-2 text-sm leading-6 text-muted">Hola, {studentName}. El tiempo empieza únicamente cuando confirmás el inicio.</p><dl className="mt-6 grid gap-px overflow-hidden rounded-lg border bg-line sm:grid-cols-3"><div className="bg-paper p-4"><dt className="text-xs text-muted">Disponible desde</dt><dd className="mt-1 text-sm font-semibold text-ink">{formatDate(availableFrom)}</dd></div><div className="bg-paper p-4"><dt className="text-xs text-muted">Podés iniciar hasta</dt><dd className="mt-1 text-sm font-semibold text-ink">{formatDate(availableUntil)}</dd></div><div className="bg-paper p-4"><dt className="text-xs text-muted">Tiempo del intento</dt><dd className="mono-number mt-1 text-sm font-semibold text-ink">{Math.round(timeLimitS / 60)} minutos</dd></div></dl>{closed ? <div className="mt-6 rounded-md border border-alert/30 bg-alert/5 px-4 py-3 text-sm text-alert">La ventana para iniciar esta evaluación ya cerró. Si necesitás rendir, comunicate con tu docente.</div> : upcoming ? <div className="mt-6 rounded-md border bg-inset px-4 py-3 text-sm text-ink-2">Todavía no está disponible. Esta pantalla se actualizará automáticamente.</div> : <div className="mt-6 flex flex-wrap items-center justify-between gap-4"><p className="max-w-md text-sm leading-6 text-ink-2">Cuando empieces se activarán el reloj, el autoguardado y las mismas señales de supervisión informadas al ingresar.</p><AlertDialog><AlertDialogTrigger asChild><Button type="button" disabled={starting}><Clock3 data-icon="inline-start" />{starting ? "Iniciando…" : "Iniciar intento"}</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Empezar ahora?</AlertDialogTitle><AlertDialogDescription>Al confirmar comenzarán tus {Math.round(timeLimitS / 60)} minutos. No se puede reiniciar el reloj saliendo de la página.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Ahora no</AlertDialogCancel><AlertDialogAction onClick={() => void startAttempt()}>Sí, empezar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div>}{startError ? <p className="mt-3 text-sm text-alert" role="alert">{startError}</p> : null}</section></main>;
   }
 
   if (runStatus === "lobby" && !submitted) {

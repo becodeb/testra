@@ -15,6 +15,7 @@ import { getExamCapabilities, getRunCapabilities } from "@/server/exam-permissio
 import { buildExamAnalytics, type AnalyticsAttempt } from "@/server/analytics";
 import { normalizeStudentEmail } from "@/lib/student-identity";
 import { syncAutomaticClassroomGrade } from "@/server/classroom-submission-service";
+import { asyncAttemptDeadline, asyncAvailabilityState } from "@/server/run-time";
 
 interface ExamRow {
   id: string;
@@ -22,6 +23,10 @@ interface ExamRow {
   subject: string;
   instructions: string;
   time_limit_s: number;
+  delivery_mode: ExamDraft["deliveryMode"];
+  available_from: number | null;
+  available_until: number | null;
+  ai_grading_mode: ExamDraft["aiGradingMode"];
   questions_to_serve: number | null;
   long_to_serve: number;
   section_quotas: string;
@@ -65,6 +70,10 @@ interface RunRow {
   title: string;
   questions_snapshot: string;
   time_limit_s: number;
+  delivery_mode: ExamDraft["deliveryMode"];
+  available_from: number | null;
+  available_until: number | null;
+  ai_grading_mode: ExamDraft["aiGradingMode"];
   questions_to_serve: number | null;
   long_to_serve: number;
   section_quotas: string;
@@ -99,8 +108,9 @@ interface ParticipantRow {
   user_id: string | null;
   display_name: string;
   guest_token_hash: string | null;
-  status: "waiting" | "active" | "submitted" | "disconnected";
+  status: "waiting" | "active" | "submitted" | "disconnected" | "expired";
   submitted_at: number | null;
+  attempt_started_at: number | null;
   submit_reason: string | null;
   classroom_google_user_id: string | null;
   classroom_email: string | null;
@@ -138,6 +148,11 @@ export interface RunSummary {
   participantCount: number;
   average: number | null;
   incidentCount: number;
+  deliveryMode: RunRow["delivery_mode"];
+  availableFrom: number | null;
+  availableUntil: number | null;
+  /** Respuestas que todavia esperan correccion. Ordena la bandeja por trabajo. */
+  pendingCorrections: number;
 }
 
 // Antes esto resolvía un stub de Durable Object y hacía un fetch contra él.
@@ -218,6 +233,10 @@ export async function getExam(examId: string, actor: Actor): Promise<ExamDraft |
     subject: exam.subject,
     instructions: exam.instructions,
     timeLimitS: exam.time_limit_s,
+    deliveryMode: exam.delivery_mode,
+    availableFrom: exam.available_from === null ? null : new Date(exam.available_from).toISOString(),
+    availableUntil: exam.available_until === null ? null : new Date(exam.available_until).toISOString(),
+    aiGradingMode: exam.ai_grading_mode,
     questionsToServe: exam.questions_to_serve,
     longToServe: exam.long_to_serve,
     sectionQuotas: safeQuotas(exam.section_quotas),
@@ -255,12 +274,14 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
   const now = Date.now();
   const statements: PgStatement[] = [
     db.prepare(
-      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, questions_to_serve, long_to_serve, section_quotas, shuffle_questions, shuffle_options,
+      `INSERT INTO exams (id, org_id, author_id, title, subject, instructions, time_limit_s, delivery_mode, available_from, available_until, ai_grading_mode, questions_to_serve, long_to_serve, section_quotas, shuffle_questions, shuffle_options,
        allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
        block_clipboard, record_disconnects, violation_action, results_display, results_when, passing_score_percent, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET title = excluded.title, subject = excluded.subject,
        instructions = excluded.instructions, time_limit_s = excluded.time_limit_s,
+       delivery_mode = excluded.delivery_mode, available_from = excluded.available_from,
+       available_until = excluded.available_until, ai_grading_mode = excluded.ai_grading_mode,
        questions_to_serve = excluded.questions_to_serve, long_to_serve = excluded.long_to_serve,
        section_quotas = excluded.section_quotas,
        shuffle_questions = excluded.shuffle_questions, shuffle_options = excluded.shuffle_options,
@@ -280,6 +301,10 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
       draft.subject,
       draft.instructions,
       draft.timeLimitS,
+      draft.deliveryMode,
+      draft.availableFrom ? Date.parse(draft.availableFrom) : null,
+      draft.availableUntil ? Date.parse(draft.availableUntil) : null,
+      draft.aiGradingMode,
       draft.questionsToServe,
       draft.longToServe,
       JSON.stringify(draft.sectionQuotas ?? {}),
@@ -375,11 +400,14 @@ export async function createRun(actor: Actor, examId: string) {
   if (!code) throw new Error("No se pudo generar un código único");
 
   const now = Date.now();
+  const availableFrom = exam.availableFrom ? Date.parse(exam.availableFrom) : null;
+  const availableUntil = exam.availableUntil ? Date.parse(exam.availableUntil) : null;
+  const initialStatus = exam.deliveryMode === "async" ? "running" : "lobby";
   await db.prepare(
-    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, questions_to_serve, long_to_serve, section_quotas, shuffle_questions, shuffle_options,
+    `INSERT INTO runs (id, org_id, author_id, exam_id, code, title, questions_snapshot, time_limit_s, delivery_mode, available_from, available_until, ai_grading_mode, questions_to_serve, long_to_serve, section_quotas, shuffle_questions, shuffle_options,
      allow_backwards, show_progress, auto_submit, allow_reconnect, supervision_level, require_fullscreen, detect_focus_loss,
      block_clipboard, record_disconnects, violation_action, results_display, results_when, passing_score_percent, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lobby', ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     runId,
     actor.orgId,
@@ -389,6 +417,10 @@ export async function createRun(actor: Actor, examId: string) {
     exam.title,
     JSON.stringify(exam.questions),
     exam.timeLimitS,
+    exam.deliveryMode,
+    availableFrom,
+    availableUntil,
+    exam.aiGradingMode,
     exam.questionsToServe,
     exam.longToServe,
     JSON.stringify(exam.sectionQuotas ?? {}),
@@ -407,6 +439,7 @@ export async function createRun(actor: Actor, examId: string) {
     exam.resultsDisplay,
     exam.resultsWhen,
     exam.passingScorePercent ?? null,
+    initialStatus,
     now,
   ).run();
   const response = await runCommand(runId, "/initialize", {
@@ -414,6 +447,11 @@ export async function createRun(actor: Actor, examId: string) {
     title: exam.title,
     timeLimitS: exam.timeLimitS,
     recordDisconnects: exam.recordDisconnects,
+    status: initialStatus,
+    endsAt: exam.deliveryMode === "async" ? availableUntil : null,
+    deliveryMode: exam.deliveryMode,
+    availableFrom,
+    availableUntil,
   });
   if (!response.ok) throw new Error("No se pudo inicializar la sesión en vivo");
   return { id: runId, code };
@@ -436,16 +474,23 @@ export async function listRuns(actor: Actor): Promise<RunSummary[]> {
      ), incident_totals AS (
        SELECT p.run_id, COUNT(i.id) AS incident_count FROM participants p
        JOIN incidents i ON i.participant_id = p.id GROUP BY p.run_id
+     ), pending_totals AS (
+       SELECT p.run_id, COUNT(*) AS pending_count
+       FROM participants p JOIN grades g ON g.participant_id = p.id
+       WHERE p.status = 'submitted' AND g.grading_status NOT IN ('graded', 'auto_graded')
+       GROUP BY p.run_id
      )
-     SELECT r.id, r.title, r.code, r.status, r.created_at,
+     SELECT r.id, r.title, r.code, r.status, r.created_at, r.delivery_mode, r.available_from, r.available_until,
       COALESCE(s.participant_count, 0) AS participant_count,
       COALESCE(i.incident_count, 0) AS incident_count,
+      COALESCE(pt.pending_count, 0) AS pending_count,
       s.average
      FROM runs r
      LEFT JOIN exams e ON e.id = r.exam_id
      LEFT JOIN exam_collaborators c ON c.exam_id = e.id AND c.user_id = ?
      LEFT JOIN score_totals s ON s.run_id = r.id
      LEFT JOIN incident_totals i ON i.run_id = r.id
+     LEFT JOIN pending_totals pt ON pt.run_id = r.id
      WHERE COALESCE(r.author_id, e.author_id) = ? OR c.user_id IS NOT NULL
      ORDER BY r.created_at DESC`,
   ).bind(actor.id, actor.id).all<{
@@ -456,7 +501,11 @@ export async function listRuns(actor: Actor): Promise<RunSummary[]> {
     created_at: number;
     participant_count: number;
     incident_count: number;
+    pending_count: number;
     average: number | null;
+    delivery_mode: RunRow["delivery_mode"];
+    available_from: number | null;
+    available_until: number | null;
   }>();
   return result.results.map((row) => ({
     id: row.id,
@@ -467,6 +516,10 @@ export async function listRuns(actor: Actor): Promise<RunSummary[]> {
     participantCount: Number(row.participant_count),
     average: row.average === null ? null : Number(row.average),
     incidentCount: Number(row.incident_count),
+    deliveryMode: row.delivery_mode,
+    availableFrom: row.available_from,
+    availableUntil: row.available_until,
+    pendingCorrections: Number(row.pending_count),
   }));
 }
 
@@ -487,6 +540,9 @@ export async function joinRunByCode(
 ) {
   const run = await getJoinableRun(rawCode);
   if (!run) return null;
+  if (run.delivery_mode === "async" && run.available_until !== null && Date.now() >= run.available_until) {
+    throw new Error("La ventana para iniciar esta evaluación ya cerró");
+  }
 
   let classroomIdentity: { googleUserId: string; email: string } | null = null;
   if (run.classroom_course_id && run.classroom_coursework_id) {
@@ -511,8 +567,8 @@ export async function joinRunByCode(
   const now = Date.now();
   if (actor) {
     await db.prepare(
-      `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, classroom_google_user_id, classroom_email, status, joined_at, last_seen, late)
-       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, classroom_google_user_id, classroom_email, status, joined_at, last_seen, late, attempt_started_at, deadline_at)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(run_id, user_id) DO UPDATE SET display_name = excluded.display_name, classroom_google_user_id = excluded.classroom_google_user_id, classroom_email = excluded.classroom_email, last_seen = excluded.last_seen`,
     ).bind(
       participantId,
@@ -521,16 +577,18 @@ export async function joinRunByCode(
       displayName,
       classroomIdentity?.googleUserId ?? null,
       classroomIdentity?.email ?? null,
-      run.status === "running" ? "active" : "waiting",
+      run.delivery_mode === "async" ? "waiting" : run.status === "running" ? "active" : "waiting",
       now,
       now,
-      run.status === "running" ? 1 : 0,
+      run.delivery_mode === "sync" && run.status === "running" ? 1 : 0,
+      run.delivery_mode === "sync" && run.status === "running" ? now : null,
+      run.delivery_mode === "sync" && run.status === "running" ? run.ends_at : null,
     ).run();
   } else {
     if (!guestTokenHash) throw new Error("Falta la sesión temporal del alumno");
     await db.prepare(
-      `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, classroom_google_user_id, classroom_email, status, joined_at, last_seen, late)
-       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO participants (id, run_id, user_id, display_name, guest_token_hash, classroom_google_user_id, classroom_email, status, joined_at, last_seen, late, attempt_started_at, deadline_at)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       participantId,
       run.id,
@@ -538,10 +596,12 @@ export async function joinRunByCode(
       guestTokenHash,
       classroomIdentity?.googleUserId ?? null,
       classroomIdentity?.email ?? null,
-      run.status === "running" ? "active" : "waiting",
+      run.delivery_mode === "async" ? "waiting" : run.status === "running" ? "active" : "waiting",
       now,
       now,
-      run.status === "running" ? 1 : 0,
+      run.delivery_mode === "sync" && run.status === "running" ? 1 : 0,
+      run.delivery_mode === "sync" && run.status === "running" ? now : null,
+      run.delivery_mode === "sync" && run.status === "running" ? run.ends_at : null,
     ).run();
   }
   const participant = actor
@@ -554,6 +614,9 @@ export async function joinRunByCode(
     participantId: participant.id,
     userId: actor?.id ?? participant.id,
     name: participant.display_name,
+    status: participant.status,
+    deadlineAt: participant.deadline_at,
+    attemptStartedAt: participant.attempt_started_at,
   });
   return { run, participant };
 }
@@ -631,13 +694,17 @@ export function questionsForParticipant(
 export async function participantOwnedBy(participantId: string, access: StudentAccess) {
   if (access.actor) {
     const participant = await db.prepare(
-      `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot,
+      `SELECT p.*, r.status AS run_status, r.ends_at, r.delivery_mode, r.available_from, r.available_until, r.time_limit_s, r.questions_snapshot,
             r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve, r.section_quotas
        FROM participants p JOIN runs r ON r.id = p.run_id
        WHERE p.id = ? AND p.user_id = ?`,
     ).bind(participantId, access.actor.id).first<ParticipantRow & {
       run_status: RunRow["status"];
       ends_at: number | null;
+      delivery_mode: RunRow["delivery_mode"];
+      available_from: number | null;
+      available_until: number | null;
+      time_limit_s: number;
       questions_snapshot: string;
       shuffle_questions: number;
       shuffle_options: number;
@@ -651,13 +718,17 @@ export async function participantOwnedBy(participantId: string, access: StudentA
   if (!guest || guest.participantId !== participantId) return null;
   const tokenHash = await hashGuestToken(guest.token);
   return db.prepare(
-    `SELECT p.*, r.status AS run_status, r.ends_at, r.questions_snapshot,
+    `SELECT p.*, r.status AS run_status, r.ends_at, r.delivery_mode, r.available_from, r.available_until, r.time_limit_s, r.questions_snapshot,
             r.shuffle_questions, r.shuffle_options, r.questions_to_serve, r.long_to_serve, r.section_quotas
      FROM participants p JOIN runs r ON r.id = p.run_id
      WHERE p.id = ? AND p.guest_token_hash = ?`,
   ).bind(participantId, tokenHash).first<ParticipantRow & {
     run_status: RunRow["status"];
     ends_at: number | null;
+    delivery_mode: RunRow["delivery_mode"];
+    available_from: number | null;
+    available_until: number | null;
+    time_limit_s: number;
     questions_snapshot: string;
     shuffle_questions: number;
     shuffle_options: number;
@@ -667,9 +738,39 @@ export async function participantOwnedBy(participantId: string, access: StudentA
   }>();
 }
 
+export async function startAsyncAttempt(access: StudentAccess, participantId: string) {
+  const participant = await participantOwnedBy(participantId, access);
+  if (!participant) return null;
+  if (participant.delivery_mode !== "async" || participant.available_from === null || participant.available_until === null) {
+    throw new Error("Esta evaluación no usa inicio individual");
+  }
+  if (participant.status === "active" || participant.status === "disconnected") {
+    return { startedAt: participant.attempt_started_at, deadlineAt: participant.deadline_at, serverNow: Date.now() };
+  }
+  if (participant.status !== "waiting") throw new Error("Este intento ya no se puede iniciar");
+  const now = Date.now();
+  const availability = asyncAvailabilityState(participant.available_from, participant.available_until, now);
+  if (availability === "upcoming") throw new Error("La evaluación todavía no está disponible");
+  if (availability === "closed") throw new Error("La ventana para iniciar esta evaluación ya cerró");
+  const deadlineAt = asyncAttemptDeadline(now, participant.time_limit_s, participant.extra_time_s);
+  const updated = await db.prepare(
+    `UPDATE participants SET status = 'active', attempt_started_at = ?, deadline_at = ?, last_seen = ?
+     WHERE id = ? AND status = 'waiting' RETURNING id`,
+  ).bind(now, deadlineAt, now, participantId).first<{ id: string }>();
+  if (!updated) throw new Error("El intento ya fue iniciado desde otra sesión");
+  await db.batch([
+    db.prepare("UPDATE runs SET status = 'running', started_at = COALESCE(started_at, ?) WHERE id = ? AND status != 'ended'").bind(now, participant.run_id),
+    db.prepare("INSERT INTO participant_events (id, participant_id, at, type, meta) VALUES (?, ?, ?, 'attempt-started', ?)")
+      .bind(crypto.randomUUID(), participantId, now, JSON.stringify({ deadlineAt })),
+  ]);
+  await runCommand(participant.run_id, "/async-start", { participantId, startedAt: now, deadlineAt });
+  return { startedAt: now, deadlineAt, serverNow: now };
+}
+
 export async function saveAnswer(access: StudentAccess, participantId: string, questionId: string, value: AnswerValue) {
   const participant = await participantOwnedBy(participantId, access);
-  if (!participant || participant.status === "submitted") return null;
+  if (!participant) return null;
+  if (participant.status !== "active" && participant.status !== "disconnected") throw new Error("Iniciá tu intento antes de responder");
   const effectiveDeadline = participant.deadline_at ?? participant.ends_at;
   if (participant.run_status !== "running" || (effectiveDeadline !== null && effectiveDeadline <= Date.now())) {
     throw new Error("La sesión ya no acepta respuestas");
@@ -700,6 +801,7 @@ export async function submitParticipant(access: StudentAccess, participantId: st
   const participant = await participantOwnedBy(participantId, access);
   if (!participant) return null;
   if (participant.status === "submitted") return { submittedAt: participant.submitted_at };
+  if (participant.status !== "active" && participant.status !== "disconnected") throw new Error("Este intento no está en curso");
   const questions = questionsForParticipant(
     { ...participant, id: participant.run_id },
     participant.id,
@@ -720,15 +822,18 @@ export async function submitParticipant(access: StudentAccess, participantId: st
   for (const questionGrade of grade.questions) {
     statements.push(
       db.prepare(
-        `INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded)
-         VALUES (?, ?, ?, ?, NULL, ?)
-         ON CONFLICT(participant_id, question_id) DO UPDATE SET auto = excluded.auto, points_awarded = excluded.points_awarded`,
+        `INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded, grading_status, graded_by_type, graded_at)
+         VALUES (?, ?, ?, ?, NULL, ?, ?, 'auto', ?)
+         ON CONFLICT(participant_id, question_id) DO UPDATE SET auto = excluded.auto, points_awarded = excluded.points_awarded,
+           grading_status = excluded.grading_status, graded_by_type = excluded.graded_by_type, graded_at = excluded.graded_at`,
       ).bind(
         crypto.randomUUID(),
         participantId,
         questionGrade.questionId,
         questionGrade.auto === null ? null : questionGrade.auto ? 1 : 0,
         questionGrade.pointsAwarded,
+        questionGrade.pointsAwarded === null ? "pending_manual" : "auto_graded",
+        questionGrade.pointsAwarded === null ? null : now,
       ),
     );
   }
@@ -747,11 +852,11 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
   const [participantResult, incidentResult, expectedResult, eventResult] = await Promise.all([
     db.prepare(
       `SELECT p.id, p.status, p.joined_at, p.submitted_at, p.last_seen, p.late,
-       p.extra_time_s, p.deadline_at, p.reopened_count,
+       p.extra_time_s, p.deadline_at, p.attempt_started_at, p.reopened_count,
        p.display_name AS name, COALESCE(p.classroom_email, u.email) AS email,
        (SELECT COUNT(*) FROM answers a WHERE a.participant_id = p.id) AS answered,
        (SELECT SUM(COALESCE(g.points_awarded, 0)) FROM grades g WHERE g.participant_id = p.id) AS score,
-       (SELECT COUNT(*) FROM grades g WHERE g.participant_id = p.id AND g.points_awarded IS NULL) AS pending_manual
+       (SELECT COUNT(*) FROM grades g WHERE g.participant_id = p.id AND g.grading_status NOT IN ('auto_graded', 'graded')) AS pending_manual
        FROM participants p LEFT JOIN users u ON u.id = p.user_id
        WHERE p.run_id = ? ORDER BY p.display_name`,
     ).bind(runId).all<Record<string, string | number | null>>(),
@@ -888,12 +993,13 @@ export async function getRunAnalysisData(runId: string, actor: Actor) {
 export async function listPendingCorrections(actor: Actor, runId?: string) {
   const result = await db.prepare(
     `SELECT p.id AS participant_id, p.run_id, p.submitted_at, p.display_name AS name, r.title,
-      r.questions_snapshot, a.question_id, a.value, g.points_awarded, g.feedback, g.rubric_scores
+      r.questions_snapshot, g.question_id, a.value, g.points_awarded, g.feedback, g.rubric_scores,
+      g.grading_status, g.teacher_note, g.ai_suggested_score, g.ai_confidence, g.ai_feedback, g.ai_teacher_note, g.ai_criteria, g.ai_error
      FROM participants p
      JOIN runs r ON r.id = p.run_id
      LEFT JOIN exams e ON e.id = r.exam_id
-     JOIN answers a ON a.participant_id = p.id
-     LEFT JOIN grades g ON g.participant_id = p.id AND g.question_id = a.question_id
+     JOIN grades g ON g.participant_id = p.id
+     LEFT JOIN answers a ON a.participant_id = p.id AND a.question_id = g.question_id
      LEFT JOIN exam_collaborators c ON c.exam_id = e.id AND c.user_id = ?
      WHERE p.status = 'submitted' AND (COALESCE(r.author_id, e.author_id) = ? OR c.permission = 'correct')
        AND (? = '' OR p.run_id = ?)
@@ -906,10 +1012,18 @@ export async function listPendingCorrections(actor: Actor, runId?: string) {
     title: string;
     questions_snapshot: string;
     question_id: string;
-    value: string;
+    value: string | null;
     points_awarded: number | null;
     feedback: string | null;
     rubric_scores: string | null;
+    grading_status: string;
+    teacher_note: string;
+    ai_suggested_score: number | null;
+    ai_confidence: number | null;
+    ai_feedback: string;
+    ai_teacher_note: string;
+    ai_criteria: string;
+    ai_error: string | null;
   }>();
   return result.results.flatMap((row) => {
     const question = (JSON.parse(row.questions_snapshot) as FullQuestion[]).find(
@@ -925,18 +1039,26 @@ export async function listPendingCorrections(actor: Actor, runId?: string) {
       questionId: question.id,
       prompt: question.prompt,
       maxPoints: question.points,
-      answer: JSON.parse(row.value) as string,
+      answer: row.value === null ? "" : JSON.parse(row.value) as string,
       pointsAwarded: row.points_awarded,
       feedback: row.feedback ?? "",
       rubricScores: safeJsonObject(row.rubric_scores),
       rubric: question.type === "long" ? question.config.rubric ?? [] : [],
+      gradingStatus: row.grading_status,
+      teacherNote: row.teacher_note,
+      aiSuggestedScore: row.ai_suggested_score,
+      aiConfidence: row.ai_confidence,
+      aiFeedback: row.ai_feedback,
+      aiTeacherNote: row.ai_teacher_note,
+      aiCriteria: safeJsonArray(row.ai_criteria),
+      aiError: row.ai_error,
     }];
   });
 }
 
 export async function saveManualGrade(
   actor: Actor,
-  input: { participantId: string; questionId: string; pointsAwarded: number; feedback?: string; rubricScores?: Record<string, number> },
+  input: { participantId: string; questionId: string; pointsAwarded: number; feedback?: string; teacherNote?: string; rubricScores?: Record<string, number> },
 ) {
   const participantRun = await db.prepare("SELECT run_id FROM participants WHERE id = ?").bind(input.participantId).first<{ run_id: string }>();
   if (!participantRun || !(await getRunCapabilities(participantRun.run_id, actor)).correct) return false;
@@ -962,11 +1084,29 @@ export async function saveManualGrade(
     if (Math.abs(total - input.pointsAwarded) > .001) throw new Error("El puntaje debe coincidir con la suma de la rúbrica");
   }
   await db.prepare(
-    `INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded, feedback, rubric_scores)
-     VALUES (?, ?, ?, NULL, 1, ?, ?, ?)
-     ON CONFLICT(participant_id, question_id) DO UPDATE SET override = 1, points_awarded = excluded.points_awarded, feedback = excluded.feedback, rubric_scores = excluded.rubric_scores`,
-  ).bind(crypto.randomUUID(), input.participantId, input.questionId, input.pointsAwarded, (input.feedback ?? "").slice(0, 4000), JSON.stringify(input.rubricScores ?? {})).run();
+    `INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded, feedback, teacher_note, rubric_scores, grading_status, graded_by_type, graded_at, graded_by, ai_reviewed_at)
+     VALUES (?, ?, ?, NULL, 1, ?, ?, ?, ?, 'graded', 'teacher', ?, ?, ?)
+     ON CONFLICT(participant_id, question_id) DO UPDATE SET override = 1, points_awarded = excluded.points_awarded, feedback = excluded.feedback, rubric_scores = excluded.rubric_scores,
+       teacher_note = excluded.teacher_note, grading_status = 'graded', graded_by_type = 'teacher', graded_at = excluded.graded_at, graded_by = excluded.graded_by, ai_reviewed_at = CASE WHEN grades.ai_suggested_score IS NULL THEN grades.ai_reviewed_at ELSE excluded.ai_reviewed_at END`,
+  ).bind(crypto.randomUUID(), input.participantId, input.questionId, input.pointsAwarded, (input.feedback ?? "").slice(0, 4000), (input.teacherNote ?? "").slice(0, 4000), JSON.stringify(input.rubricScores ?? {}), Date.now(), actor.id, Date.now()).run();
   return true;
+}
+
+export async function rejectAiSuggestion(actor: Actor, participantId: string, questionId: string) {
+  const participant = await db.prepare("SELECT run_id FROM participants WHERE id = ?").bind(participantId).first<{ run_id: string }>();
+  if (!participant || !(await getRunCapabilities(participant.run_id, actor)).correct) return false;
+  await db.prepare(`UPDATE grades SET grading_status = 'pending_manual', ai_suggested_score = NULL, ai_confidence = NULL,
+    ai_feedback = '', ai_teacher_note = '', ai_criteria = '[]', ai_reviewed_at = ? WHERE participant_id = ? AND question_id = ?`)
+    .bind(Date.now(), participantId, questionId).run();
+  return true;
+}
+
+export async function teacherPendingCorrectionCount(actor: Actor) {
+  const row = await db.prepare(`SELECT COUNT(*) AS pending FROM grades g JOIN participants p ON p.id = g.participant_id
+    JOIN runs r ON r.id = p.run_id LEFT JOIN exams e ON e.id = r.exam_id LEFT JOIN exam_collaborators c ON c.exam_id = e.id AND c.user_id = ?
+    WHERE p.status = 'submitted' AND g.grading_status NOT IN ('auto_graded', 'graded') AND (COALESCE(r.author_id, e.author_id) = ? OR c.permission = 'correct')`)
+    .bind(actor.id, actor.id).first<{ pending: number }>();
+  return Number(row?.pending ?? 0);
 }
 
 export async function getExamAnalytics(runId: string, actor: Actor) {
@@ -1051,7 +1191,7 @@ export async function pendingManualCount(runId: string): Promise<number> {
   const row = await db.prepare(
     `SELECT COUNT(*) AS pending
      FROM participants p JOIN grades g ON g.participant_id = p.id
-     WHERE p.run_id = ? AND g.points_awarded IS NULL`,
+     WHERE p.run_id = ? AND g.grading_status NOT IN ('auto_graded', 'graded')`,
   ).bind(runId).first<{ pending: number }>();
   return Number(row?.pending ?? 0);
 }

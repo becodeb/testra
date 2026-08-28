@@ -2,6 +2,7 @@ import { defineMiddleware } from "astro:middleware";
 
 import { serverEnv } from "@/server/env";
 import { auth } from "@/server/auth";
+import { kickGradingJobs } from "@/server/grading-jobs";
 
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -35,6 +36,7 @@ function isForbiddenCrossOriginRequest(request: Request, url: URL) {
 }
 
 export const onRequest = defineMiddleware(async (context, next) => {
+  kickGradingJobs();
   if (isForbiddenCrossOriginRequest(context.request, context.url)) {
     return new Response(`Cross-site ${context.request.method} form submissions are forbidden`, { status: 403 });
   }

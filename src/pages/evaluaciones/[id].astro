@@ -5,7 +5,7 @@ import { getActor, isTeacher } from "@/server/actors";
 import { getExam } from "@/server/repository";
 import { getExamCapabilities, listExamCollaborators } from "@/server/exam-permissions";
 import { ExamSharing } from "@/components/exam-sharing";
-import { serverEnv } from "@/server/env";
+import { aiConfigured } from "@/server/ai-client";
 import { ExamPreview } from "@/components/exam-preview";
 
 const actor = getActor(Astro.locals, "teacher");
@@ -20,5 +20,5 @@ const collaborators = capabilities.manageSharing ? await listExamCollaborators(e
 <AppLayout title={exam.title || "Evaluación"} active="evaluaciones" fullBleed>
   <aside class="border-b border-brand/20 bg-brand-soft/40 px-4 py-2.5 text-center text-xs text-ink-2">Google Classroom es opcional: al abrir una sala podés publicar la tarea, cargar el padrón y luego devolver las notas.</aside>
   {capabilities.manageSharing ? <div class="mx-auto flex max-w-[1180px] justify-end px-4 pt-3 lg:px-6"><ExamSharing client:load examId={exam.id} initial={collaborators} /></div> : null}
-  {capabilities.edit ? <ExamEditor client:load initialExam={exam} aiEnabled={Boolean(serverEnv.OPENROUTER_API_KEY)} /> : <ExamPreview client:load exam={exam} />}
+  {capabilities.edit ? <ExamEditor client:load initialExam={exam} aiEnabled={aiConfigured()} /> : <ExamPreview client:load exam={exam} />}
 </AppLayout>

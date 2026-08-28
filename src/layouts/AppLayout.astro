@@ -4,16 +4,18 @@ import { Image } from "astro:assets";
 import testraMark from "@/assets/testra-mark.png";
 import { ProfileMenu } from "@/components/profile-menu";
 import "@/styles/global.css";
-import { getActor } from "@/server/actors";
+import { getActor, isTeacher } from "@/server/actors";
+import { teacherPendingCorrectionCount } from "@/server/repository";
 
 interface Props {
   title: string;
-  active?: "evaluaciones" | "sesiones" | "resultados" | "admin";
+  active?: "evaluaciones" | "sesiones" | "correcciones" | "resultados" | "admin";
   fullBleed?: boolean;
 }
 
 const { title, active, fullBleed = false } = Astro.props;
 const actor = getActor(Astro.locals, "teacher");
+const correctionCount = actor && isTeacher(actor) ? await teacherPendingCorrectionCount(actor) : 0;
 ---
 
 <!doctype html>
@@ -55,6 +57,11 @@ const actor = getActor(Astro.locals, "teacher");
             ]}
           >Sesiones</a>
           <a
+            href="/correcciones"
+            aria-current={active === "correcciones" ? "page" : undefined}
+            class:list={["relative flex h-full items-center gap-2 px-3 text-sm font-medium text-ink-2 hover:text-ink", active === "correcciones" && "font-semibold text-brand after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand"]}
+          >Correcciones{correctionCount ? <span class="mono-number rounded-full bg-brand px-1.5 py-0.5 text-[.65rem] font-bold text-white" aria-label={`${correctionCount} pendientes`}>{correctionCount > 99 ? "99+" : correctionCount}</span> : null}</a>
+          <a
             href="/resultados"
             aria-current={active === "resultados" ? "page" : undefined}
             class:list={[
@@ -69,6 +76,7 @@ const actor = getActor(Astro.locals, "teacher");
       <nav aria-label="Navegación principal móvil" class="mx-auto flex max-w-[1280px] overflow-x-auto border-t px-4 md:hidden">
         <a href="/evaluaciones" aria-current={active === "evaluaciones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "evaluaciones" && "border-b-2 border-brand font-semibold text-brand"]}>Evaluaciones</a>
         <a href="/sesiones" aria-current={active === "sesiones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "sesiones" && "border-b-2 border-brand font-semibold text-brand"]}>Sesiones</a>
+        <a href="/correcciones" aria-current={active === "correcciones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "correcciones" && "border-b-2 border-brand font-semibold text-brand"]}>Correcciones{correctionCount ? ` (${correctionCount})` : ""}</a>
         <a href="/resultados" aria-current={active === "resultados" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "resultados" && "border-b-2 border-brand font-semibold text-brand"]}>Resultados</a>
               {actor?.superadmin ? <a href="/admin" aria-current={active === "admin" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "admin" && "border-b-2 border-brand font-semibold text-brand"]}>Consola</a> : null}
 </nav>

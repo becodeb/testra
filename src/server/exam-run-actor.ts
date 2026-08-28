@@ -5,7 +5,7 @@ import { personalizeQuestions } from "@/domain/pool";
 import { shouldCompareConnectionValue } from "@/server/connection-signals";
 import { db, type PgStatement } from "@/server/db/client";
 import { gradeExam } from "@/server/grading";
-import { allDeadlinesComplete, normalizeExtraTime, participantDeadline, shiftDeadline } from "@/server/run-time";
+import { allDeadlinesComplete, asyncAttemptDeadline, normalizeExtraTime, participantDeadline, shiftDeadline } from "@/server/run-time";
 import { nextWritingCadence, type WritingCadenceEntry } from "@/server/writing-cadence";
 import { syncAutomaticClassroomGrade } from "@/server/classroom-submission-service";
 
@@ -51,13 +51,14 @@ interface ParticipantState {
   participantId: string;
   userId: string;
   name: string;
-  status: "waiting" | "active" | "submitted" | "disconnected";
+  status: "waiting" | "active" | "submitted" | "disconnected" | "expired";
   lastSeen: number;
   ip: string;
   userAgent: string;
   currentQuestionId?: string;
   extraTimeS: number;
   deadlineAt: number | null;
+  attemptStartedAt: number | null;
 }
 
 interface LiveRunState {
@@ -67,6 +68,9 @@ interface LiveRunState {
   timeLimitS: number;
   startedAt: number | null;
   endsAt: number | null;
+  deliveryMode: "sync" | "async";
+  availableFrom: number | null;
+  availableUntil: number | null;
   recordDisconnects: boolean;
   participants: Record<string, ParticipantState>;
 }
@@ -101,6 +105,9 @@ const emptyRun = (): LiveRunState => ({
   timeLimitS: 0,
   startedAt: null,
   endsAt: null,
+  deliveryMode: "sync",
+  availableFrom: null,
+  availableUntil: null,
   recordDisconnects: true,
   participants: {},
 });
@@ -165,30 +172,34 @@ export class ExamRunActor {
     if (path === "/state") return Response.json(this.publicState());
 
     if (path === "/initialize") {
-      const input = body as Pick<LiveRunState, "runId" | "title" | "timeLimitS" | "recordDisconnects">;
+      const input = body as Pick<LiveRunState, "runId" | "title" | "timeLimitS" | "recordDisconnects"> & Partial<Pick<LiveRunState, "status" | "endsAt" | "deliveryMode" | "availableFrom" | "availableUntil">>;
       this.run = { ...emptyRun(), ...input };
+      this.schedule();
       return Response.json(this.publicState());
     }
 
     if (path === "/join") {
-      const input = body as { participantId: string; userId: string; name: string };
+      const input = body as { participantId: string; userId: string; name: string; status?: ParticipantState["status"]; deadlineAt?: number | null; attemptStartedAt?: number | null };
       const prior = this.run.participants[input.participantId];
       this.run.participants[input.participantId] = {
         participantId: input.participantId,
         userId: input.userId,
         name: input.name,
-        status: prior?.status ?? (this.run.status === "running" ? "active" : "waiting"),
+        status: prior?.status ?? input.status ?? (this.run.deliveryMode === "async" ? "waiting" : this.run.status === "running" ? "active" : "waiting"),
         lastSeen: Date.now(),
         ip: prior?.ip ?? "pending-socket",
         userAgent: prior?.userAgent ?? "pending-socket",
         extraTimeS: prior?.extraTimeS ?? 0,
-        deadlineAt: prior?.deadlineAt ?? this.run.endsAt,
+        deadlineAt: prior?.deadlineAt ?? input.deadlineAt ?? (this.run.deliveryMode === "sync" ? this.run.endsAt : null),
+        attemptStartedAt: prior?.attemptStartedAt ?? input.attemptStartedAt ?? null,
       };
       this.broadcastToTeachers({ type: "participant-joined", participant: this.run.participants[input.participantId] });
+      this.schedule();
       return Response.json(this.publicState());
     }
 
     if (path === "/start") {
+      if (this.run.deliveryMode === "async") return Response.json({ error: "Los intentos asincrónicos comienzan de forma individual" }, { status: 409 });
       if (this.run.status !== "lobby") return Response.json({ error: "La sesión ya fue iniciada" }, { status: 409 });
       const now = Date.now();
       this.run.status = "running";
@@ -196,13 +207,14 @@ export class ExamRunActor {
       this.run.endsAt = now + this.run.timeLimitS * 1000;
       for (const participant of Object.values(this.run.participants)) {
         participant.status = "active";
+        participant.attemptStartedAt = now;
         participant.deadlineAt = this.run.endsAt + participant.extraTimeS * 1000;
       }
       await db.batch([
         db.prepare("UPDATE runs SET status = 'running', started_at = ?, ends_at = ? WHERE id = ?")
           .bind(now, this.run.endsAt, this.run.runId),
-        db.prepare("UPDATE participants SET status = 'active', deadline_at = ?::bigint + extra_time_s * 1000 WHERE run_id = ? AND status = 'waiting'")
-          .bind(this.run.endsAt, this.run.runId),
+        db.prepare("UPDATE participants SET status = 'active', attempt_started_at = ?, deadline_at = ?::bigint + extra_time_s * 1000 WHERE run_id = ? AND status = 'waiting'")
+          .bind(now, this.run.endsAt, this.run.runId),
         db.prepare(
           `INSERT INTO participant_events (id, participant_id, at, type, meta)
            SELECT gen_random_uuid()::text, id, ?, 'exam-started', '{}' FROM participants WHERE run_id = ?`,
@@ -214,6 +226,7 @@ export class ExamRunActor {
     }
 
     if (path === "/adjust-time") {
+      if (this.run.deliveryMode === "async") return Response.json({ error: "En modalidad asincrónica el tiempo se ajusta por alumno" }, { status: 409 });
       const { deltaS } = body as { deltaS: number };
       if (this.run.status !== "running" || this.run.endsAt === null) {
         return Response.json({ error: "La sesión no está en curso" }, { status: 409 });
@@ -235,13 +248,31 @@ export class ExamRunActor {
       return Response.json(this.publicState());
     }
 
+    if (path === "/async-start") {
+      const { participantId, startedAt, deadlineAt } = body as { participantId: string; startedAt: number; deadlineAt: number };
+      if (this.run.deliveryMode !== "async") return Response.json({ error: "La evaluación no es asincrónica" }, { status: 409 });
+      const participant = this.run.participants[participantId];
+      if (!participant) return Response.json({ error: "Participante inexistente" }, { status: 404 });
+      participant.status = "active";
+      participant.attemptStartedAt = startedAt;
+      participant.deadlineAt = deadlineAt;
+      this.run.status = "running";
+      this.run.startedAt ??= startedAt;
+      this.schedule();
+      this.write(this.socketsFor(participantId), { type: "attempt-started", endsAt: deadlineAt, serverNow: startedAt });
+      this.broadcastToTeachers({ type: "participant-started", participantId, startedAt, deadlineAt });
+      return Response.json({ participantId, startedAt, deadlineAt, serverNow: Date.now() });
+    }
+
     if (path === "/participant-time") {
       const { participantId, extraTimeS, actorUserId } = body as { participantId: string; extraTimeS: number; actorUserId: string };
       const participant = this.run.participants[participantId];
       if (!participant) return Response.json({ error: "Participante inexistente" }, { status: 404 });
       const normalized = normalizeExtraTime(extraTimeS);
       participant.extraTimeS = normalized;
-      participant.deadlineAt = this.run.status === "running" && this.run.endsAt !== null
+      participant.deadlineAt = participant.attemptStartedAt !== null
+        ? asyncAttemptDeadline(participant.attemptStartedAt, this.run.timeLimitS, normalized)
+        : this.run.status === "running" && this.run.endsAt !== null
         ? participantDeadline(this.run.endsAt, normalized, Date.now())
         : null;
       const at = Date.now();
@@ -426,13 +457,14 @@ export class ExamRunActor {
           participantId,
           userId: identity.userId ?? participantId,
           name: identity.name ?? "Alumno",
-          status: prior?.status ?? (this.run.status === "running" ? "active" : "waiting"),
+          status: prior?.status ?? (this.run.deliveryMode === "async" ? "waiting" : this.run.status === "running" ? "active" : "waiting"),
           lastSeen: Date.now(),
           ip: identity.ip,
           userAgent: identity.userAgent,
           currentQuestionId: prior?.currentQuestionId,
           extraTimeS: prior?.extraTimeS ?? 0,
-          deadlineAt: prior?.deadlineAt ?? this.run.endsAt,
+          deadlineAt: prior?.deadlineAt ?? (this.run.deliveryMode === "sync" ? this.run.endsAt : null),
+          attemptStartedAt: prior?.attemptStartedAt ?? null,
         };
 
         if (duplicate) await this.recordIncident(participantId, "sesion-duplicada", 0, {});
@@ -588,7 +620,11 @@ export class ExamRunActor {
     const deadlines = Object.values(this.run.participants)
       .filter((participant) => participant.status !== "submitted" && participant.deadlineAt !== null)
       .map((participant) => participant.deadlineAt!);
-    const nextDeadline = deadlines.length ? Math.min(...deadlines) : this.run.endsAt;
+    const hasWaitingAsync = this.run.deliveryMode === "async"
+      && Object.values(this.run.participants).some((participant) => participant.status === "waiting");
+    const nextDeadline = deadlines.length
+      ? Math.min(...deadlines, ...(hasWaitingAsync ? [this.run.endsAt] : []))
+      : this.run.endsAt;
     const delay = Math.max(0, Math.min(nextDeadline, Date.now() + TICK_MS) - Date.now());
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -601,6 +637,17 @@ export class ExamRunActor {
     if (this.run.status !== "running" || this.run.endsAt === null) return;
 
     const now = Date.now();
+    if (this.run.deliveryMode === "async" && now >= this.run.endsAt) {
+      const waiting = Object.values(this.run.participants).filter((participant) => participant.status === "waiting");
+      if (waiting.length) {
+        for (const participant of waiting) participant.status = "expired";
+        await db.batch(waiting.flatMap((participant) => [
+          db.prepare("UPDATE participants SET status = 'expired', last_seen = ? WHERE id = ? AND status = 'waiting'").bind(now, participant.participantId),
+          eventStatement(participant.participantId, "attempt-window-expired", null, now, {}),
+        ]));
+        for (const participant of waiting) this.broadcastToTeachers({ type: "participant-expired", participantId: participant.participantId, at: now });
+      }
+    }
     for (const participant of Object.values(this.run.participants)) {
       if (participant.status !== "submitted" && participant.deadlineAt !== null && now >= participant.deadlineAt) {
         await this.gradeAndSubmit(participant.participantId, "timer");
@@ -657,6 +704,10 @@ export class ExamRunActor {
       timeLimitS: this.run.timeLimitS,
       startedAt: this.run.startedAt,
       endsAt: participant?.deadlineAt ?? this.run.endsAt,
+      deliveryMode: this.run.deliveryMode,
+      availableFrom: this.run.availableFrom,
+      availableUntil: this.run.availableUntil,
+      participantStatus: participant?.status,
       serverNow: Date.now(),
     };
   }
@@ -695,7 +746,7 @@ export class ExamRunActor {
   private async hydrate(runId: string | null): Promise<void> {
     if (!runId) return;
     const row = await db.prepare(
-      "SELECT id, title, status, time_limit_s, started_at, ends_at, record_disconnects FROM runs WHERE id = ?",
+      "SELECT id, title, status, time_limit_s, started_at, ends_at, record_disconnects, delivery_mode, available_from, available_until FROM runs WHERE id = ?",
     ).bind(runId).first<{
       id: string;
       title: string;
@@ -704,12 +755,15 @@ export class ExamRunActor {
       started_at: number | null;
       ends_at: number | null;
       record_disconnects: number;
+      delivery_mode: "sync" | "async";
+      available_from: number | null;
+      available_until: number | null;
     }>();
     if (!row) return;
     const participants = await db.prepare(
-      `SELECT p.id, p.user_id, p.status, p.last_seen, p.display_name AS name, p.extra_time_s, p.deadline_at
+      `SELECT p.id, p.user_id, p.status, p.last_seen, p.display_name AS name, p.extra_time_s, p.deadline_at, p.attempt_started_at
        FROM participants p WHERE p.run_id = ?`,
-    ).bind(row.id).all<{ id: string; user_id: string | null; status: ParticipantState["status"]; last_seen: number; name: string; extra_time_s: number; deadline_at: number | null }>();
+    ).bind(row.id).all<{ id: string; user_id: string | null; status: ParticipantState["status"]; last_seen: number; name: string; extra_time_s: number; deadline_at: number | null; attempt_started_at: number | null }>();
     this.run = {
       runId: row.id,
       title: row.title,
@@ -717,6 +771,9 @@ export class ExamRunActor {
       timeLimitS: row.time_limit_s,
       startedAt: row.started_at,
       endsAt: row.ends_at,
+      deliveryMode: row.delivery_mode,
+      availableFrom: row.available_from,
+      availableUntil: row.available_until,
       recordDisconnects: Boolean(row.record_disconnects),
       participants: Object.fromEntries(participants.results.map((participant) => [participant.id, {
         participantId: participant.id,
@@ -728,6 +785,7 @@ export class ExamRunActor {
         userAgent: "restored",
         extraTimeS: participant.extra_time_s,
         deadlineAt: participant.deadline_at,
+        attemptStartedAt: participant.attempt_started_at,
       }])),
     };
     // Una toma que seguía en curso al reiniciar el proceso vuelve a vigilarse.
@@ -822,15 +880,18 @@ export class ExamRunActor {
     for (const grade of result.questions) {
       statements.push(
         db.prepare(
-          `INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded)
-           VALUES (?, ?, ?, ?, NULL, ?)
-           ON CONFLICT(participant_id, question_id) DO UPDATE SET auto = excluded.auto, points_awarded = excluded.points_awarded`,
+          `INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded, grading_status, graded_by_type, graded_at)
+           VALUES (?, ?, ?, ?, NULL, ?, ?, 'auto', ?)
+           ON CONFLICT(participant_id, question_id) DO UPDATE SET auto = excluded.auto, points_awarded = excluded.points_awarded,
+             grading_status = excluded.grading_status, graded_by_type = excluded.graded_by_type, graded_at = excluded.graded_at`,
         ).bind(
           crypto.randomUUID(),
           participantId,
           grade.questionId,
           grade.auto === null ? null : grade.auto ? 1 : 0,
           grade.pointsAwarded,
+          grade.pointsAwarded === null ? "pending_manual" : "auto_graded",
+          grade.pointsAwarded === null ? null : now,
         ),
       );
     }

@@ -22,6 +22,9 @@ export const rubricCriterionSchema = z.object({
 });
 export type RubricCriterion = z.infer<typeof rubricCriterionSchema>;
 
+export const deliveryModeSchema = z.enum(["sync", "async"]);
+export const aiGradingModeSchema = z.enum(["off", "suggest", "auto_clear"]);
+
 const optionSchema = z.object({
   id: z.string().min(1),
   text: z.string().max(1000),
@@ -101,6 +104,9 @@ export const longAnswerQuestionSchema = z.object({
   type: z.literal("long"),
   config: z.object({
     rubric: z.array(rubricCriterionSchema).max(20).optional(),
+    aiEnabled: z.boolean().optional(),
+    gradingCriteria: z.string().trim().max(6000).optional(),
+    referenceAnswer: z.string().trim().max(10_000).optional(),
   }),
 }).superRefine((question, context) => {
   const rubric = question.config.rubric ?? [];
@@ -136,6 +142,10 @@ export const examDraftSchema = z.object({
   subject: z.string().max(80),
   instructions: z.string().trim().max(4000),
   timeLimitS: z.number().int().min(60).max(6 * 60 * 60),
+  deliveryMode: deliveryModeSchema.default("sync"),
+  availableFrom: z.iso.datetime().nullable().default(null),
+  availableUntil: z.iso.datetime().nullable().default(null),
+  aiGradingMode: aiGradingModeSchema.default("suggest"),
   // Pozo de preguntas: cada alumno recibe este subconjunto, elegido al azar y
   // distinto por alumno. null sirve todas las preguntas cargadas.
   questionsToServe: z.number().int().positive().max(1000).nullable().default(null),
@@ -165,7 +175,16 @@ export const examDraftSchema = z.object({
   questions: z.array(fullQuestionSchema).min(1, "Agregá al menos una pregunta"),
   updatedAt: z.iso.datetime(),
 }).superRefine((exam, context) => {
+  if (exam.deliveryMode === "async") {
+    if (exam.availableFrom && exam.availableUntil && Date.parse(exam.availableFrom) >= Date.parse(exam.availableUntil)) {
+      context.addIssue({ code: "custom", path: ["availableUntil"], message: "El cierre debe ser posterior a la apertura" });
+    }
+  }
   if (exam.status !== "ready") return;
+  if (exam.deliveryMode === "async") {
+    if (!exam.availableFrom) context.addIssue({ code: "custom", path: ["availableFrom"], message: "Definí cuándo se abre la evaluación" });
+    if (!exam.availableUntil) context.addIssue({ code: "custom", path: ["availableUntil"], message: "Definí cuándo cierra la evaluación" });
+  }
   if (exam.title.trim().length < 3) {
     context.addIssue({ code: "custom", path: ["title"], message: "Escribí un título de al menos 3 caracteres" });
   }

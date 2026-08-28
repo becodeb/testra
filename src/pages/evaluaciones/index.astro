@@ -2,12 +2,12 @@
 import { ExamLibrary } from "@/components/exam-library";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getActor, isTeacher } from "@/server/actors";
-import { listExams, listSubjects } from "@/server/repository";
+import { listExams, listSubjects, teacherPendingCorrectionCount } from "@/server/repository";
 
 const actor = getActor(Astro.locals, "teacher");
 if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
 if (!isTeacher(actor)) return Astro.redirect("/rendir");
-const [exams, subjects] = await Promise.all([listExams(actor), listSubjects(actor)]);
+const [exams, subjects, pendingCorrections] = await Promise.all([listExams(actor), listSubjects(actor), teacherPendingCorrectionCount(actor)]);
 ---
 
 <AppLayout title="Evaluaciones" active="evaluaciones">
@@ -21,6 +21,7 @@ const [exams, subjects] = await Promise.all([listExams(actor), listSubjects(acto
       <a href="/evaluaciones/nueva" class="inline-flex h-9 items-center justify-center rounded-md bg-brand px-4 text-sm font-semibold text-white shadow-card transition-colors hover:bg-brand-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">Nueva evaluación</a>
     </div>
     <aside class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand/20 bg-brand-soft/40 px-4 py-3"><div><p class="text-sm font-semibold text-brand-deep">¿Trabajás con Google Classroom?</p><p class="mt-0.5 text-xs text-ink-2">Podés publicar la tarea y cargar el padrón desde cada sala. La integración es opcional.</p></div><a href="/sesiones" class="text-sm font-semibold text-brand hover:underline">Ver salas y Classroom →</a></aside>
+    {pendingCorrections ? <aside class="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-paper px-5 py-4 shadow-card"><div><p class="text-xs font-bold tracking-[.08em] text-muted uppercase">Trabajo pendiente</p><p class="mt-1 text-base font-semibold text-ink">{pendingCorrections} respuesta{pendingCorrections === 1 ? "" : "s"} de desarrollo esperan revisión</p></div><a href="/correcciones" class="inline-flex h-9 items-center rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-deep">Empezar a corregir</a></aside> : null}
     <ExamLibrary client:load initialExams={exams} subjects={subjects} />
   </section>
 </AppLayout>

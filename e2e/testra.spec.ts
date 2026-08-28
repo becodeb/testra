@@ -107,10 +107,7 @@ test("student answers survive a full reload through autosave", async ({ page }) 
   const runCreation = await page.request.post("/api/runs", { data: { examId: exam.id } });
   expect(runCreation.status()).toBe(201);
   const run = await runCreation.json() as { id: string; code: string };
-  await page.goto("/rendir");
-  await page.locator("[data-join-ready=true]").waitFor();
-  await page.getByLabel("Código de la evaluación").fill(run.code);
-  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.goto(`/rendir/${run.code}`);
   await expect(page.getByRole("heading", { name: "¿Cómo te llamás?" })).toBeVisible();
   await page.locator("[data-join-ready=true]").waitFor();
   await page.getByLabel("Tu nombre y apellido").fill(`Persistencia ${Date.now()}`);
@@ -224,10 +221,7 @@ test("question and answer order is personalized for each student", async ({ page
   try {
     const students = await Promise.all(contexts.map((context) => context.newPage()));
     for (const [index, student] of students.entries()) {
-      await student.goto("/rendir");
-      await student.locator("[data-join-ready=true]").waitFor();
-      await student.getByLabel("Código de la evaluación").fill(run.code);
-      await student.getByRole("button", { name: "Continuar" }).click();
+      await student.goto(`/rendir/${run.code}`);
       await expect(student.getByRole("heading", { name: "¿Cómo te llamás?" })).toBeVisible();
       await student.locator("[data-join-ready=true]").waitFor();
       await student.getByLabel("Tu nombre y apellido").fill(`Alumno mezcla ${index + 1}`);
@@ -262,17 +256,44 @@ test("question and answer order is personalized for each student", async ({ page
 
 test("manual correction persists on the server", async ({ page, isMobile }) => {
   test.skip(Boolean(isMobile), "Correction persistence is covered once on desktop");
-  await page.goto("/resultados?run=run-biology-ended");
+  await page.goto("/resultados?run=run-biology-ended&tab=correcciones");
   await page.locator("[data-correction-ready=true]").waitFor();
+  // La bandeja arranca filtrada por pendientes y esta prueba deja la respuesta
+  // corregida: sin abrir el filtro, la segunda corrida no encontraría la fila.
+  await page.getByLabel("Estado").selectOption("all");
   const row = page.locator("article").filter({ hasText: "Tomás Benítez" }).first();
   const input = row.getByLabel(/Puntaje sobre 4/);
   const next = (await input.inputValue()) === "3" ? "2" : "3";
   await input.fill(next);
   await expect(input).toHaveValue(next);
-  await row.getByRole("button", { name: "Guardar" }).click();
-  await expect(row.getByRole("button", { name: "Guardado" })).toBeVisible();
+  const outgoing = page.waitForRequest((request) => request.url().endsWith("/api/corrections/grade") && request.method() === "POST");
+  const saved = page.waitForResponse((response) => response.url().endsWith("/api/corrections/grade") && response.request().method() === "POST");
+  await row.getByRole("button", { name: "Guardar acá", exact: true }).click();
+  expect((await outgoing).postDataJSON().pointsAwarded).toBe(Number(next));
+  expect((await saved).ok()).toBe(true);
   await page.reload();
+  await page.locator("[data-correction-ready=true]").waitFor();
+  await page.getByLabel("Estado").selectOption("graded");
   await expect(page.locator("article").filter({ hasText: "Tomás Benítez" }).first().getByLabel(/Puntaje sobre 4/)).toHaveValue(next);
+});
+
+test("a run opens on notas and switches to correcciones and análisis", async ({ page }) => {
+  await page.goto("/resultados?run=run-biology-ended");
+  await page.locator("[data-results-ready=true]").waitFor();
+  const tabs = page.getByRole("tablist", { name: "Vistas de la toma" });
+  await expect(tabs.getByRole("tab", { name: /Notas/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel", { name: /Notas/ })).toBeVisible();
+  await tabs.getByRole("tab", { name: /Correcciones/ }).click();
+  await expect(page.getByRole("tabpanel", { name: /Correcciones/ })).toBeVisible();
+  await expect(page).toHaveURL(/tab=correcciones/);
+  await tabs.getByRole("tab", { name: /Análisis/ }).click();
+  await expect(page.getByRole("tabpanel", { name: /Análisis/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Analítica" })).toBeVisible();
+  await expect(page).toHaveURL(/tab=analisis/);
+  // La pestaña sobrevive a la recarga porque viaja en la URL.
+  await page.reload();
+  await page.locator("[data-results-ready=true]").waitFor();
+  await expect(tabs.getByRole("tab", { name: /Análisis/ })).toHaveAttribute("aria-selected", "true");
 });
 
 test("an incident reaches teacher state in under one second", async ({ page, isMobile }) => {
@@ -316,10 +337,7 @@ test("an anonymous student joins from another browser, waits, and submits", asyn
   const studentContext = await browser.newContext({ baseURL: "http://127.0.0.1:4321" });
   const student = await studentContext.newPage();
   try {
-    await student.goto("/rendir");
-    await student.locator("[data-join-ready=true]").waitFor();
-    await student.getByLabel("Código de la evaluación").fill(run.code);
-    await student.getByRole("button", { name: "Continuar" }).click();
+    await student.goto(`/rendir/${run.code}`);
     await expect(student.getByRole("heading", { name: "¿Cómo te llamás?" })).toBeVisible();
     await student.locator("[data-join-ready=true]").waitFor();
     await student.getByLabel("Tu nombre y apellido").fill("Valentina Gerstner");
@@ -345,6 +363,64 @@ test("an anonymous student joins from another browser, waits, and submits", asyn
   } finally {
     await studentContext.close();
   }
+});
+
+test("an asynchronous attempt starts its own server timer and survives reload", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "The async contract is covered once on desktop");
+  const title = `Asincrónica ${Date.now()}`;
+  const payload = {
+    ...examPayload(title),
+    deliveryMode: "async",
+    availableFrom: new Date(Date.now() - 60_000).toISOString(),
+    availableUntil: new Date(Date.now() + 10 * 60_000).toISOString(),
+  };
+  const examCreation = await page.request.post("/api/exams", { data: payload });
+  expect(examCreation.status()).toBe(201);
+  const exam = await examCreation.json() as { id: string };
+  const runCreation = await page.request.post("/api/runs", { data: { examId: exam.id } });
+  expect(runCreation.status()).toBe(201);
+  const run = await runCreation.json() as { code: string };
+  await page.goto(`/rendir/${run.code}`);
+  await page.locator("[data-join-ready=true]").waitFor();
+  await page.getByLabel("Tu nombre y apellido").fill(`Alumno asincrónico ${Date.now()}`);
+  await page.getByRole("button", { name: "Entrar a la sala" }).click();
+  await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Iniciar intento" })).toBeVisible();
+  await page.getByRole("button", { name: "Iniciar intento" }).click();
+  await page.getByRole("button", { name: "Sí, empezar" }).click();
+  await page.locator("[data-student-ready=true]").waitFor();
+  await expect(page.getByRole("timer")).toContainText(/29:5\d/);
+  await page.getByRole("radio", { name: "Respuesta 1.1" }).click();
+  await expect(page.getByText("Guardado", { exact: true })).toBeVisible();
+  await page.reload();
+  await page.locator("[data-student-ready=true]").waitFor();
+  await expect(page.getByRole("radio", { name: "Respuesta 1.1" })).toBeChecked();
+  await expect(page.getByRole("button", { name: "Iniciar intento" })).toHaveCount(0);
+});
+
+test("corrections is a real work inbox instead of a redirect", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "The correction workspace is covered once on desktop");
+  await page.goto("/correcciones");
+  await page.locator("[data-correction-ready=true]").waitFor();
+  await expect(page).toHaveURL(/\/correcciones$/);
+  await expect(page.getByRole("heading", { name: "Correcciones pendientes" })).toBeVisible();
+  await page.getByLabel("Estado").selectOption("all");
+  await expect(page.getByText("Tomás Benítez", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Guardar y siguiente" })).toBeVisible();
+});
+
+test("correcting takes over the whole screen and Escape gives it back", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "Fullscreen correcting is covered once on desktop");
+  await page.goto("/correcciones");
+  await page.locator("[data-correction-ready=true]").waitFor();
+  await page.getByRole("button", { name: "Pantalla completa" }).click();
+  await expect(page.locator("[data-correction-expanded=true]")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Salir", exact: true })).toBeVisible();
+  // La bandeja se posiciona contra el viewport, no contra el contenedor de la página.
+  const box = await page.locator("[data-correction-expanded=true]").boundingBox();
+  expect(box?.y).toBeLessThanOrEqual(1);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-correction-expanded=true]")).toHaveCount(0);
 });
 
 test("teacher preview renders math, regenerates locally and never creates participants", async ({ page, isMobile }) => {

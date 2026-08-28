@@ -14,6 +14,10 @@ interface MonitorSnapshot {
     status: "lobby" | "running" | "ended";
     started_at: number | null;
     ends_at: number | null;
+    delivery_mode: "sync" | "async";
+    available_from: number | null;
+    available_until: number | null;
+    time_limit_s: number;
   };
   questionCount: number;
   serverNow: number;
@@ -136,14 +140,14 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
       <section className="rounded-lg border bg-paper p-5 shadow-card" aria-labelledby="run-title">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div>
-            <p className="text-xs font-semibold tracking-[.08em] text-muted uppercase">{snapshot.run.status === "lobby" ? "Sala de espera" : snapshot.run.status === "running" ? "Evaluación en vivo" : "Evaluación finalizada"}</p>
+            <p className="text-xs font-semibold tracking-[.08em] text-muted uppercase">{snapshot.run.status === "ended" ? "Evaluación finalizada" : snapshot.run.delivery_mode === "async" ? "Evaluación asincrónica" : snapshot.run.status === "lobby" ? "Sala de espera" : "Evaluación en vivo"}</p>
             <h1 id="run-title" className="mt-1 text-2xl font-semibold text-ink">{snapshot.run.title}</h1>
             <p className="mt-3 text-sm text-muted">Código de ingreso</p>
             <p className="mono-number mt-1 text-3xl font-bold tracking-[.18em] text-brand" aria-label={`Código ${snapshot.run.code.split("").join(" ")}`}>{snapshot.run.code}</p>
           </div>
           <div className="flex flex-col items-end gap-3">
             <span className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${snapshot.run.status === "running" ? "border-ok/30 text-ok" : "text-ink-2"}`}><Radio className="size-4" aria-hidden="true" /> {snapshot.run.status === "lobby" ? "Esperando" : snapshot.run.status === "running" ? "En curso" : "Cerrada"}</span>
-            {remaining !== null ? <span role="timer" aria-live="off" className="mono-number inline-flex items-center gap-2 text-xl font-semibold"><Clock3 className="size-5 text-muted" aria-hidden="true" />{formatTime(remaining)}</span> : null}
+            {remaining !== null ? <div className="text-right"><span className="text-xs text-muted">{snapshot.run.delivery_mode === "async" ? "La ventana cierra en" : "Tiempo restante"}</span><span role="timer" aria-live="off" className="mono-number mt-1 flex items-center gap-2 text-xl font-semibold"><Clock3 className="size-5 text-muted" aria-hidden="true" />{formatTime(remaining)}</span></div> : null}
           </div>
         </div>
 
@@ -153,13 +157,13 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
               <Button type="button" disabled={!allExpectedPresent || working} onClick={() => control("start")}>Iniciar evaluación</Button>
               {!allExpectedPresent ? <Button type="button" variant="outline" disabled={working} onClick={() => control("start")}>Forzar inicio con {missing.length} ausente{missing.length === 1 ? "" : "s"}</Button> : null}
             </>
-          ) : snapshot.run.status === "running" ? (
+          ) : snapshot.run.status === "running" && snapshot.run.delivery_mode === "sync" ? (
             <>
               <Button type="button" variant="outline" disabled={working} onClick={() => control("adjust-time", -300)}><Minus data-icon="inline-start" /> 5 min</Button>
               <Button type="button" variant="outline" disabled={working} onClick={() => control("adjust-time", 300)}><Plus data-icon="inline-start" /> 5 min</Button>
               <Button type="button" variant="destructive" className="ms-auto" disabled={working} onClick={() => control("end")}><Square data-icon="inline-start" /> Finalizar evaluación</Button>
             </>
-          ) : <a href={`/resultados?run=${encodeURIComponent(runId)}`} className="text-sm font-semibold text-brand hover:underline">Ver notas y corregir</a>}
+          ) : snapshot.run.status === "running" ? <><p className="text-sm text-ink-2">Cada alumno dispone de {Math.round(snapshot.run.time_limit_s / 60)} minutos desde que inicia.</p><Button type="button" variant="destructive" className="ms-auto" disabled={working} onClick={() => control("end")}><Square data-icon="inline-start" /> Cerrar ventana</Button></> : <a href={`/resultados?run=${encodeURIComponent(runId)}`} className="text-sm font-semibold text-brand hover:underline">Ver notas y corregir</a>}
         </div> : null}
       </section>
 
@@ -170,7 +174,7 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
             <table className="w-full min-w-[580px] text-left text-sm">
               <thead className="sticky top-0 bg-inset text-xs text-ink-2"><tr><th className="px-4 py-2.5">Alumno</th><th className="px-4 py-2.5">Estado</th><th className="px-4 py-2.5 text-right">Avance</th><th className="px-4 py-2.5 text-right">Puntaje</th><th className="px-4 py-2.5 text-right">Tiempo</th><th className="px-4 py-2.5 text-right">Última señal</th><th className="px-4 py-2.5">Acciones</th></tr></thead>
               <tbody className="divide-y">
-                {snapshot.participants.map((participant) => <tr key={String(participant.id)}><th scope="row" className="px-4 py-3 font-medium text-ink"><button type="button" className="hover:text-brand hover:underline" onClick={() => setSelectedParticipant(String(participant.id))}>{String(participant.name)}</button></th><td className="px-4 py-3"><Status value={String(participant.status)} /></td><td className="mono-number px-4 py-3 text-right">{formatAssignedProgress(Number(participant.answered), Number(participant.assigned_questions ?? snapshot.questionCount))}</td><td className="mono-number px-4 py-3 text-right">{participant.score === null ? "—" : `${Number(participant.percent ?? 0)}%`}{Number(participant.pending_manual) ? " + pendiente" : ""}</td><td className="mono-number px-4 py-3 text-right">{Number(participant.extra_time_s) > 0 ? `+${Math.round(Number(participant.extra_time_s) / 60)} min` : "base"}</td><td className="mono-number px-4 py-3 text-right text-muted">{timeFormatter.format(Number(participant.last_seen))}</td><td className="px-4 py-3"><div className="flex gap-1"><Button type="button" size="xs" variant="outline" disabled={working || snapshot.run.status === "ended"} onClick={() => void participantControl(participant, "participant-time")}>Tiempo</Button>{participant.status === "submitted" && snapshot.run.status === "running" ? <Button type="button" size="xs" variant="outline" disabled={working} onClick={() => void participantControl(participant, "reopen")}>Reabrir</Button> : null}</div></td></tr>)}
+                {snapshot.participants.map((participant) => <tr key={String(participant.id)}><th scope="row" className="px-4 py-3 font-medium text-ink"><button type="button" className="hover:text-brand hover:underline" onClick={() => setSelectedParticipant(String(participant.id))}>{String(participant.name)}</button>{snapshot.run.delivery_mode === "async" ? <span className="mt-1 block text-xs font-normal text-muted">{participant.attempt_started_at ? `Inició ${timeFormatter.format(Number(participant.attempt_started_at))}` : "Todavía no inició"}</span> : null}</th><td className="px-4 py-3"><Status value={String(participant.status)} /></td><td className="mono-number px-4 py-3 text-right">{formatAssignedProgress(Number(participant.answered), Number(participant.assigned_questions ?? snapshot.questionCount))}</td><td className="mono-number px-4 py-3 text-right">{participant.score === null ? "—" : `${Number(participant.percent ?? 0)}%`}{Number(participant.pending_manual) ? " + pendiente" : ""}</td><td className="mono-number px-4 py-3 text-right">{Number(participant.extra_time_s) > 0 ? `+${Math.round(Number(participant.extra_time_s) / 60)} min` : "base"}</td><td className="mono-number px-4 py-3 text-right text-muted">{timeFormatter.format(Number(participant.last_seen))}</td><td className="px-4 py-3"><div className="flex gap-1"><Button type="button" size="xs" variant="outline" disabled={working || snapshot.run.status === "ended"} onClick={() => void participantControl(participant, "participant-time")}>Tiempo</Button>{participant.status === "submitted" && snapshot.run.status === "running" ? <Button type="button" size="xs" variant="outline" disabled={working} onClick={() => void participantControl(participant, "reopen")}>Reabrir</Button> : null}</div></td></tr>)}
                 {!snapshot.participants.length ? <tr><td colSpan={7} className="px-4 py-10 text-center text-muted">Todavía no ingresó ningún alumno.</td></tr> : null}
               </tbody>
             </table>
@@ -203,7 +207,7 @@ function formatTime(seconds: number) {
 }
 
 function Status({ value }: { value: string }) {
-  const labels: Record<string, string> = { waiting: "En espera", active: "Rindiendo", disconnected: "Desconectado", submitted: "Entregó" };
+  const labels: Record<string, string> = { waiting: "Sin iniciar", active: "Rindiendo", disconnected: "Desconectado", submitted: "Entregó", expired: "No inició" };
   return <span className={`rounded-sm border px-1.5 py-0.5 text-xs font-semibold ${value === "active" ? "border-ok/25 text-ok" : value === "disconnected" ? "border-alert/25 text-alert" : "text-ink-2"}`}>{labels[value] ?? value}</span>;
 }
 
@@ -213,6 +217,6 @@ function incidentLabel(type: string, durationMs: number) {
 }
 
 function timelineLabel(type: string) {
-  const labels: Record<string, string> = { "exam-started": "Comenzó la evaluación", submitted: "Entregó", "extra-time-changed": "Se cambió el tiempo extra", "submission-reopened": "Se reabrió la entrega", disconnected: "Se desconectó", reconnected: "Se reconectó" };
+  const labels: Record<string, string> = { "exam-started": "Comenzó la evaluación", "attempt-started": "Inició su intento", "attempt-window-expired": "No inició dentro de la ventana", submitted: "Entregó", "extra-time-changed": "Se cambió el tiempo extra", "submission-reopened": "Se reabrió la entrega", disconnected: "Se desconectó", reconnected: "Se reconectó" };
   return labels[type] ?? type;
 }

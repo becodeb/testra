@@ -143,6 +143,10 @@ export const exams = pgTable(
     subject: text("subject").notNull(),
     instructions: text("instructions").notNull().default(""),
     timeLimitS: integer("time_limit_s").notNull(),
+    deliveryMode: text("delivery_mode", { enum: ["sync", "async"] }).notNull().default("sync"),
+    availableFrom: epochMs("available_from"),
+    availableUntil: epochMs("available_until"),
+    aiGradingMode: text("ai_grading_mode", { enum: ["off", "suggest", "auto_clear"] }).notNull().default("suggest"),
     // Cuántas preguntas del pozo ve cada alumno. NULL o 0 sirve todas.
     questionsToServe: integer("questions_to_serve"),
     // De esas, cuántas deben ser de desarrollo. Garantiza que a nadie le toque
@@ -217,6 +221,10 @@ export const runs = pgTable(
     title: text("title").notNull(),
     questionsSnapshot: text("questions_snapshot").notNull(),
     timeLimitS: integer("time_limit_s").notNull(),
+    deliveryMode: text("delivery_mode", { enum: ["sync", "async"] }).notNull().default("sync"),
+    availableFrom: epochMs("available_from"),
+    availableUntil: epochMs("available_until"),
+    aiGradingMode: text("ai_grading_mode", { enum: ["off", "suggest", "auto_clear"] }).notNull().default("suggest"),
     // Cuántas preguntas del pozo ve cada alumno. NULL o 0 sirve todas.
     questionsToServe: integer("questions_to_serve"),
     // De esas, cuántas deben ser de desarrollo. Garantiza que a nadie le toque
@@ -274,12 +282,13 @@ export const participants = pgTable(
     displayName: text("display_name").notNull(),
     guestTokenHash: text("guest_token_hash"),
     status: text("status", {
-      enum: ["waiting", "active", "submitted", "disconnected"],
+      enum: ["waiting", "active", "submitted", "disconnected", "expired"],
     })
       .notNull()
       .default("waiting"),
     joinedAt: createdAtMs("joined_at"),
     submittedAt: epochMs("submitted_at"),
+    attemptStartedAt: epochMs("attempt_started_at"),
     submitReason: text("submit_reason"),
     classroomSubmissionId: text("classroom_submission_id"),
     classroomGoogleUserId: text("classroom_google_user_id"),
@@ -337,6 +346,19 @@ export const grades = pgTable(
     pointsAwarded: numeric("points_awarded", { precision: 8, scale: 2, mode: "number" }),
     feedback: text("feedback").notNull().default(""),
     rubricScores: text("rubric_scores").notNull().default("{}"),
+    gradingStatus: text("grading_status", { enum: ["auto_graded", "pending_manual", "ai_queued", "ai_processing", "ai_suggested", "ai_review_required", "graded"] }).notNull().default("auto_graded"),
+    gradedByType: text("graded_by_type", { enum: ["auto", "ai", "teacher"] }).notNull().default("auto"),
+    gradedAt: epochMs("graded_at"),
+    gradedBy: text("graded_by").references(() => users.id, { onDelete: "set null" }),
+    teacherNote: text("teacher_note").notNull().default(""),
+    aiSuggestedScore: numeric("ai_suggested_score", { precision: 8, scale: 2, mode: "number" }),
+    aiConfidence: numeric("ai_confidence", { precision: 5, scale: 4, mode: "number" }),
+    aiFeedback: text("ai_feedback").notNull().default(""),
+    aiTeacherNote: text("ai_teacher_note").notNull().default(""),
+    aiCriteria: text("ai_criteria").notNull().default("[]"),
+    aiModel: text("ai_model"),
+    aiError: text("ai_error"),
+    aiReviewedAt: epochMs("ai_reviewed_at"),
   },
   (table) => [
     uniqueIndex("grades_participant_question_uq").on(
@@ -425,6 +447,34 @@ export const participantEvents = pgTable(
     index("participant_events_participant_at_idx").on(table.participantId, table.at),
     index("participant_events_type_idx").on(table.type),
   ],
+);
+
+export const gradingJobs = pgTable(
+  "grading_jobs",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id").references(() => runs.id, { onDelete: "cascade" }),
+    requestedBy: text("requested_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["queued", "processing", "completed", "failed", "cancelled"] }).notNull().default("queued"),
+    total: integer("total").notNull().default(0),
+    processed: integer("processed").notNull().default(0),
+    failed: integer("failed").notNull().default(0),
+    createdAt: createdAtMs("created_at"),
+    startedAt: epochMs("started_at"),
+    completedAt: epochMs("completed_at"),
+    error: text("error"),
+  },
+  (table) => [index("grading_jobs_requester_status_idx").on(table.requestedBy, table.status), index("grading_jobs_run_idx").on(table.runId)],
+);
+
+export const gradingJobItems = pgTable(
+  "grading_job_items",
+  {
+    jobId: text("job_id").notNull().references(() => gradingJobs.id, { onDelete: "cascade" }),
+    gradeId: text("grade_id").notNull().references(() => grades.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["queued", "processing", "completed", "failed", "cancelled"] }).notNull().default("queued"),
+  },
+  (table) => [primaryKey({ columns: [table.jobId, table.gradeId] }), index("grading_job_items_status_idx").on(table.jobId, table.status)],
 );
 
 export const quickComments = pgTable(

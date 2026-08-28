@@ -31,8 +31,9 @@ export const serverEnv = {
   get GOOGLE_CLIENT_SECRET() {
     return optional("GOOGLE_CLIENT_SECRET") ?? "";
   },
-  get OPENROUTER_API_KEY() {
-    return optional("OPENROUTER_API_KEY") ?? "";
+  // Inferencia en GMI Cloud (MiniMax M3). Ver `src/server/ai-client.ts`.
+  get GMI_API_KEY() {
+    return optional("GMI_API_KEY") ?? "";
   },
   get ALLOW_DEMO_AUTH() {
     return optional("ALLOW_DEMO_AUTH");

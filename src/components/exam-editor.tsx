@@ -75,6 +75,17 @@ function id(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
+function toLocalDateTime(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function fromLocalDateTime(value: string) {
+  return value ? new Date(value).toISOString() : null;
+}
+
 function makeQuestion(type: QuestionType = "mc", position = 0): FullQuestion {
   const base = { id: id("q"), position, prompt: "", points: 1, section: "", assets: [] };
   const options = [
@@ -92,7 +103,7 @@ function makeQuestion(type: QuestionType = "mc", position = 0): FullQuestion {
     case "sa":
       return { ...base, type, config: { accepted: [""] } };
     case "long":
-      return { ...base, type, config: {} };
+      return { ...base, type, config: { aiEnabled: false, gradingCriteria: "", referenceAnswer: "", rubric: [] } };
   }
 }
 
@@ -196,6 +207,10 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
   const [subject, setSubject] = useState(initialExam.subject);
   const [instructions, setInstructions] = useState(initialExam.instructions);
   const [timeLimit, setTimeLimit] = useState(initialExam.timeLimitS / 60);
+  const [deliveryMode, setDeliveryMode] = useState(initialExam.deliveryMode);
+  const [availableFrom, setAvailableFrom] = useState(initialExam.availableFrom);
+  const [availableUntil, setAvailableUntil] = useState(initialExam.availableUntil);
+  const [aiGradingMode, setAiGradingMode] = useState(initialExam.aiGradingMode);
   const [shuffleQuestions, setShuffleQuestions] = useState(initialExam.shuffleQuestions);
   const [shuffleOptions, setShuffleOptions] = useState(initialExam.shuffleOptions);
   const [questionsToServe, setQuestionsToServe] = useState<number | null>(initialExam.questionsToServe);
@@ -253,7 +268,8 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
   const optionsIncomplete = questions.some(
     (question) => (question.type === "mc" || question.type === "ms") && question.config.options.some((option) => !option.text.trim()),
   );
-  const canReady = blockingCount === 0 && !optionsIncomplete && title.trim().length >= 3 && Boolean(subject.trim());
+  const asyncScheduleReady = deliveryMode === "sync" || Boolean(availableFrom && availableUntil && Date.parse(availableFrom) < Date.parse(availableUntil));
+  const canReady = blockingCount === 0 && !optionsIncomplete && title.trim().length >= 3 && Boolean(subject.trim()) && asyncScheduleReady;
 
   useEffect(() => {
     if (status === "ready" && !canReady) setStatus("draft");
@@ -292,6 +308,10 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
           subject,
           instructions,
           timeLimitS: Math.max(60, Math.round(timeLimit * 60)),
+          deliveryMode,
+          availableFrom,
+          availableUntil,
+          aiGradingMode,
           questionsToServe,
           longToServe,
           sectionQuotas,
@@ -329,7 +349,7 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
       setSaveState("done");
       return false;
     }
-  }, [allowBackwards, allowReconnect, autoSubmit, blockClipboard, detectFocusLoss, initialExam.id, instructions, passingScorePercent, questions, questionsToServe, longToServe, sectionQuotas, recordDisconnects, requireFullscreen, resultsDisplay, resultsWhen, showProgress, shuffleOptions, shuffleQuestions, status, subject, supervisionLevel, timeLimit, title, violationAction]);
+  }, [aiGradingMode, allowBackwards, allowReconnect, autoSubmit, availableFrom, availableUntil, blockClipboard, deliveryMode, detectFocusLoss, initialExam.id, instructions, passingScorePercent, questions, questionsToServe, longToServe, sectionQuotas, recordDisconnects, requireFullscreen, resultsDisplay, resultsWhen, showProgress, shuffleOptions, shuffleQuestions, status, subject, supervisionLevel, timeLimit, title, violationAction]);
 
   useEffect(() => {
     if (firstAutosave.current) {
@@ -493,6 +513,14 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
               <Button type="button" variant="outline" size="sm" asChild><a href={`/evaluaciones/${encodeURIComponent(initialExam.id)}/vista-previa`} target="_blank" rel="noreferrer"><Eye data-icon="inline-start" />Vista previa</a></Button>
               <Dialog><DialogTrigger asChild><Button type="button" variant="outline" size="sm"><Settings2 data-icon="inline-start" />Configuración</Button></DialogTrigger><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Configuración de la evaluación</DialogTitle><DialogDescription>Definí navegación, tiempo, supervisión y publicación de resultados.</DialogDescription></DialogHeader><div className="grid gap-6 py-2">
                 <FieldGroup className="grid gap-3 sm:grid-cols-[1fr_10rem_8rem]"><Field><FieldLabel htmlFor="exam-title">Título</FieldLabel><Input id="exam-title" value={title} onChange={(event) => setTitle(event.target.value)} /></Field><Field><FieldLabel htmlFor="exam-subject">Materia</FieldLabel><Input id="exam-subject" value={subject} onChange={(event) => setSubject(event.target.value)} /></Field><Field><FieldLabel htmlFor="exam-time">Duración</FieldLabel><Input id="exam-time" type="number" min={1} max={360} value={timeLimit} onChange={(event) => setTimeLimit(Number(event.target.value))} /></Field></FieldGroup>
+                <section>
+                  <h3 className="text-sm font-semibold text-ink">Modalidad</h3>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <button type="button" className={`rounded-md border p-4 text-left ${deliveryMode === "sync" ? "border-brand bg-brand-soft/40" : "bg-paper"}`} onClick={() => setDeliveryMode("sync")}><span className="font-semibold text-ink">En vivo</span><span className="mt-1 block text-sm text-muted">Todos comienzan cuando iniciás la sesión.</span></button>
+                    <button type="button" className={`rounded-md border p-4 text-left ${deliveryMode === "async" ? "border-brand bg-brand-soft/40" : "bg-paper"}`} onClick={() => setDeliveryMode("async")}><span className="font-semibold text-ink">Asincrónica</span><span className="mt-1 block text-sm text-muted">Cada alumno inicia su intento dentro de una ventana.</span></button>
+                  </div>
+                  {deliveryMode === "async" ? <div className="mt-3 grid gap-3 sm:grid-cols-2"><Field><FieldLabel htmlFor="available-from">Disponible desde</FieldLabel><Input id="available-from" type="datetime-local" value={toLocalDateTime(availableFrom)} onChange={(event) => setAvailableFrom(fromLocalDateTime(event.target.value))} /></Field><Field><FieldLabel htmlFor="available-until">Disponible hasta</FieldLabel><Input id="available-until" type="datetime-local" value={toLocalDateTime(availableUntil)} onChange={(event) => setAvailableUntil(fromLocalDateTime(event.target.value))} /></Field><p className="sm:col-span-2 text-sm leading-relaxed text-muted">La ventana limita cuándo se puede empezar. Una vez iniciado, cada alumno conserva sus {timeLimit} minutos completos aunque la ventana cierre.</p></div> : null}
+                </section>
                 <section><h3 className="text-sm font-semibold text-ink">Orden y navegación</h3><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Mezclar preguntas" checked={shuffleQuestions} onChange={setShuffleQuestions} /><Toggle label="Mezclar respuestas" checked={shuffleOptions} onChange={setShuffleOptions} /><Toggle label="Permitir volver atrás" checked={allowBackwards} onChange={setAllowBackwards} /><Toggle label="Mostrar progreso" checked={showProgress} onChange={setShowProgress} /></div></section>
                 {seccionesCargadas.length ? (
                   <section>
@@ -536,7 +564,7 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
                 <section className={usaSecciones ? "opacity-50" : undefined}><h3 className="text-sm font-semibold text-ink">Pozo de preguntas</h3><p className="mt-1 text-sm leading-relaxed text-muted">Cargá todas las preguntas que quieras y elegí cuántas recibe cada alumno. El subconjunto se sortea por alumno, así que dos compañeros no reciben las mismas preguntas y no hace falta armar tema A y tema B.</p><div className="mt-3 grid gap-3 sm:grid-cols-[auto_12rem]"><Toggle label="Servir solo una parte del pozo" checked={questionsToServe !== null} onChange={(value) => setQuestionsToServe(value ? Math.min(10, questions.length) : null)} />{questionsToServe !== null ? <Field><FieldLabel htmlFor="exam-serve">Preguntas por alumno</FieldLabel><Input id="exam-serve" type="number" min={1} max={questions.length} value={questionsToServe} onChange={(event) => setQuestionsToServe(Math.max(1, Math.min(questions.length, Number(event.target.value) || 1)))} /></Field> : null}</div>{questionsToServe !== null ? <Field className="mt-3 max-w-[16rem]"><FieldLabel htmlFor="exam-long">De esas, cuántas de desarrollo</FieldLabel><Input id="exam-long" type="number" min={0} max={Math.min(questionsToServe, questions.filter((question) => question.type === "long").length)} value={longToServe} onChange={(event) => setLongToServe(Math.max(0, Math.min(questionsToServe, Number(event.target.value) || 0)))} /><FieldDescription>Se sortean aparte, así a nadie le toca una evaluación sin preguntas para justificar.</FieldDescription></Field> : null}{questionsToServe !== null ? <p className="mt-2 text-sm font-medium text-ink-2">Cada alumno responde {questionsToServe} de {questions.length} preguntas, {longToServe} de ellas de desarrollo. El pozo tiene {questions.filter((question) => question.type === "long").length} de desarrollo.</p> : null}</section>
                 <section><h3 className="text-sm font-semibold text-ink">Tiempo y entrega</h3><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Entregar automáticamente al finalizar" checked={autoSubmit} onChange={setAutoSubmit} /><Toggle label="Permitir reconexión" checked={allowReconnect} onChange={setAllowReconnect} /></div></section>
                 <section><h3 className="text-sm font-semibold text-ink">Supervisión</h3><div className="mt-3 flex flex-wrap gap-2"><Button type="button" size="sm" variant={supervisionLevel === "normal" ? "default" : "outline"} onClick={() => applySupervisionPreset("normal")}>Normal</Button><Button type="button" size="sm" variant={supervisionLevel === "strict" ? "default" : "outline"} onClick={() => applySupervisionPreset("strict")}>Estricto</Button><Button type="button" size="sm" variant={supervisionLevel === "custom" ? "default" : "outline"} onClick={() => setSupervisionLevel("custom")}>Personalizado</Button></div><div className="mt-3 grid gap-2 sm:grid-cols-2"><Toggle label="Requerir pantalla completa" checked={requireFullscreen} onChange={(value) => { setRequireFullscreen(value); setSupervisionLevel("custom"); }} /><Toggle label="Detectar cambio de pestaña/ventana" checked={detectFocusLoss} onChange={(value) => { setDetectFocusLoss(value); setSupervisionLevel("custom"); }} /><Toggle label="Bloquear copiar y pegar" checked={blockClipboard} onChange={(value) => { setBlockClipboard(value); setSupervisionLevel("custom"); }} /><Toggle label="Registrar desconexiones" checked={recordDisconnects} onChange={(value) => { setRecordDisconnects(value); setSupervisionLevel("custom"); }} /></div><Field className="mt-3"><FieldLabel>Al detectar una infracción</FieldLabel><Select value={violationAction} onValueChange={(value) => setViolationAction(value as typeof violationAction)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="warn_and_record">Advertir y registrar</SelectItem><SelectItem value="record_only">Solo registrar</SelectItem></SelectContent></Select></Field></section>
-                <section><h3 className="text-sm font-semibold text-ink">Resultados</h3><div className="mt-3 grid gap-3 sm:grid-cols-2"><Field><FieldLabel>Mostrar</FieldLabel><Select value={resultsDisplay} onValueChange={(value) => setResultsDisplay(value as typeof resultsDisplay)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="score_only">Solo puntaje</SelectItem><SelectItem value="score_and_answers">Puntaje y respuestas</SelectItem><SelectItem value="hidden">No mostrar</SelectItem></SelectContent></Select></Field><Field><FieldLabel>Cuándo</FieldLabel><Select value={resultsWhen} onValueChange={(value) => setResultsWhen(value as typeof resultsWhen)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="teacher_publishes">Cuando el docente publique</SelectItem><SelectItem value="after_submit">Al entregar</SelectItem><SelectItem value="after_run">Al terminar la sesión</SelectItem></SelectContent></Select></Field><Field><FieldLabel htmlFor="passing-score">Aprobación (%) · opcional</FieldLabel><Input id="passing-score" type="number" min={0} max={100} value={passingScorePercent ?? ""} placeholder="Sin umbral" onChange={(event) => setPassingScorePercent(event.target.value === "" ? null : Math.max(0, Math.min(100, Number(event.target.value))))} /><FieldDescription>Si queda vacío, Testra no supone un porcentaje.</FieldDescription></Field></div></section>
+                <section><h3 className="text-sm font-semibold text-ink">Resultados</h3><div className="mt-3 grid gap-3 sm:grid-cols-2"><Field><FieldLabel>Mostrar</FieldLabel><Select value={resultsDisplay} onValueChange={(value) => setResultsDisplay(value as typeof resultsDisplay)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="score_only">Solo puntaje</SelectItem><SelectItem value="score_and_answers">Puntaje y respuestas</SelectItem><SelectItem value="hidden">No mostrar</SelectItem></SelectContent></Select></Field><Field><FieldLabel>Cuándo</FieldLabel><Select value={resultsWhen} onValueChange={(value) => setResultsWhen(value as typeof resultsWhen)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="teacher_publishes">Cuando el docente publique</SelectItem><SelectItem value="after_submit">Al entregar</SelectItem><SelectItem value="after_run">Al terminar la sesión</SelectItem></SelectContent></Select></Field><Field><FieldLabel htmlFor="passing-score">Aprobación (%) · opcional</FieldLabel><Input id="passing-score" type="number" min={0} max={100} value={passingScorePercent ?? ""} placeholder="Sin umbral" onChange={(event) => setPassingScorePercent(event.target.value === "" ? null : Math.max(0, Math.min(100, Number(event.target.value))))} /><FieldDescription>Si queda vacío, Testra no supone un porcentaje.</FieldDescription></Field><Field><FieldLabel>Corrección con IA</FieldLabel><Select value={aiGradingMode} onValueChange={(value) => setAiGradingMode(value as typeof aiGradingMode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="off">Desactivada</SelectItem><SelectItem value="suggest">Sugerir y revisar</SelectItem><SelectItem value="auto_clear">Aplicar solo casos claros</SelectItem></SelectContent></Select><FieldDescription>La nota no se publica hasta que cierres la corrección.</FieldDescription></Field></div></section>
               </div><DialogFooter><DialogClose asChild><Button type="button">Listo</Button></DialogClose></DialogFooter></DialogContent></Dialog>
               <Button type="button" disabled={!canReady || preparing} onClick={() => void prepareRun()}>
                 {preparing ? "Preparando sala…" : "Preparar para el curso"}
@@ -767,10 +795,14 @@ function AnswerKeyEditor({
     const rubric = question.config.rubric ?? [];
     return (
       <div className="grid gap-4">
-        <div><p className="font-semibold text-ink">Corrección manual</p><p className="mt-1 text-sm leading-relaxed text-muted">Podés sumar una rúbrica opcional. Sus criterios deben sumar {question.points} puntos.</p></div>
-        {rubric.map((criterion, index) => <Field key={criterion.id} orientation="horizontal" className="rounded-md border bg-paper p-2.5"><Input aria-label={`Criterio ${index + 1}`} value={criterion.label} placeholder="Claridad conceptual" onChange={(event) => onChange((current) => current.type === "long" ? { ...current, config: { rubric: (current.config.rubric ?? []).map((item) => item.id === criterion.id ? { ...item, label: event.target.value } : item) } } : current)} /><Input aria-label={`Máximo criterio ${index + 1}`} className="w-24" type="number" min={0.01} max={question.points} value={criterion.maxPoints} onChange={(event) => onChange((current) => current.type === "long" ? { ...current, config: { rubric: (current.config.rubric ?? []).map((item) => item.id === criterion.id ? { ...item, maxPoints: Number(event.target.value) } : item) } } : current)} /><Button type="button" variant="ghost" size="icon-sm" aria-label={`Eliminar criterio ${index + 1}`} onClick={() => onChange((current) => current.type === "long" ? { ...current, config: { rubric: (current.config.rubric ?? []).filter((item) => item.id !== criterion.id) } } : current)}><Trash2 /></Button></Field>)}
-        <Button type="button" variant="outline" size="sm" className="justify-self-start" disabled={rubric.length >= 20} onClick={() => onChange((current) => current.type === "long" ? { ...current, config: { rubric: [...(current.config.rubric ?? []), { id: id("criterion"), label: "", maxPoints: rubric.length ? 1 : current.points }] } } : current)}><Plus data-icon="inline-start" />Agregar criterio</Button>
+        <div><p className="font-semibold text-ink">Criterios de corrección</p><p className="mt-1 text-sm leading-relaxed text-muted">La rúbrica guía tanto la revisión docente como la sugerencia de IA. Sus criterios deben sumar {question.points} puntos.</p></div>
+        {rubric.map((criterion, index) => <Field key={criterion.id} orientation="horizontal" className="rounded-md border bg-paper p-2.5"><Input aria-label={`Criterio ${index + 1}`} value={criterion.label} placeholder="Claridad conceptual" onChange={(event) => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, rubric: (current.config.rubric ?? []).map((item) => item.id === criterion.id ? { ...item, label: event.target.value } : item) } } : current)} /><Input aria-label={`Máximo criterio ${index + 1}`} className="w-24" type="number" min={0.01} max={question.points} value={criterion.maxPoints} onChange={(event) => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, rubric: (current.config.rubric ?? []).map((item) => item.id === criterion.id ? { ...item, maxPoints: Number(event.target.value) } : item) } } : current)} /><Button type="button" variant="ghost" size="icon-sm" aria-label={`Eliminar criterio ${index + 1}`} onClick={() => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, rubric: (current.config.rubric ?? []).filter((item) => item.id !== criterion.id) } } : current)}><Trash2 /></Button></Field>)}
+        <Button type="button" variant="outline" size="sm" className="justify-self-start" disabled={rubric.length >= 20} onClick={() => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, rubric: [...(current.config.rubric ?? []), { id: id("criterion"), label: "", maxPoints: rubric.length ? 1 : current.points }] } } : current)}><Plus data-icon="inline-start" />Agregar criterio</Button>
         {rubric.length ? <p className={`text-sm ${Math.abs(rubric.reduce((sum, item) => sum + item.maxPoints, 0) - question.points) < .001 ? "text-ok" : "text-alert"}`}>Total: {rubric.reduce((sum, item) => sum + item.maxPoints, 0)} / {question.points} puntos</p> : null}
+        <div className="rounded-lg border bg-inset p-4">
+          <Toggle label="Permitir sugerencia de IA para esta pregunta" checked={question.config.aiEnabled ?? false} onChange={(checked) => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, aiEnabled: checked } } : current)} />
+          {question.config.aiEnabled ? <div className="mt-4 grid gap-4"><Field><FieldLabel htmlFor={`criteria-${question.id}`}>Qué debe demostrar la respuesta</FieldLabel><Textarea id={`criteria-${question.id}`} value={question.config.gradingCriteria ?? ""} onChange={(event) => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, gradingCriteria: event.target.value } } : current)} placeholder="Conceptos indispensables, relaciones esperadas y errores graves…" /><FieldDescription>Estas instrucciones tienen prioridad sobre cualquier texto escrito por el alumno.</FieldDescription></Field><Field><FieldLabel htmlFor={`reference-${question.id}`}>Respuesta de referencia · opcional</FieldLabel><Textarea id={`reference-${question.id}`} value={question.config.referenceAnswer ?? ""} onChange={(event) => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, referenceAnswer: event.target.value } } : current)} placeholder="Una respuesta modelo o los puntos clave esperados." /></Field></div> : null}
+        </div>
       </div>
     );
   }

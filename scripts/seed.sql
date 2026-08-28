@@ -40,10 +40,10 @@ INSERT INTO answers (id, participant_id, question_id, value, updated_at) VALUES
   ('answer-ended-3', 'participant-ended-demo', 'demo-q3', '"La fotosíntesis sostiene las cadenas alimentarias y libera oxígeno para otros organismos."', (((extract(epoch from now()) - 84080) * 1000)::bigint))
 ON CONFLICT DO NOTHING;
 
-INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded) VALUES
-  ('grade-ended-1', 'participant-ended-demo', 'demo-q1', 1, NULL, 2),
-  ('grade-ended-2', 'participant-ended-demo', 'demo-q2', 1, NULL, 2),
-  ('grade-ended-3', 'participant-ended-demo', 'demo-q3', NULL, NULL, NULL)
+INSERT INTO grades (id, participant_id, question_id, auto, override, points_awarded, grading_status, graded_by_type) VALUES
+  ('grade-ended-1', 'participant-ended-demo', 'demo-q1', 1, NULL, 2, 'auto_graded', 'auto'),
+  ('grade-ended-2', 'participant-ended-demo', 'demo-q2', 1, NULL, 2, 'auto_graded', 'auto'),
+  ('grade-ended-3', 'participant-ended-demo', 'demo-q3', NULL, NULL, NULL, 'pending_manual', 'auto')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO incidents (id, participant_id, at, duration_ms, type, meta, source) VALUES

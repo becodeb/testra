@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 import { db } from "@/server/db/client";
-import { serverEnv } from "@/server/env";
+import { AI_MODEL, chatJson } from "@/server/ai-client";
 import type { Actor } from "@/server/actors";
 import { getParticipantDetail, getRunAnalysisData } from "@/server/repository";
 
-const MODEL = "stealth/ox-alpha";
+const MODEL = AI_MODEL;
 
 export const runAiReportSchema = z.object({
   summary: z.string(),
@@ -47,29 +47,14 @@ export async function generateAiReport(scopeType: "run" | "participant", scopeId
   const instructions = scopeType === "run"
     ? "Analizá la evaluación completa para un profesor. Señalá únicamente qué alumnos conviene revisar, sin acusar ni inferir copia como hecho. Explicá qué ocurrió, cuándo, cuántas veces, explicaciones normales y qué revisar; devolvé participantId exacto."
     : "Analizá a esta persona para su profesor. Explicá qué ocurrió, cuándo y cuántas veces. Distinguí explicaciones normales de patrones que conviene revisar y proponé preguntas concretas para esa revisión.";
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${serverEnv.OPENROUTER_API_KEY}`,
-      "content-type": "application/json",
-      "HTTP-Referer": "https://testra.becode.com.ar",
-      "X-Title": "Testra",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      reasoning_effort: "low",
-      max_tokens: 1800,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: `Sos un asistente para docentes, no un perito técnico. Respondé SOLO JSON en español válido para este esquema: ${JSON.stringify(z.toJSONSchema(schema))}. Usá lenguaje cotidiano. No escribas IP, proxy, user agent, WebSocket, fingerprint, visibilitychange ni heurística: traducí cada término a lo que vivió la persona. Nunca declares que alguien copió o hizo trampa. Ninguna señal cambia una nota. Incluí explicaciones normales y una recomendación de revisión humana. La IA no califica ni sanciona.` },
-        { role: "user", content: `${instructions}\n\nDatos:\n${compactInput.slice(0, 100_000)}` },
-      ],
-    }),
-    signal: AbortSignal.timeout(45_000),
-  });
-  if (!response.ok) throw new Error(`El análisis IA no respondió (${response.status})`);
-  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-  const content = schema.parse(JSON.parse(payload.choices?.[0]?.message?.content ?? "{}"));
+  const raw = await chatJson(
+    [
+      { role: "system", content: `Sos un asistente para docentes, no un perito técnico. Respondé SOLO JSON en español válido para este esquema: ${JSON.stringify(z.toJSONSchema(schema))}. Usá lenguaje cotidiano. No escribas IP, proxy, user agent, WebSocket, fingerprint, visibilitychange ni heurística: traducí cada término a lo que vivió la persona. Nunca declares que alguien copió o hizo trampa. Ninguna señal cambia una nota. Incluí explicaciones normales y una recomendación de revisión humana. La IA no califica ni sanciona.` },
+      { role: "user", content: `${instructions}\n\nDatos:\n${compactInput.slice(0, 100_000)}` },
+    ],
+    { maxTokens: 5000, unavailable: "El análisis con IA no está configurado", failed: "El análisis IA no respondió" },
+  );
+  const content = schema.parse(raw);
   const generatedAt = Date.now();
   const runId = scopeType === "run" ? scopeId : (input as NonNullable<Awaited<ReturnType<typeof getParticipantDetail>>>).run.id;
   await db.prepare(
