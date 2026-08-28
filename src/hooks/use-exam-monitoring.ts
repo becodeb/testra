@@ -24,10 +24,12 @@ interface UseExamMonitoringOptions {
   requireFullscreen?: boolean;
 }
 
-interface Absence {
+export interface Absence {
   startedAt: number;
   sawHidden: boolean;
 }
+
+export type PresenceSignal = "blur" | "focus" | "hidden" | "visible";
 
 interface ClipboardLikeEvent {
   type: string;
@@ -68,6 +70,33 @@ export function isDuplicateClipboardIncident(
     && next.at - previous.at <= windowMs);
 }
 
+/**
+ * Decide si el alumno se fue o volvio, a partir del evento y no del estado del DOM.
+ *
+ * Antes esto se resolvia preguntandole a `document.hasFocus()` desde un
+ * `setTimeout(0)`, y en macOS eso no funciona: al hacer Cmd+Tab o cambiar de
+ * Space la ventana queda ocluida, el navegador congela los timers y la
+ * devolucion de llamada recien corre cuando el alumno ya volvio. Para entonces
+ * el DOM dice "visible y con foco" y la ausencia nunca se abria. Safari agrega
+ * lo suyo: no marca `visibilityState = "hidden"` al cambiar de aplicacion y
+ * `hasFocus()` puede seguir devolviendo `true` en segundo plano.
+ *
+ * Manejando el evento en si, de forma sincrona, las dos cosas dejan de importar.
+ */
+export function nextPresence(current: Absence | null, signal: PresenceSignal, at: number): {
+  absence: Absence | null;
+  returned: Absence | null;
+} {
+  if (signal === "blur" || signal === "hidden") {
+    // `blur` llega antes que `visibilitychange` al cambiar de pestana, asi que
+    // la ausencia se abre con el primero y el segundo solo la reclasifica.
+    if (!current) return { absence: { startedAt: at, sawHidden: signal === "hidden" }, returned: null };
+    return { absence: { ...current, sawHidden: current.sawHidden || signal === "hidden" }, returned: null };
+  }
+  if (!current) return { absence: null, returned: null };
+  return { absence: null, returned: current };
+}
+
 export function useExamMonitoring({ active, participantId, onIncident, activeQuestionId, detectFocusLoss = true, blockClipboard = false, requireFullscreen = false }: UseExamMonitoringOptions) {
   const activeRef = useRef(active);
   const callbackRef = useRef(onIncident);
@@ -95,36 +124,34 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
       navigator.sendBeacon("/api/student/lifecycle", new Blob([body], { type: "application/json" }));
     };
 
-    const reconcilePresence = () => {
-      if (!watching()) {
+    const applyPresence = (signal: PresenceSignal) => {
+      if (!watching() || !detectFocusLoss) {
         absenceRef.current = null;
         return;
       }
 
-      const hidden = document.visibilityState === "hidden";
-      const unfocused = !document.hasFocus();
-      if (detectFocusLoss && (hidden || unfocused)) {
-        if (!absenceRef.current) absenceRef.current = { startedAt: Date.now(), sawHidden: hidden };
-        if (hidden) absenceRef.current.sawHidden = true;
-        return;
-      }
-
-      const absence = absenceRef.current;
-      if (!absence) return;
-      absenceRef.current = null;
+      const at = Date.now();
+      const { absence, returned } = nextPresence(absenceRef.current, signal, at);
+      absenceRef.current = absence;
+      if (!returned) return;
       emit({
-        type: absence.sawHidden ? "cambio-de-pestana" : "ventana-sin-foco",
-        at: absence.startedAt,
-        durationMs: Math.max(0, Date.now() - absence.startedAt),
+        type: returned.sawHidden ? "cambio-de-pestana" : "ventana-sin-foco",
+        at: returned.startedAt,
+        durationMs: Math.max(0, at - returned.startedAt),
         meta: {},
       });
     };
 
-    const scheduleReconciliation = () => window.setTimeout(reconcilePresence, 0);
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") sendLifecycle("hidden");
-      scheduleReconciliation();
+      if (document.visibilityState === "hidden") {
+        sendLifecycle("hidden");
+        applyPresence("hidden");
+        return;
+      }
+      applyPresence("visible");
     };
+    const onBlur = () => applyPresence("blur");
+    const onFocus = () => applyPresence("focus");
     const onKeyDown = (event: KeyboardEvent) => {
       if (!watching()) return;
       if (event.key === "F12") {
@@ -165,8 +192,8 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
     const onPageHide = () => sendLifecycle("pagehide");
 
     document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("blur", scheduleReconciliation);
-    window.addEventListener("focus", scheduleReconciliation);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
     window.addEventListener("keydown", onKeyDown);
     document.addEventListener("copy", onClipboard);
     document.addEventListener("cut", onClipboard);
@@ -176,8 +203,8 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("blur", scheduleReconciliation);
-      window.removeEventListener("focus", scheduleReconciliation);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
       window.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("copy", onClipboard);
       document.removeEventListener("cut", onClipboard);
