@@ -424,5 +424,6 @@ function incidentMessage(incident: ClientIncident) {
     return `Usaste ${action}${characters}. Testra no guarda el contenido.`;
   }
   if (incident.type === "salida-pantalla-completa") return "Saliste de pantalla completa.";
+  if (incident.type === "manipulacion-de-supervision") return "Se detectó que se modificaron funciones del navegador que usa la supervisión. Quedó registrado.";
   return "Se detectó el uso de F12. Testra lo registra; no pretende bloquear las herramientas del navegador.";
 }

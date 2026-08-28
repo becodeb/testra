@@ -1,11 +1,15 @@
 import { useEffect, useRef } from "react";
 
+const INTEGRITY_MS = 10_000;
+const CLOCK_MS = 2_000;
+
 export type ClientIncidentType =
   | "cambio-de-pestana"
   | "ventana-sin-foco"
   | "atajo-f12"
   | "atajo-copiar-pegar"
-  | "salida-pantalla-completa";
+  | "salida-pantalla-completa"
+  | "manipulacion-de-supervision";
 
 export interface ClientIncident {
   type: ClientIncidentType;
@@ -95,6 +99,63 @@ export function nextPresence(current: Absence | null, signal: PresenceSignal, at
   }
   if (!current) return { absence: null, returned: null };
   return { absence: null, returned: current };
+}
+
+/**
+ * Detecta que alguien anuló la supervision desde la consola.
+ *
+ * La evaluacion corre en una pestana comun: cualquiera puede abrir las
+ * herramientas del navegador y pegar un script. Impedirlo desde la pagina es
+ * imposible —el codigo pegado corre en el mismo lugar y con los mismos
+ * permisos que el nuestro—, asi que en vez de intentar bloquearlo se registra.
+ *
+ * Los scripts que circulan hacen siempre lo mismo: reemplazan
+ * `document.hasFocus`, redefinen `visibilityState` o pisan `window.onblur`.
+ * Todo eso deja la misma huella, que donde el navegador traia una funcion
+ * nativa ahora hay una escrita en la pagina. `[native code]` sólo aparece en
+ * las nativas.
+ */
+export function supervisionTampering(
+  doc: Document | object = typeof document === "undefined" ? {} : document,
+  win: Window | object = typeof window === "undefined" ? {} : window,
+): string[] {
+  const signals: string[] = [];
+  const isNative = (value: unknown) =>
+    typeof value === "function" && Function.prototype.toString.call(value).includes("[native code]");
+
+  const check = (holder: object, prop: string) => {
+    let cursor: object | null = holder;
+    while (cursor) {
+      const found = Object.getOwnPropertyDescriptor(cursor, prop);
+      if (found) {
+        // Los manejadores tipo `onblur` valen `null` mientras nadie los asigne.
+        const impl = found.get ?? found.value;
+        if (impl !== null && impl !== undefined && !isNative(impl)) signals.push(prop);
+        return;
+      }
+      cursor = Object.getPrototypeOf(cursor) as object | null;
+    }
+  };
+
+  check(doc, "hasFocus");
+  check(doc, "visibilityState");
+  check(doc, "hidden");
+  check(doc, "addEventListener");
+  check(doc, "onvisibilitychange");
+  check(win, "onblur");
+  return signals;
+}
+
+/**
+ * Una pestana tapada no ejecuta sus temporizadores a tiempo: el navegador los
+ * estrangula desde afuera y ningun script de la pagina puede evitarlo. Si entre
+ * dos vueltas paso mucho mas de lo previsto, la pestana estuvo oculta aunque
+ * ningun evento lo haya dicho. Es la senal que sobrevive a que anulen `blur` y
+ * `visibilitychange`.
+ */
+export function clockGap(elapsedMs: number, expectedMs: number, toleranceMs = 6_000): number | null {
+  const drift = elapsedMs - expectedMs;
+  return drift > toleranceMs ? drift : null;
 }
 
 export function useExamMonitoring({ active, participantId, onIncident, activeQuestionId, detectFocusLoss = true, blockClipboard = false, requireFullscreen = false }: UseExamMonitoringOptions) {
@@ -191,26 +252,68 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
     };
     const onPageHide = () => sendLifecycle("pagehide");
 
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("blur", onBlur);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("keydown", onKeyDown);
-    document.addEventListener("copy", onClipboard);
-    document.addEventListener("cut", onClipboard);
-    document.addEventListener("paste", onClipboard);
-    document.addEventListener("fullscreenchange", onFullscreen);
-    window.addEventListener("pagehide", onPageHide);
+    // Todo va en fase de captura, y no de burbujeo, a proposito. Un script
+    // pegado en la consola despues de que cargo la pagina se registra tambien en
+    // captura y llama a `stopImmediatePropagation`; eso solo frena a los
+    // oyentes que se anotaron DESPUES que el, en la misma fase y el mismo
+    // objetivo. Estando ya anotados desde la carga, los nuestros corren
+    // primero y el script no llega a taparlos. En burbujeo, en cambio, cualquier
+    // captura ajena los mataba a todos: era el agujero.
+    const captura = true;
+    document.addEventListener("visibilitychange", onVisibility, captura);
+    window.addEventListener("blur", onBlur, captura);
+    window.addEventListener("focus", onFocus, captura);
+    window.addEventListener("keydown", onKeyDown, captura);
+    document.addEventListener("copy", onClipboard, captura);
+    document.addEventListener("cut", onClipboard, captura);
+    document.addEventListener("paste", onClipboard, captura);
+    document.addEventListener("fullscreenchange", onFullscreen, captura);
+    window.addEventListener("pagehide", onPageHide, captura);
+
+    // Segunda linea, para cuando los eventos no llegan: se avisa de la
+    // manipulacion en si, y se mira el reloj para descubrir ausencias que
+    // ningun evento reporto.
+    let reported = "";
+    const integrity = window.setInterval(() => {
+      if (!watching()) return;
+      const signals = supervisionTampering();
+      const fingerprint = signals.join(",");
+      if (!fingerprint || fingerprint === reported) return;
+      reported = fingerprint;
+      emit({ type: "manipulacion-de-supervision", at: Date.now(), durationMs: 0, meta: { signals } });
+    }, INTEGRITY_MS);
+
+    let lastTick = Date.now();
+    let lastPresenceAt = 0;
+    const clock = window.setInterval(() => {
+      const at = Date.now();
+      const drift = clockGap(at - lastTick, CLOCK_MS);
+      lastTick = at;
+      if (!watching() || !detectFocusLoss || drift === null) return;
+      // Si los eventos hicieron su trabajo la ausencia ya se abrio o se cerro
+      // recien: no se cuenta dos veces lo mismo.
+      if (absenceRef.current || at - lastPresenceAt <= drift) return;
+      emit({ type: "cambio-de-pestana", at: at - drift, durationMs: drift, meta: { deteccion: "reloj" } });
+    }, CLOCK_MS);
+
+    const notePresence = () => { lastPresenceAt = Date.now(); };
+    window.addEventListener("focus", notePresence, captura);
+    window.addEventListener("blur", notePresence, captura);
 
     return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("blur", onBlur);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("copy", onClipboard);
-      document.removeEventListener("cut", onClipboard);
-      document.removeEventListener("paste", onClipboard);
-      document.removeEventListener("fullscreenchange", onFullscreen);
-      window.removeEventListener("pagehide", onPageHide);
+      window.clearInterval(integrity);
+      window.clearInterval(clock);
+      document.removeEventListener("visibilitychange", onVisibility, captura);
+      window.removeEventListener("blur", onBlur, captura);
+      window.removeEventListener("focus", onFocus, captura);
+      window.removeEventListener("keydown", onKeyDown, captura);
+      document.removeEventListener("copy", onClipboard, captura);
+      document.removeEventListener("cut", onClipboard, captura);
+      document.removeEventListener("paste", onClipboard, captura);
+      document.removeEventListener("fullscreenchange", onFullscreen, captura);
+      window.removeEventListener("pagehide", onPageHide, captura);
+      window.removeEventListener("focus", notePresence, captura);
+      window.removeEventListener("blur", notePresence, captura);
     };
   }, [blockClipboard, detectFocusLoss, participantId, requireFullscreen]);
 }

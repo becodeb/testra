@@ -33,6 +33,7 @@ const CLIENT_INCIDENT_TYPES = new Set([
   "atajo-copiar-pegar",
   "salida-pantalla-completa",
   "cierre-pestana",
+  "manipulacion-de-supervision",
 ]);
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;

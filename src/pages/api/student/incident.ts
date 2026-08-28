@@ -6,7 +6,7 @@ import { participantOwnedBy, runCommand } from "@/server/repository";
 
 const incidentSchema = z.object({
   participantId: z.string().min(1),
-  type: z.enum(["cambio-de-pestana", "ventana-sin-foco", "atajo-f12", "atajo-copiar-pegar", "salida-pantalla-completa"]),
+  type: z.enum(["cambio-de-pestana", "ventana-sin-foco", "atajo-f12", "atajo-copiar-pegar", "salida-pantalla-completa", "manipulacion-de-supervision"]),
   at: z.number().int().nonnegative(),
   durationMs: z.number().min(0).max(6 * 60 * 60 * 1000),
   meta: z.record(z.string(), z.unknown()),

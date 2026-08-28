@@ -14,6 +14,7 @@ export interface Incident {
 const dateFormatter = new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short" });
 
 export const incidentLabels: Record<string, string> = {
+  "manipulacion-de-supervision": "Alteró la supervisión desde el navegador",
   "cambio-de-pestana": "Cambió de pestaña o ventana",
   "ventana-sin-foco": "La ventana perdió el foco",
   "atajo-copiar-pegar": "Usó copiar, cortar o pegar",
