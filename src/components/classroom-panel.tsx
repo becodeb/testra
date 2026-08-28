@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { BookOpen, ExternalLink, RefreshCw, Send } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { BookOpen, ExternalLink, RefreshCw, Search, Send } from "lucide-react";
 
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const CLASSROOM_SCOPES = [
   "https://www.googleapis.com/auth/classroom.courses.readonly",
@@ -21,6 +22,19 @@ export function ClassroomPanel({ runId, linked: initialLinked, ended }: Classroo
   const [grades, setGrades] = useState<GradeRow[] | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
+  const [listaAbierta, setListaAbierta] = useState(false);
+
+  // Un docente con veinte cursos no encuentra el suyo en un desplegable nativo,
+  // asi que se filtra por nombre y por seccion mientras escribe.
+  const cursosFiltrados = useMemo(() => {
+    const termino = busqueda.trim().toLocaleLowerCase();
+    if (!termino) return courses;
+    return courses.filter((course) =>
+      `${course.name} ${course.section ?? ""}`.toLocaleLowerCase().includes(termino),
+    );
+  }, [busqueda, courses]);
+  const cursoElegido = courses.find((course) => course.id === courseId) ?? null;
 
   async function connect() {
     setLoading(true);
@@ -91,7 +105,59 @@ export function ClassroomPanel({ runId, linked: initialLinked, ended }: Classroo
         {!linked ? <div className="flex gap-2"><Button type="button" variant="outline" disabled={loading} onClick={() => void connect()}><ExternalLink data-icon="inline-start" />Autorizar Google</Button><Button type="button" disabled={loading} onClick={() => void loadCourses()}><RefreshCw data-icon="inline-start" />Cargar cursos</Button></div> : <span className="rounded-sm border border-ok/25 px-2 py-1 text-xs font-semibold text-ok">Vinculada</span>}
       </div>
       {message ? <p className="mt-4 rounded-md bg-inset px-3 py-2 text-sm text-ink-2" role="status">{message}</p> : null}
-      {!linked && courses.length ? <div className="mt-4 flex flex-wrap items-end gap-2"><label className="flex min-w-64 flex-1 flex-col gap-1.5 text-sm font-semibold text-ink-2">Curso<select value={courseId} onChange={(event) => setCourseId(event.target.value)} className="h-9 rounded-md border bg-white px-3 font-normal">{courses.map((course) => <option value={course.id} key={course.id}>{course.name}{course.section ? ` · ${course.section}` : ""}</option>)}</select></label><Button type="button" disabled={!courseId || loading} onClick={() => void publish()}>Publicar tarea</Button></div> : null}
+      {!linked && courses.length ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <div className="min-w-0">
+            <label htmlFor="classroom-course" className="text-sm font-semibold text-ink-2">
+              Curso <span className="font-normal text-muted">· {courses.length} disponible{courses.length === 1 ? "" : "s"}</span>
+            </label>
+            <div className="relative mt-1.5">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+              <Input
+                id="classroom-course"
+                role="combobox"
+                aria-expanded={listaAbierta}
+                aria-controls="classroom-course-list"
+                autoComplete="off"
+                className="ps-9"
+                placeholder="Buscá tu curso por nombre"
+                value={listaAbierta ? busqueda : cursoElegido ? `${cursoElegido.name}${cursoElegido.section ? ` · ${cursoElegido.section}` : ""}` : ""}
+                onFocus={() => { setListaAbierta(true); setBusqueda(""); }}
+                onChange={(event) => { setBusqueda(event.target.value); setListaAbierta(true); }}
+                onBlur={() => window.setTimeout(() => setListaAbierta(false), 120)}
+                onKeyDown={(event) => { if (event.key === "Escape") setListaAbierta(false); }}
+              />
+              {listaAbierta ? (
+                <ul
+                  id="classroom-course-list"
+                  role="listbox"
+                  className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border bg-paper py-1 shadow-card"
+                >
+                  {cursosFiltrados.map((course) => (
+                    <li key={course.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={course.id === courseId}
+                        className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors ${course.id === courseId ? "bg-brand-soft text-brand-deep" : "hover:bg-canvas"}`}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => { setCourseId(course.id); setListaAbierta(false); setBusqueda(""); }}
+                      >
+                        <span className="w-full truncate text-sm font-semibold">{course.name}</span>
+                        {course.section ? <span className="w-full truncate text-xs text-muted">{course.section}</span> : null}
+                      </button>
+                    </li>
+                  ))}
+                  {!cursosFiltrados.length ? (
+                    <li className="px-3 py-4 text-center text-sm text-muted">Ningún curso coincide con «{busqueda}».</li>
+                  ) : null}
+                </ul>
+              ) : null}
+            </div>
+          </div>
+          <Button type="button" disabled={!courseId || loading} onClick={() => void publish()}>Publicar tarea</Button>
+        </div>
+      ) : null}
       {linked && ended && grades ? <div className="mt-5"><div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[620px] text-left text-sm"><thead className="bg-inset text-xs"><tr><th className="px-3 py-2">Alumno</th><th className="px-3 py-2 text-right">Nota</th><th className="px-3 py-2">Vínculo</th><th className="px-3 py-2">Resultado</th></tr></thead><tbody className="divide-y">{grades.map((row, index) => <tr key={`${row.email ?? row.name}:${index}`}><th scope="row" className="px-3 py-2.5 font-medium">{row.name}<span className="mt-0.5 block text-xs font-normal text-muted">{row.email ?? "Rindió como invitado"}</span></th><td className="mono-number px-3 py-2.5 text-right">{row.grade}</td><td className="px-3 py-2.5 text-xs">{row.linked ? row.matchMethod === "google_id" ? "Cuenta de Google" : row.matchMethod === "email" ? "Correo verificado" : "Nombre único" : "Sin vincular"}</td><td className="px-3 py-2.5 text-xs">{row.canSend ? "Lista para devolver" : row.pendingManual ? "Falta corrección manual" : !row.linked ? "No hay una coincidencia segura" : row.submissionState ? "Entrega no disponible" : "No se encontró la entrega"}</td></tr>)}</tbody></table></div><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-muted">Testra usa nombres sólo cuando el roster deja una coincidencia única. Las notas se envían sólo después de tu confirmación.</p><Button type="button" disabled={loading || !grades.some((row) => row.canSend)} onClick={() => void sendGrades()}><Send data-icon="inline-start" />Enviar notas a Classroom</Button></div></div> : null}
     </section>
   );
