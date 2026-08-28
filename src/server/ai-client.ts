@@ -42,5 +42,41 @@ export async function chatJson(messages: readonly ChatMessage[], options: ChatJs
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;
   if (!content) throw new Error(options.failed);
-  return JSON.parse(content) as unknown;
+  return parseJsonResponse(content, options.failed);
+}
+
+/**
+ * Saca el JSON de la respuesta del modelo.
+ *
+ * Aunque se pide `response_format: json_object`, MiniMax M3 a veces devuelve el
+ * objeto envuelto en un bloque de codigo markdown, y de vez en cuando con una
+ * linea de texto antes o despues. `JSON.parse` sobre eso falla con
+ * `Unexpected token '`'` y se lleva puesta toda la corrida, asi que se limpia
+ * antes de parsear.
+ */
+export function parseJsonResponse(content: string, failed: string): unknown {
+  const candidates: string[] = [];
+  const texto = content.trim();
+  candidates.push(texto);
+
+  // ```json { ... } ```  o  ``` { ... } ```
+  const fence = texto.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+  if (fence) candidates.push(fence[1].trim());
+
+  // Ultimo recurso: el bloque mas externo entre llaves o corchetes, por si el
+  // modelo agrego una frase suelta antes o despues.
+  for (const [abre, cierra] of [["{", "}"], ["[", "]"]] as const) {
+    const inicio = texto.indexOf(abre);
+    const fin = texto.lastIndexOf(cierra);
+    if (inicio !== -1 && fin > inicio) candidates.push(texto.slice(inicio, fin + 1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as unknown;
+    } catch {
+      // Se prueba la siguiente forma.
+    }
+  }
+  throw new Error(failed);
 }
