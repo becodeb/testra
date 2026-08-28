@@ -1052,6 +1052,9 @@ export async function listPendingCorrections(actor: Actor, runId?: string) {
       aiTeacherNote: row.ai_teacher_note,
       aiCriteria: safeJsonArray(row.ai_criteria),
       aiError: row.ai_error,
+      // Viajan para poder editarlos desde la pantalla de correccion.
+      gradingCriteria: question.type === "long" ? question.config.gradingCriteria ?? "" : "",
+      referenceAnswer: question.type === "long" ? question.config.referenceAnswer ?? "" : "",
     }];
   });
 }
@@ -1098,6 +1101,38 @@ export async function rejectAiSuggestion(actor: Actor, participantId: string, qu
   await db.prepare(`UPDATE grades SET grading_status = 'pending_manual', ai_suggested_score = NULL, ai_confidence = NULL,
     ai_feedback = '', ai_teacher_note = '', ai_criteria = '[]', ai_reviewed_at = ? WHERE participant_id = ? AND question_id = ?`)
     .bind(Date.now(), participantId, questionId).run();
+  return true;
+}
+
+/**
+ * Carga los criterios de correccion con IA de una pregunta despues de tomada la
+ * evaluacion.
+ *
+ * Escribe sobre `runs.questions_snapshot` y no sobre la evaluacion original: es
+ * la copia congelada que lee el corrector, y la unica que puede cambiar la
+ * sugerencia de esta toma sin tocar las preguntas de tomas anteriores.
+ */
+export async function saveAiCriteria(
+  actor: Actor,
+  runId: string,
+  questionId: string,
+  input: { gradingCriteria: string; referenceAnswer: string },
+) {
+  if (!(await getRunCapabilities(runId, actor)).correct) return false;
+  const row = await db.prepare("SELECT questions_snapshot FROM runs WHERE id = ?").bind(runId).first<{ questions_snapshot: string }>();
+  if (!row) return false;
+
+  const questions = JSON.parse(row.questions_snapshot) as FullQuestion[];
+  const question = questions.find((candidate) => candidate.id === questionId);
+  if (!question || question.type !== "long") return false;
+
+  question.config = {
+    ...question.config,
+    gradingCriteria: input.gradingCriteria,
+    referenceAnswer: input.referenceAnswer,
+  };
+  await db.prepare("UPDATE runs SET questions_snapshot = ? WHERE id = ?")
+    .bind(JSON.stringify(questions), runId).run();
   return true;
 }
 

@@ -25,7 +25,7 @@ function eligibleSql(runId: string | null) {
     JOIN participants p ON p.id = g.participant_id
     JOIN runs r ON r.id = p.run_id
     LEFT JOIN answers a ON a.participant_id = p.id AND a.question_id = g.question_id
-    WHERE p.status = 'submitted' AND g.grading_status IN ('pending_manual', 'ai_queued', 'ai_processing') AND r.ai_grading_mode != 'off'
+    WHERE p.status = 'submitted' AND g.grading_status IN ('pending_manual', 'ai_queued', 'ai_processing')
       ${runId ? "AND r.id = ?" : ""}`;
 }
 
@@ -57,7 +57,9 @@ export async function createGradingJob(actor: Actor, runId: string | null) {
   ).all<CandidateRow>();
   const candidates = rows.results.filter((row) => {
     const question = (JSON.parse(row.questions_snapshot) as FullQuestion[]).find((item) => item.id === row.question_id);
-    return question?.type === "long" && Boolean(question.config.aiEnabled);
+    // Sin interruptor previo: si es de desarrollo, la IA puede sugerir. Los
+    // criterios se cargan cuando el docente quiere, incluso despues de la toma.
+    return question?.type === "long";
   });
   const jobId = crypto.randomUUID();
   const now = Date.now();
@@ -112,7 +114,7 @@ async function processGradingJob(jobId: string, provider: AiGradingProvider) {
       const job = await db.prepare("SELECT status FROM grading_jobs WHERE id = ?").bind(jobId).first<{ status: JobStatus }>();
       if (job?.status === "cancelled") return;
       const question = (JSON.parse(row.questions_snapshot) as FullQuestion[]).find((item) => item.id === row.question_id);
-      if (!question || question.type !== "long" || !question.config.aiEnabled) continue;
+      if (!question || question.type !== "long") continue;
       await db.batch([
         db.prepare("UPDATE grades SET grading_status = 'ai_processing' WHERE id = ?").bind(row.grade_id),
         db.prepare("UPDATE grading_job_items SET status = 'processing' WHERE job_id = ? AND grade_id = ?").bind(jobId, row.grade_id),
@@ -128,11 +130,14 @@ async function processGradingJob(jobId: string, provider: AiGradingProvider) {
           rubric: question.config.rubric ?? [],
         };
         const result = input.answer.trim() ? await provider.grade(input) : { score: 0, maxScore: input.maxPoints, confidence: 1, feedback: "No se registró una respuesta.", teacherNote: "Respuesta vacía.", criteria: [] };
-        const autoApply = row.ai_grading_mode === "auto_clear" && result.confidence >= 0.9;
+        // La IA nunca escribe una nota sola. Deja la sugerencia y el puntaje
+        // queda sin asignar hasta que el docente la acepta o la corrige: la
+        // responsabilidad por la nota no es delegable, y el rastro de que vino
+        // de una sugerencia queda en ai_suggested_score y graded_by_type.
         await db.prepare(
-          `UPDATE grades SET grading_status = ?, graded_by_type = ?, points_awarded = ?, graded_at = ?, ai_suggested_score = ?, ai_confidence = ?, ai_feedback = ?, ai_teacher_note = ?, ai_criteria = ?, ai_model = ?, ai_error = NULL
+          `UPDATE grades SET grading_status = 'ai_suggested', ai_suggested_score = ?, ai_confidence = ?, ai_feedback = ?, ai_teacher_note = ?, ai_criteria = ?, ai_model = ?, ai_error = NULL
            WHERE id = ?`,
-        ).bind(autoApply ? "graded" : row.ai_grading_mode === "auto_clear" ? "ai_review_required" : "ai_suggested", autoApply ? "ai" : "auto", autoApply ? result.score : null, autoApply ? Date.now() : null, result.score, result.confidence, result.feedback, result.teacherNote, JSON.stringify(result.criteria), AI_GRADING_MODEL, row.grade_id).run();
+        ).bind(result.score, result.confidence, result.feedback, result.teacherNote, JSON.stringify(result.criteria), AI_GRADING_MODEL, row.grade_id).run();
         await db.batch([
           db.prepare("UPDATE grading_job_items SET status = 'completed' WHERE job_id = ? AND grade_id = ?").bind(jobId, row.grade_id),
           db.prepare("UPDATE grading_jobs SET processed = processed + 1 WHERE id = ?").bind(jobId),
