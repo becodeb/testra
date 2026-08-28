@@ -7,6 +7,7 @@ import {
 import type { Actor } from "@/server/actors";
 import { db, type PgStatement } from "@/server/db/client";
 import { dispatchRunCommand } from "@/server/exam-run-actor";
+import { normalizeStudentName, uniqueGoogleUsersByName } from "@/server/classroom";
 import { personalizeQuestions } from "@/domain/pool";
 import { gradeExam, type AnswerValue } from "@/server/grading";
 import { createRunCode } from "@/server/run-code";
@@ -544,22 +545,39 @@ export async function joinRunByCode(
     throw new Error("La ventana para iniciar esta evaluación ya cerró");
   }
 
-  let classroomIdentity: { googleUserId: string; email: string } | null = null;
+  // Vincular con Classroom es para que la nota vuelva sola; no es un control de
+  // acceso. Que no se pueda resolver la identidad NUNCA impide rendir: dejar a
+  // un alumno afuera de su evaluacion es mucho peor que enviarle la nota a mano.
+  //
+  // Ademas hoy no puede resolverse por correo casi nunca: el padron se carga sin
+  // correos porque el scope classroom.profile.emails se saco por ser sensible, y
+  // Google solo devuelve profile.emailAddress si ese permiso esta otorgado.
+  let classroomIdentity: { googleUserId: string; email: string | null } | null = null;
   if (run.classroom_course_id && run.classroom_coursework_id) {
     const email = normalizeStudentEmail(classroomEmail);
-    if (!email) throw new Error("Ingresá el correo con el que figurás en Google Classroom");
-    const expected = await db.prepare(
-      "SELECT google_user_id, email FROM expected_run_students WHERE run_id = ? AND LOWER(email) = ?",
-    ).bind(run.id, email).all<{ google_user_id: string; email: string | null }>();
-    if (expected.results.length !== 1 || !expected.results[0].email) {
-      throw new Error("Ese correo no figura en el curso de Google Classroom publicado para esta evaluación");
+    const roster = await db.prepare(
+      "SELECT google_user_id, name, email FROM expected_run_students WHERE run_id = ?",
+    ).bind(run.id).all<{ google_user_id: string; name: string; email: string | null }>();
+
+    const porCorreo = email
+      ? roster.results.filter((row) => normalizeStudentEmail(row.email) === email)
+      : [];
+    if (porCorreo.length === 1) {
+      classroomIdentity = { googleUserId: porCorreo[0].google_user_id, email };
+    } else {
+      // Sin correo utilizable se cae al nombre, que solo vale si es unico en el
+      // curso: dos alumnos homonimos no se desempatan y quedan sin vincular.
+      const porNombre = uniqueGoogleUsersByName(roster.results).get(normalizeStudentName(displayName));
+      if (porNombre) classroomIdentity = { googleUserId: porNombre, email };
     }
-    classroomIdentity = { googleUserId: expected.results[0].google_user_id, email: normalizeStudentEmail(expected.results[0].email)! };
-    const claimed = await db.prepare(
-      "SELECT id, user_id FROM participants WHERE run_id = ? AND classroom_google_user_id = ?",
-    ).bind(run.id, classroomIdentity.googleUserId).first<{ id: string; user_id: string | null }>();
-    if (claimed && (!actor || claimed.user_id !== actor.id)) {
-      throw new Error("Ese alumno ya ingresó a esta evaluación. Debe continuar desde el mismo dispositivo.");
+
+    if (classroomIdentity) {
+      const claimed = await db.prepare(
+        "SELECT id, user_id FROM participants WHERE run_id = ? AND classroom_google_user_id = ?",
+      ).bind(run.id, classroomIdentity.googleUserId).first<{ id: string; user_id: string | null }>();
+      if (claimed && (!actor || claimed.user_id !== actor.id)) {
+        throw new Error("Ese alumno ya ingresó a esta evaluación. Debe continuar desde el mismo dispositivo.");
+      }
     }
   }
 

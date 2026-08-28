@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, KeyRound, Mail, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
 const CODE_ALPHABET = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
@@ -93,7 +93,7 @@ export function JoinRun({ step = "code", code: initialCode = "", runTitle, defau
             />
           </Field>
           {requiresClassroomEmail ? <Field data-invalid={Boolean(error) || undefined}>
-            <FieldLabel htmlFor="student-email">Correo de Google Classroom</FieldLabel>
+            <FieldLabel htmlFor="student-email">Correo de Google Classroom <span className="font-normal text-muted">· opcional</span></FieldLabel>
             <Input
               id="student-email"
               type="email"
@@ -103,8 +103,9 @@ export function JoinRun({ step = "code", code: initialCode = "", runTitle, defau
               autoComplete="email"
               inputMode="email"
               aria-invalid={Boolean(error)}
-              aria-describedby={error ? "join-error" : undefined}
+              aria-describedby="join-email-help"
             />
+            <FieldDescription id="join-email-help">Ayuda a que tu nota vuelva sola a Classroom. Si no lo sabés o no coincide, podés entrar igual: tu docente la carga a mano.</FieldDescription>
           </Field> : null}
           {error ? <FieldError id="join-error">{error}</FieldError> : null}
         </div>
