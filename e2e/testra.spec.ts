@@ -11,6 +11,11 @@ function examPayload(title: string, status: "draft" | "ready" = "ready", questio
     timeLimitS: 1800,
     shuffleQuestions: true,
     shuffleOptions: true,
+    // La supervision estricta quedo activada por defecto, y un navegador sin
+    // gesto del usuario no puede entrar en pantalla completa: sin esto la
+    // evaluacion se queda en el cartel "Entra en pantalla completa". Las tomas
+    // que si prueban ese camino lo piden explicitamente.
+    requireFullscreen: false,
     status,
     updatedAt: new Date().toISOString(),
     questions: Array.from({ length: questionCount }, (_, index) => ({
@@ -493,4 +498,67 @@ test("historical analytics expose current and aggregate metrics without an inven
   expect(body.current.analytics.summary.passPercentage).toBeNull();
   expect(body.current.analytics.questions.length).toBeGreaterThan(0);
   expect(body.perRun.length).toBeGreaterThan(1);
+});
+
+/**
+ * Dos cosas que estaban rotas para todos, y que en Mac se notaban mas porque
+ * alla el gesto habitual es cambiar de aplicacion:
+ *
+ * 1. El alumno que esperaba en la sala cuando el docente abrio la toma se
+ *    quedaba SIN supervision hasta recargar la pagina.
+ * 2. Moverse entre los controles de la evaluacion inventaba avisos de 0
+ *    segundos, y de paso pisaba la ausencia real.
+ *
+ * El test tambien reproduce la firma de eventos de macOS: al hacer Cmd+Tab o
+ * cambiar de escritorio la ventana pierde el foco y NO llega ninguna senal de
+ * visibilidad, que es lo que Windows si manda. No corre sobre macOS —no hay una
+ * Mac en el entorno—, asi que verifica que la cadena entera (oyentes, maquina
+ * de estados, POST, actor y base) haga lo correcto cuando el navegador entrega
+ * exactamente esos eventos y nada mas.
+ */
+test("la supervision se enciende sin recargar y registra la salida de ventana con su duracion", async ({ page, isMobile }) => {
+  test.skip(Boolean(isMobile), "El gesto de cambiar de aplicacion no existe en un telefono");
+  const examCreation = await page.request.post("/api/exams", { data: examPayload(`Foco macOS ${Date.now()}`) });
+  const exam = await examCreation.json() as { id: string };
+  const runCreation = await page.request.post("/api/runs", { data: { examId: exam.id } });
+  const run = await runCreation.json() as { id: string; code: string };
+  const studentName = `Foco ${Date.now()}`;
+  await page.goto(`/rendir/${run.code}`);
+  await page.locator("[data-join-ready=true]").waitFor();
+  await page.getByLabel("Tu nombre y apellido").fill(studentName);
+  await page.getByRole("button", { name: "Entrar a la sala" }).click();
+  await expect(page.getByText(new RegExp(`Sala de espera · ${run.code}`))).toBeVisible();
+
+  // El alumno ya estaba esperando cuando arranca la toma: el caso que quedaba
+  // sin supervisar.
+  await page.request.post(`/api/runs/${run.id}/control`, { data: { action: "start" } });
+  await page.locator("[data-student-ready=true]").waitFor();
+  await expect(page.locator("[data-monitoring-active=true]")).toBeAttached();
+
+  const salidas = async () => {
+    const response = await page.request.get(`/api/runs/${run.id}/state`);
+    const body = await response.json() as { incidents: Array<{ type: string; duration_ms: number }> };
+    return body.incidents.filter((item) => item.type === "ventana-sin-foco" || item.type === "cambio-de-pestana");
+  };
+
+  // Responder mueve el foco entre controles. Eso no es una ausencia.
+  await page.evaluate(() => {
+    const campo = document.querySelector("main input, main textarea, main button");
+    if (!campo) throw new Error("la evaluacion no tiene ningun control");
+    campo.dispatchEvent(new FocusEvent("blur", { bubbles: false }));
+    campo.dispatchEvent(new FocusEvent("focus", { bubbles: false }));
+  });
+  await page.waitForTimeout(600);
+  expect(await salidas()).toEqual([]);
+
+  // Cmd+Tab: solo `blur` de ventana, sin `visibilitychange`.
+  await page.evaluate(() => window.dispatchEvent(new FocusEvent("blur", { bubbles: false })));
+  await page.waitForTimeout(1_500);
+  await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus", { bubbles: false })));
+
+  await expect.poll(async () => (await salidas()).length, { timeout: 10_000 }).toBe(1);
+  const [registrado] = await salidas();
+  expect(registrado.type).toBe("ventana-sin-foco");
+  // La duracion tiene que ser la real, no el 0 que se veia en Windows.
+  expect(registrado.duration_ms).toBeGreaterThanOrEqual(1_000);
 });

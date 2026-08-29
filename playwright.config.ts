@@ -14,6 +14,15 @@ export default defineConfig({
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     {
+      // Safari usa WebKit, y en las Mac es el otro navegador que se usa para
+      // rendir. Corre sobre este entorno, asi que valida el motor pero no el
+      // sistema: el manejo de ventanas de macOS (Cmd+Tab, escritorios, la
+      // ventana ocluida) no se puede reproducir desde aca.
+      name: "webkit-supervision",
+      grep: /supervision se enciende/,
+      use: { ...devices["Desktop Safari"] },
+    },
+    {
       name: "mobile",
       use: {
         ...devices["Desktop Chrome"],

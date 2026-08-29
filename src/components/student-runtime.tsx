@@ -204,10 +204,19 @@ export function StudentRuntime({
         keepalive: true,
       });
       if (!response.ok) return;
-      const body = await response.json() as { serverNow: number; endsAt: number | null; status: "lobby" | "running" | "ended" };
+      const body = await response.json() as { serverNow: number; endsAt: number | null; status: "lobby" | "running" | "ended"; participantStatus?: string };
       clockOffset.current = body.serverNow - Date.now();
       setEndsAt(body.endsAt);
       setRunStatus(body.status);
+      // El servidor es el que sabe si el alumno ya esta rindiendo: al abrir la
+      // sala marca a los participantes como `active`. El cliente descartaba ese
+      // dato y solo se enteraba al recargar la pagina, asi que para quien habia
+      // entrado antes de que empezara la toma `attemptActive` se quedaba en
+      // false. Como la supervision exige `runStatus === "running" &&
+      // attemptActive`, quedaba apagada entera: ni cambio de pestana, ni
+      // ventana sin foco, ni portapapeles. Se espeja con el mismo criterio con
+      // el que se calcula el estado inicial.
+      if (body.participantStatus === "active" || body.participantStatus === "disconnected") setAttemptActive(true);
       if (body.status === "ended" && attemptActive) void finish("timer");
     };
     void sendHeartbeat();
@@ -372,7 +381,7 @@ export function StudentRuntime({
   }
 
   return (
-    <div className="flex min-h-[calc(100dvh-3.75rem)] flex-col" data-student-ready={ready} inert={!ready}>
+    <div className="flex min-h-[calc(100dvh-3.75rem)] flex-col" data-student-ready={ready} data-monitoring-active={runStatus === "running" && attemptActive && !submitted} inert={!ready}>
       <div className="border-b bg-paper"><div className="mx-auto flex max-w-[1020px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6"><div className="min-w-0"><p className="text-xs text-muted">{studentName}</p><h1 className="truncate font-semibold text-ink">{title}</h1></div><div className="flex items-center gap-4"><span className={`inline-flex items-center gap-2 text-sm ${saveError ? "text-alert" : "text-ink-2"}`} aria-live="polite"><StatusBadge state={saveState} /> {saveError || (saveState === "loading" ? "Guardando…" : "Guardado")}</span><div className="flex items-center gap-2 rounded-md border bg-inset px-3 py-1.5"><Clock3 className="size-4 text-muted" aria-hidden="true" /><span role="timer" aria-live="off" aria-label={`${remaining} segundos restantes`} className="mono-number font-semibold text-ink">{formatTime(remaining)}</span></div></div></div></div>
 
       <main id="contenido" className="mx-auto flex w-full max-w-[1020px] flex-1 flex-col gap-5 px-4 py-6 lg:px-6">
