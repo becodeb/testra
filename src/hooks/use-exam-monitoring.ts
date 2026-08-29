@@ -102,6 +102,24 @@ export function nextPresence(current: Absence | null, signal: PresenceSignal, at
 }
 
 /**
+ * `focus` y `blur` no burbujean, pero si atraviesan la fase de captura. Como los
+ * oyentes estan puestos sobre `window` con `capture: true` —para que un script
+ * pegado en la consola no pueda taparlos—, tambien llegan los de cada campo de
+ * la evaluacion: pasar de una pregunta a otra dispara el `blur` del control que
+ * se deja y el `focus` del que se toma.
+ *
+ * Sin este filtro ese gesto abria y cerraba una ausencia en el mismo instante
+ * (el incidente de 0 segundos) y, peor, pisaba la ausencia real: la salida de
+ * verdad quedaba cerrada por el primer clic al volver. Ademas mantenia vivo el
+ * `lastPresenceAt`, que es justo lo que apaga la deteccion por reloj.
+ *
+ * Solo la ventana entera cuenta como presencia.
+ */
+export function isWindowPresenceEvent(event: { target: unknown }, win: unknown): boolean {
+  return event.target === win;
+}
+
+/**
  * Detecta que alguien anuló la supervision desde la consola.
  *
  * La evaluacion corre en una pestana comun: cualquiera puede abrir las
@@ -211,8 +229,8 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
       }
       applyPresence("visible");
     };
-    const onBlur = () => applyPresence("blur");
-    const onFocus = () => applyPresence("focus");
+    const onBlur = (event: Event) => { if (isWindowPresenceEvent(event, window)) applyPresence("blur"); };
+    const onFocus = (event: Event) => { if (isWindowPresenceEvent(event, window)) applyPresence("focus"); };
     const onKeyDown = (event: KeyboardEvent) => {
       if (!watching()) return;
       if (event.key === "F12") {
@@ -296,7 +314,7 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
       emit({ type: "cambio-de-pestana", at: at - drift, durationMs: drift, meta: { deteccion: "reloj" } });
     }, CLOCK_MS);
 
-    const notePresence = () => { lastPresenceAt = Date.now(); };
+    const notePresence = (event: Event) => { if (isWindowPresenceEvent(event, window)) lastPresenceAt = Date.now(); };
     window.addEventListener("focus", notePresence, captura);
     window.addEventListener("blur", notePresence, captura);
 

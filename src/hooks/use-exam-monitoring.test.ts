@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clipboardCharacterCount, clockGap, isDuplicateClipboardIncident, nextPresence, supervisionTampering, type Absence, type PresenceSignal } from "@/hooks/use-exam-monitoring";
+import { clipboardCharacterCount, clockGap, isDuplicateClipboardIncident, isWindowPresenceEvent, nextPresence, supervisionTampering, type Absence, type PresenceSignal } from "@/hooks/use-exam-monitoring";
 
 /** Reproduce una secuencia de eventos y devuelve las ausencias cerradas. */
 function replay(signals: ReadonlyArray<[PresenceSignal, number]>) {
@@ -104,5 +104,65 @@ describe("clockGap", () => {
 
   it("descubre la pestana tapada aunque ningun evento haya avisado", () => {
     expect(clockGap(30_000, 2_000)).toBe(28_000);
+  });
+});
+
+describe("isWindowPresenceEvent", () => {
+  const win = { name: "window" };
+
+  it("acepta el foco de la ventana entera, que es la unica presencia real", () => {
+    expect(isWindowPresenceEvent({ target: win }, win)).toBe(true);
+  });
+
+  it("descarta el foco de un campo de la evaluacion", () => {
+    // Los oyentes estan en fase de captura sobre `window`, asi que los eventos
+    // de cada input llegan igual aunque `focus` y `blur` no burbujeen.
+    expect(isWindowPresenceEvent({ target: { tag: "TEXTAREA" } }, win)).toBe(false);
+  });
+});
+
+describe("presencia con el filtro de ventana puesto", () => {
+  /** Replica el cableado real: capture sobre `window` + filtro + nextPresence. */
+  function replayWithTargets(events: ReadonlyArray<[PresenceSignal, number, unknown]>, win: unknown) {
+    let absence: Absence | null = null;
+    const emitted: Array<{ durationMs: number; sawHidden: boolean }> = [];
+    for (const [signal, at, target] of events) {
+      if ((signal === "blur" || signal === "focus") && !isWindowPresenceEvent({ target }, win)) continue;
+      const step = nextPresence(absence, signal, at);
+      absence = step.absence;
+      if (step.returned) emitted.push({ durationMs: at - step.returned.startedAt, sawHidden: step.returned.sawHidden });
+    }
+    return emitted;
+  }
+
+  const win = { name: "window" };
+  const campo = { tag: "TEXTAREA" };
+  const otroCampo = { tag: "INPUT" };
+
+  it("pasar de una pregunta a otra ya no inventa un incidente de 0 segundos", () => {
+    // Era el sintoma que se veia en Windows: cada clic entre campos abria y
+    // cerraba una ausencia en el mismo gesto.
+    expect(replayWithTargets([
+      ["blur", 1_000, campo],
+      ["focus", 1_010, otroCampo],
+    ], win)).toEqual([]);
+  });
+
+  it("escribir mientras se esta afuera no acorta la ausencia real", () => {
+    // macOS: Cmd+Tab deja la ventana sin foco; al volver el navegador le
+    // devuelve el foco al campo, y ese evento no debe cerrar nada por su cuenta.
+    expect(replayWithTargets([
+      ["blur", 0, win],
+      ["focus", 5_000, campo],
+      ["focus", 5_001, win],
+    ], win)).toEqual([{ durationMs: 5_001, sawHidden: false }]);
+  });
+
+  it("el cambio de pestana sigue registrandose con su duracion", () => {
+    expect(replayWithTargets([
+      ["blur", 0, win],
+      ["hidden", 5, win],
+      ["visible", 8_000, win],
+    ], win)).toEqual([{ durationMs: 8_000, sawHidden: true }]);
   });
 });
