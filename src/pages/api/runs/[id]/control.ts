@@ -12,6 +12,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("adjust-time"), deltaS: z.number().int().min(-3600).max(3600) }),
   z.object({ action: z.literal("participant-time"), participantId: z.uuid(), extraTimeS: z.number().int().min(0).max(86400) }),
   z.object({ action: z.literal("reopen"), participantId: z.uuid(), extraTimeS: z.number().int().min(0).max(86400).default(0) }),
+  z.object({ action: z.literal("assign-exam"), participantId: z.uuid(), examId: z.string().min(1).nullable() }),
 ]);
 
 export const POST: APIRoute = async ({ locals, request, params }) => {

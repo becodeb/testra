@@ -8,7 +8,8 @@ import type { Actor } from "@/server/actors";
 import { db, type PgStatement } from "@/server/db/client";
 import { dispatchRunCommand } from "@/server/exam-run-actor";
 import { normalizeStudentName, uniqueGoogleUsersByName } from "@/server/classroom";
-import { personalizeQuestions } from "@/domain/pool";
+export { questionsForParticipant, type ParticipantPaper } from "@/server/participant-paper";
+import { questionsForParticipant } from "@/server/participant-paper";
 import { gradeExam, type AnswerValue } from "@/server/grading";
 import { createRunCode } from "@/server/run-code";
 import { hashGuestToken, readGuestSession } from "@/server/student-access";
@@ -352,14 +353,20 @@ export async function saveExam(actor: Actor, input: unknown): Promise<ExamDraft>
   return { ...draft, updatedAt: new Date(now).toISOString() };
 }
 
-export async function duplicateExam(examId: string, actor: Actor): Promise<ExamDraft | null> {
+/**
+ * `adapted` deja una versión paralela: la misma evaluación para editar y
+ * simplificar, atada a la original. Ese lazo es el que después habilita
+ * asignarla a un alumno dentro de la toma del original, y el que impide
+ * asignarle una evaluación cualquiera.
+ */
+export async function duplicateExam(examId: string, actor: Actor, adapted = false): Promise<ExamDraft | null> {
   const source = await getExam(examId, actor);
   if (!source) return null;
   const copyId = crypto.randomUUID();
-  return saveExam(actor, {
+  const copy = await saveExam(actor, {
     ...source,
     id: copyId,
-    title: `${source.title} — copia`,
+    title: adapted ? `${source.title} — adaptada` : `${source.title} — copia`,
     status: "draft",
     updatedAt: new Date().toISOString(),
     questions: source.questions.map((question, position) => ({
@@ -368,6 +375,29 @@ export async function duplicateExam(examId: string, actor: Actor): Promise<ExamD
       position,
     })),
   });
+  if (!copy || !adapted) return copy;
+  // Adaptar una adaptada cuelga de la misma original, así todas las versiones
+  // de una evaluación quedan al mismo nivel y no en una cadena.
+  const raiz = await db.prepare("SELECT COALESCE(adapted_from_id, id) AS root FROM exams WHERE id = ?")
+    .bind(examId).first<{ root: string }>();
+  await db.prepare("UPDATE exams SET adapted_from_id = ? WHERE id = ?").bind(raiz?.root ?? examId, copyId).run();
+  return copy;
+}
+
+/** Versiones adaptadas de una evaluación, para ofrecerlas al asignar. */
+export async function listAdaptedExams(examId: string, actor: Actor) {
+  const capabilities = await getExamCapabilities(examId, actor);
+  if (!capabilities.view) return [];
+  const result = await db.prepare(
+    `SELECT e.id, e.title, e.status, (SELECT COUNT(*) FROM questions q WHERE q.exam_id = e.id) AS question_count
+     FROM exams e WHERE e.adapted_from_id = ? ORDER BY e.updated_at DESC`,
+  ).bind(examId).all<{ id: string; title: string; status: string; question_count: number }>();
+  return result.results.map((row) => ({
+    id: String(row.id),
+    title: String(row.title),
+    status: String(row.status),
+    questionCount: Number(row.question_count),
+  }));
 }
 
 export async function deleteExam(examId: string, actor: Actor): Promise<boolean> {
@@ -662,51 +692,13 @@ export async function getStudentSession(access: StudentAccess, code: string) {
   const answerResult = await db.prepare(
     "SELECT question_id, value FROM answers WHERE participant_id = ?",
   ).bind(participant.id).all<{ question_id: string; value: string }>();
-  const fullQuestions = questionsForParticipant(run, participant.id);
+  const fullQuestions = questionsForParticipant(run, participant);
   return {
     run,
     participant,
     questions: toStudentQuestions(fullQuestions),
     answers: Object.fromEntries(answerResult.results.map((row) => [row.question_id, JSON.parse(row.value)])),
   };
-}
-
-/**
- * Preguntas que efectivamente vio un alumno. Con pozo de preguntas cada alumno
- * recibe un subconjunto distinto, así que corregir, calificar y mostrar respuestas
- * tiene que partir de acá y no del snapshot completo de la toma. Es determinístico:
- * se deriva de (runId, participantId), sin guardar nada extra.
- */
-export function questionsForParticipant(
-  run: {
-    id: string;
-    questions_snapshot: string;
-    shuffle_questions: number;
-    shuffle_options: number;
-    questions_to_serve: number | null;
-    long_to_serve?: number;
-    section_quotas?: string | null;
-  },
-  participantId: string,
-): FullQuestion[] {
-  let sectionQuotas: Record<string, number> = {};
-  if (run.section_quotas) {
-    try {
-      sectionQuotas = JSON.parse(run.section_quotas) as Record<string, number>;
-    } catch {
-      // Una toma vieja o un valor corrupto no puede dejar al alumno sin examen:
-      // se cae al sorteo plano de siempre.
-    }
-  }
-  return personalizeQuestions(
-    JSON.parse(run.questions_snapshot) as FullQuestion[],
-    `${run.id}:${participantId}`,
-    Boolean(run.shuffle_questions),
-    Boolean(run.shuffle_options),
-    run.questions_to_serve,
-    run.long_to_serve ?? 2,
-    sectionQuotas,
-  );
 }
 
 export async function participantOwnedBy(participantId: string, access: StudentAccess) {
@@ -795,7 +787,7 @@ export async function saveAnswer(access: StudentAccess, participantId: string, q
   }
   const questions = questionsForParticipant(
     { ...participant, id: participant.run_id },
-    participant.id,
+    participant,
   );
   const question = questions.find((candidate) => candidate.id === questionId);
   if (!question) throw new Error("La pregunta no pertenece a esta sesión");
@@ -822,7 +814,7 @@ export async function submitParticipant(access: StudentAccess, participantId: st
   if (participant.status !== "active" && participant.status !== "disconnected") throw new Error("Este intento no está en curso");
   const questions = questionsForParticipant(
     { ...participant, id: participant.run_id },
-    participant.id,
+    participant,
   );
   const answerResult = await db.prepare(
     "SELECT question_id, value FROM answers WHERE participant_id = ?",
@@ -871,6 +863,7 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
     db.prepare(
       `SELECT p.id, p.status, p.joined_at, p.submitted_at, p.last_seen, p.late,
        p.extra_time_s, p.deadline_at, p.attempt_started_at, p.reopened_count,
+       p.assigned_exam_id, p.assigned_questions_snapshot,
        p.display_name AS name, COALESCE(p.classroom_email, u.email) AS email,
        (SELECT COUNT(*) FROM answers a WHERE a.participant_id = p.id) AS answered,
        (SELECT SUM(COALESCE(g.points_awarded, 0)) FROM grades g WHERE g.participant_id = p.id) AS score,
@@ -901,11 +894,14 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
   // único comparable entre alumnos, así que se calcula acá contra el máximo real
   // de cada uno en vez de contra un total único de la toma.
   const participants = participantResult.results.map((participant) => {
-    const assignedQuestions = questionsForParticipant(run, String(participant.id));
+    // La hoja congelada se usa para contar, pero no viaja a la pantalla: pesa y
+    // no hace falta. Alcanza con saber qué versión tiene asignada.
+    const { assigned_questions_snapshot: hoja, ...sinHoja } = participant as Record<string, unknown>;
+    const assignedQuestions = questionsForParticipant(run, { id: String(participant.id), assigned_questions_snapshot: hoja as string | null });
     const maxPoints = assignedQuestions.reduce((sum, question) => sum + question.points, 0);
     const score = Number(participant.score ?? 0);
     return {
-      ...participant,
+      ...sinHoja,
       assigned_questions: assignedQuestions.length,
       max_points: maxPoints,
       percent: maxPoints > 0 ? Math.round((score / maxPoints) * 100) : 0,
@@ -917,6 +913,8 @@ export async function getMonitorSnapshot(runId: string, actor: Actor) {
     questionCount,
     totalPoints,
     poolSize: allQuestions.length,
+    // Versiones adaptadas disponibles para asignar dentro de esta toma.
+    adaptedExams: run.exam_id ? await listAdaptedExams(run.exam_id, actor) : [],
     participants,
     incidents: incidentResult.results.map((row) => ({
       ...row,
@@ -960,7 +958,7 @@ export async function getParticipantDetail(participantId: string, actor: Actor) 
   ]);
   const questions = questionsForParticipant(
     { ...participant, id: participant.run_id },
-    participant.id,
+    participant,
   );
   const answersByQuestion = new Map(answerResult.results.map((answer) => [answer.question_id, answer]));
   const gradesByQuestion = new Map(gradeResult.results.map((grade) => [grade.question_id, grade]));
@@ -1011,7 +1009,8 @@ export async function getRunAnalysisData(runId: string, actor: Actor) {
 export async function listPendingCorrections(actor: Actor, runId?: string) {
   const result = await db.prepare(
     `SELECT p.id AS participant_id, p.run_id, p.submitted_at, p.display_name AS name, r.title,
-      r.questions_snapshot, g.question_id, a.value, g.points_awarded, g.feedback, g.rubric_scores,
+      COALESCE(p.assigned_questions_snapshot, r.questions_snapshot) AS questions_snapshot,
+      g.question_id, a.value, g.points_awarded, g.feedback, g.rubric_scores,
       g.grading_status, g.teacher_note, g.ai_suggested_score, g.ai_confidence, g.ai_feedback, g.ai_teacher_note, g.ai_criteria, g.ai_error
      FROM participants p
      JOIN runs r ON r.id = p.run_id
@@ -1084,7 +1083,8 @@ export async function saveManualGrade(
   const participantRun = await db.prepare("SELECT run_id FROM participants WHERE id = ?").bind(input.participantId).first<{ run_id: string }>();
   if (!participantRun || !(await getRunCapabilities(participantRun.run_id, actor)).correct) return false;
   const row = await db.prepare(
-    `SELECT r.questions_snapshot FROM participants p JOIN runs r ON r.id = p.run_id
+    `SELECT COALESCE(p.assigned_questions_snapshot, r.questions_snapshot) AS questions_snapshot
+     FROM participants p JOIN runs r ON r.id = p.run_id
      WHERE p.id = ?`,
   ).bind(input.participantId).first<{ questions_snapshot: string }>();
   if (!row) return false;
@@ -1196,7 +1196,7 @@ export async function getExamAnalytics(runId: string, actor: Actor) {
       startedAt: run.started_at,
       joinedAt: participant.joined_at,
       submittedAt: participant.submitted_at,
-      assigned: questionsForParticipant(run, participant.id),
+      assigned: questionsForParticipant(run, participant),
       answers: new Map((answersByParticipant.get(participant.id) ?? []).map((answer) => [String(answer.question_id), JSON.parse(String(answer.value))])),
       grades: new Map((gradesByParticipant.get(participant.id) ?? []).map((grade) => [String(grade.question_id), { auto: grade.auto === null ? null : Boolean(grade.auto), points: grade.points_awarded === null ? null : Number(grade.points_awarded) }])),
       incidentTypes: (incidentsByParticipant.get(participant.id) ?? []).map((incident) => String(incident.type)),
@@ -1371,17 +1371,6 @@ function safeJsonObject(raw: string | null | undefined): Record<string, number> 
   catch { return {}; }
 }
 
-export interface PlatformExam {
-  id: string;
-  title: string;
-  subject: string;
-  status: "draft" | "ready";
-  updated_at: number;
-  teacher_name: string | null;
-  teacher_email: string | null;
-  questions: number;
-  runs: number;
-}
 
 export async function getPlatformOverview() {
   // Los conteos van como subconsultas y no como JOIN + COUNT DISTINCT: un JOIN
@@ -1441,42 +1430,20 @@ export async function getPlatformOverview() {
     org_name: string | null; teacher_name: string | null; participants: number;
   }>();
 
-  const platformExams = await db.prepare(
-    `SELECT e.id, e.title, e.subject, e.status, e.updated_at,
-       u.name AS teacher_name, u.email AS teacher_email,
-       (SELECT COUNT(*) FROM questions q WHERE q.exam_id = e.id) AS questions,
-       (SELECT COUNT(*) FROM runs r WHERE r.exam_id = e.id) AS runs
-     FROM exams e LEFT JOIN users u ON u.id = e.author_id
-     ORDER BY e.updated_at DESC`,
-  ).all<PlatformExam>();
-
+  // La consola NO lista las evaluaciones de los docentes ni deja abrirlas. Es
+  // una herramienta de operación —cuántas hay, qué salas están abiertas, cerrar
+  // una que quedó colgada—, no una ventana al material de cada uno. El total
+  // agregado alcanza para operar y no expone el trabajo de nadie.
   return {
     organizations: organizations.results,
     liveRuns: liveRuns.results,
     recentRuns: recentRuns.results,
-    platformExams: platformExams.results,
     totals: totals ?? {
       organizations: 0, teachers: 0, students: 0, exams: 0,
       runs: 0, participants: 0, answers: 0, live_runs: 0,
     },
     serverNow: Date.now(),
   };
-}
-
-export async function getPlatformExamDetail(examId: string) {
-  const exam = await db.prepare(
-    `SELECT e.id, e.title, e.subject, e.instructions, e.status, e.updated_at,
-       u.name AS teacher_name, u.email AS teacher_email,
-       (SELECT COUNT(*) FROM questions q WHERE q.exam_id = e.id) AS questions
-     FROM exams e LEFT JOIN users u ON u.id = e.author_id WHERE e.id = ?`,
-  ).bind(examId).first<Record<string, string | number | null>>();
-  if (!exam) return null;
-  const runs = await db.prepare(
-    `SELECT id, code, status, created_at, started_at, ended_at,
-       (SELECT COUNT(*) FROM participants p WHERE p.run_id = runs.id) AS participants
-     FROM runs WHERE exam_id = ? ORDER BY created_at DESC`,
-  ).bind(examId).all<Record<string, string | number | null>>();
-  return { exam, runs: runs.results };
 }
 
 export type PlatformOverview = Awaited<ReturnType<typeof getPlatformOverview>>;

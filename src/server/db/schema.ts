@@ -142,6 +142,10 @@ export const exams = pgTable(
     title: text("title").notNull(),
     subject: text("subject").notNull(),
     instructions: text("instructions").notNull().default(""),
+    // Version paralela: apunta a la evaluacion de la que se adapto. Solo estas
+    // pueden asignarse a un alumno dentro de la toma del original, y es lo que
+    // impide inyectarle preguntas de cualquier otra evaluacion.
+    adaptedFromId: text("adapted_from_id"),
     timeLimitS: integer("time_limit_s").notNull(),
     deliveryMode: text("delivery_mode", { enum: ["sync", "async"] }).notNull().default("sync"),
     availableFrom: epochMs("available_from"),
@@ -281,6 +285,12 @@ export const participants = pgTable(
     userId: text("user_id").references(() => users.id),
     displayName: text("display_name").notNull(),
     guestTokenHash: text("guest_token_hash"),
+    // Adecuacion: la evaluacion adaptada que le asigno el docente, y su papel
+    // congelado en el momento de asignar. Se congela por el mismo motivo que la
+    // toma congela el original: editar la adaptada despues no le cambia el
+    // examen a quien ya lo tiene asignado.
+    assignedExamId: text("assigned_exam_id"),
+    assignedQuestionsSnapshot: text("assigned_questions_snapshot"),
     status: text("status", {
       enum: ["waiting", "active", "submitted", "disconnected", "expired"],
     })

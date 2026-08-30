@@ -20,7 +20,10 @@ const RESUME_KEY = Symbol.for("testra.gradingJobResumeAt");
 const resumeState = globalThis as typeof globalThis & { [RESUME_KEY]?: number };
 
 function eligibleSql(runId: string | null) {
-  return `SELECT g.id AS grade_id, g.question_id, a.value, r.questions_snapshot, r.ai_grading_mode
+  return `SELECT g.id AS grade_id, g.question_id, a.value, r.ai_grading_mode,
+    -- Quien rinde una version adaptada respondio SUS preguntas: buscarlas en
+    -- el examen de la toma no las encuentra y la correccion con IA se saltea.
+    COALESCE(p.assigned_questions_snapshot, r.questions_snapshot) AS questions_snapshot
     FROM grades g
     JOIN participants p ON p.id = g.participant_id
     JOIN runs r ON r.id = p.run_id
@@ -29,7 +32,10 @@ function eligibleSql(runId: string | null) {
       ${runId ? "AND r.id = ?" : ""}`;
 }
 
-const jobItemsSql = `SELECT g.id AS grade_id, g.question_id, a.value, r.questions_snapshot, r.ai_grading_mode
+const jobItemsSql = `SELECT g.id AS grade_id, g.question_id, a.value, r.ai_grading_mode,
+    -- Quien rinde una version adaptada respondio SUS preguntas: buscarlas en
+    -- el examen de la toma no las encuentra y la correccion con IA se saltea.
+    COALESCE(p.assigned_questions_snapshot, r.questions_snapshot) AS questions_snapshot
   FROM grading_job_items ji JOIN grades g ON g.id = ji.grade_id
   JOIN participants p ON p.id = g.participant_id JOIN runs r ON r.id = p.run_id
   LEFT JOIN answers a ON a.participant_id = p.id AND a.question_id = g.question_id

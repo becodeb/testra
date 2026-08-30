@@ -1,7 +1,7 @@
 import type { WebSocket } from "ws";
 
 import type { FullQuestion } from "@/domain/exam";
-import { personalizeQuestions } from "@/domain/pool";
+import { questionsForParticipant } from "@/server/participant-paper";
 import { shouldCompareConnectionValue } from "@/server/connection-signals";
 import { db, type PgStatement } from "@/server/db/client";
 import { gradeExam } from "@/server/grading";
@@ -263,6 +263,77 @@ export class ExamRunActor {
       this.write(this.socketsFor(participantId), { type: "attempt-started", endsAt: deadlineAt, serverNow: startedAt });
       this.broadcastToTeachers({ type: "participant-started", participantId, startedAt, deadlineAt });
       return Response.json({ participantId, startedAt, deadlineAt, serverNow: Date.now() });
+    }
+
+    if (path === "/assign-exam") {
+      const { participantId, examId, actorUserId } = body as { participantId: string; examId: string | null; actorUserId: string };
+      const participant = this.run.participants[participantId];
+      if (!participant) return Response.json({ error: "Participante inexistente" }, { status: 404 });
+      if (participant.status === "submitted") {
+        return Response.json({ error: "Ya entregó: no se le puede cambiar la versión" }, { status: 409 });
+      }
+      // Cambiar el examen después de que empezó a responder deja las respuestas
+      // colgando de preguntas que ya no están en su hoja. Se rechaza en vez de
+      // hacerle perder trabajo en silencio.
+      const respondidas = await db.prepare("SELECT COUNT(*) AS total FROM answers WHERE participant_id = ?")
+        .bind(participantId).first<{ total: number }>();
+      if (Number(respondidas?.total ?? 0) > 0) {
+        return Response.json({ error: "Ya empezó a responder: cambiarle la versión le borraría lo hecho" }, { status: 409 });
+      }
+
+      const at = Date.now();
+      if (!examId) {
+        await db.batch([
+          db.prepare("UPDATE participants SET assigned_exam_id = NULL, assigned_questions_snapshot = NULL WHERE id = ? AND run_id = ?")
+            .bind(participantId, this.run.runId),
+          eventStatement(participantId, "adapted-exam-cleared", actorUserId, at, {}),
+        ]);
+        this.write(this.socketsFor(participantId), { type: "exam-assigned" });
+        this.broadcastToTeachers({ type: "participant-exam-assigned", participantId, examId: null, at });
+        return Response.json({ participantId, examId: null });
+      }
+
+      // Solo una versión adaptada de la evaluación de esta toma. Sin este
+      // control, un docente podría meterle a un alumno las preguntas de
+      // cualquier otra evaluación.
+      const permitido = await db.prepare(
+        `SELECT e.id, e.title FROM exams e JOIN runs r ON r.id = ?
+         WHERE e.id = ? AND e.adapted_from_id IS NOT NULL AND e.adapted_from_id = r.exam_id`,
+      ).bind(this.run.runId, examId).first<{ id: string; title: string }>();
+      if (!permitido) return Response.json({ error: "Esa evaluación no es una versión adaptada de esta toma" }, { status: 400 });
+
+      const preguntas = await db.prepare(
+        `SELECT id, position, type, prompt, points, config, section, difficulty, assets
+         FROM questions WHERE exam_id = ? ORDER BY position`,
+      ).bind(examId).all<Record<string, unknown>>();
+      if (!preguntas.results.length) return Response.json({ error: "La versión adaptada no tiene preguntas" }, { status: 400 });
+
+      // Se congela igual que la toma congela el examen original: editar la
+      // adaptada más tarde no le cambia la hoja a quien ya la tiene asignada.
+      const snapshot = JSON.stringify(preguntas.results.map((row) => ({
+        id: String(row.id),
+        position: Number(row.position),
+        type: row.type,
+        prompt: String(row.prompt),
+        points: Number(row.points),
+        config: typeof row.config === "string" ? JSON.parse(row.config) : row.config,
+        section: row.section ?? "",
+        difficulty: row.difficulty ?? null,
+        assets: typeof row.assets === "string" ? JSON.parse(row.assets) : (row.assets ?? []),
+      })));
+
+      await db.batch([
+        db.prepare("UPDATE participants SET assigned_exam_id = ?, assigned_questions_snapshot = ? WHERE id = ? AND run_id = ?")
+          .bind(examId, snapshot, participantId, this.run.runId),
+        eventStatement(participantId, "adapted-exam-assigned", actorUserId, at, { examId, title: permitido.title }),
+      ]);
+      // La hoja del alumno viene armada desde el servidor al cargar la página,
+      // así que quien ya estaba esperando en la sala tiene la anterior en
+      // pantalla. Se le avisa para que la vuelva a pedir. Es seguro porque
+      // asignar exige que todavía no haya respondido nada.
+      this.write(this.socketsFor(participantId), { type: "exam-assigned" });
+      this.broadcastToTeachers({ type: "participant-exam-assigned", participantId, examId, at });
+      return Response.json({ participantId, examId, questionCount: preguntas.results.length });
     }
 
     if (path === "/participant-time") {
@@ -857,16 +928,14 @@ export class ExamRunActor {
     const answers = await db.prepare("SELECT question_id, value FROM answers WHERE participant_id = ?")
       .bind(participantId)
       .all<{ question_id: string; value: string }>();
-    let sectionQuotas: Record<string, number> = {};
-    try { sectionQuotas = JSON.parse(run.section_quotas) as Record<string, number>; } catch { /* compatibilidad con tomas viejas */ }
-    const assignedQuestions = personalizeQuestions(
-      JSON.parse(run.questions_snapshot) as FullQuestion[],
-      `${this.run.runId}:${participantId}`,
-      Boolean(run.shuffle_questions),
-      Boolean(run.shuffle_options),
-      run.questions_to_serve,
-      run.long_to_serve,
-      sectionQuotas,
+    // Por el resolver, no a mano: es lo que hace que quien tiene una version
+    // adaptada asignada se corrija contra SU examen y no contra el del resto.
+    const asignado = await db.prepare("SELECT assigned_questions_snapshot FROM participants WHERE id = ?")
+      .bind(participantId)
+      .first<{ assigned_questions_snapshot: string | null }>();
+    const assignedQuestions = questionsForParticipant(
+      { ...run, id: this.run.runId },
+      { id: participantId, assigned_questions_snapshot: asignado?.assigned_questions_snapshot ?? null },
     );
     const result = gradeExam(
       assignedQuestions,

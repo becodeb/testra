@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { RichContent } from "@/components/rich-content";
+import { ReadingSettingsPanel, ReadingSettingsToggle, readingStyle, useReadingSettings } from "@/components/reading-settings";
 
 export type StudentAnswerValue = string | boolean | string[];
 
@@ -89,6 +90,8 @@ export function StudentRuntime({
   violationAction = "warn_and_record",
 }: StudentRuntimeProps) {
   const [ready, setReady] = useState(false);
+  const [lectura, setLectura] = useReadingSettings();
+  const [lecturaAbierta, setLecturaAbierta] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [reviewing, setReviewing] = useState(false);
   const [answers, setAnswers] = useState<Record<string, StudentAnswerValue>>(initialAnswers);
@@ -264,6 +267,9 @@ export function StudentRuntime({
           setEndsAt(payload.run?.endsAt ?? null);
         }
         if (payload.type === "attempt-started") setAttemptActive(true);
+        // El docente le cambió la versión de la evaluación. Las preguntas se
+        // arman en el servidor al cargar, así que hay que volver a pedirlas.
+        if (payload.type === "exam-assigned") window.location.reload();
         if (payload.type === "run-ended" && attemptActive) void finish("timer");
       });
       socket.addEventListener("close", () => {
@@ -382,9 +388,15 @@ export function StudentRuntime({
 
   return (
     <div className="flex min-h-[calc(100dvh-3.75rem)] flex-col" data-student-ready={ready} data-monitoring-active={runStatus === "running" && attemptActive && !submitted} inert={!ready}>
-      <div className="border-b bg-paper"><div className="mx-auto flex max-w-[1020px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6"><div className="min-w-0"><p className="text-xs text-muted">{studentName}</p><h1 className="truncate font-semibold text-ink">{title}</h1></div><div className="flex items-center gap-4"><span className={`inline-flex items-center gap-2 text-sm ${saveError ? "text-alert" : "text-ink-2"}`} aria-live="polite"><StatusBadge state={saveState} /> {saveError || (saveState === "loading" ? "Guardando…" : "Guardado")}</span><div className="flex items-center gap-2 rounded-md border bg-inset px-3 py-1.5"><Clock3 className="size-4 text-muted" aria-hidden="true" /><span role="timer" aria-live="off" aria-label={`${remaining} segundos restantes`} className="mono-number font-semibold text-ink">{formatTime(remaining)}</span></div></div></div></div>
+      <div className="border-b bg-paper"><div className="mx-auto max-w-[1020px] px-4 py-3 lg:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><p className="text-xs text-muted">{studentName}</p><h1 className="truncate font-semibold text-ink">{title}</h1></div><div className="flex items-center gap-3"><span className={`inline-flex items-center gap-2 text-sm ${saveError ? "text-alert" : "text-ink-2"}`} aria-live="polite"><StatusBadge state={saveState} /> {saveError || (saveState === "loading" ? "Guardando…" : "Guardado")}</span><div className="flex items-center gap-2 rounded-md border bg-inset px-3 py-1.5"><Clock3 className="size-4 text-muted" aria-hidden="true" /><span role="timer" aria-live="off" aria-label={`${remaining} segundos restantes`} className="mono-number font-semibold text-ink">{formatTime(remaining)}</span></div><ReadingSettingsToggle settings={lectura} open={lecturaAbierta} onToggle={() => setLecturaAbierta((valor) => !valor)} /></div></div><ReadingSettingsPanel settings={lectura} open={lecturaAbierta} onChange={setLectura} /></div></div>
 
-      <main id="contenido" className="mx-auto flex w-full max-w-[1020px] flex-1 flex-col gap-5 px-4 py-6 lg:px-6">
+      <main
+        id="contenido"
+        className="mx-auto flex w-full max-w-[1020px] flex-1 flex-col gap-5 px-4 py-6 lg:px-6"
+        data-lectura
+        data-lectura-fondo={lectura.fondo !== "papel" || undefined}
+        style={readingStyle(lectura)}
+      >
         {instructions ? <p className="rounded-md border bg-inset px-4 py-3 text-sm leading-relaxed text-ink-2"><strong>Indicaciones:</strong> {instructions}</p> : null}
         {reviewing ? (
           <section className="rounded-xl border bg-paper p-5 shadow-card md:p-8" aria-labelledby="review-title">

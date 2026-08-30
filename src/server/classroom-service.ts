@@ -94,11 +94,11 @@ export async function classroomGradePreview(actor: Actor, runId: string) {
     listCourseworkSubmissions(token, run.classroom_course_id, run.classroom_coursework_id),
     getCoursework(token, run.classroom_course_id, run.classroom_coursework_id),
     db.prepare(
-      `SELECT p.id AS participant_id, p.display_name AS name, COALESCE(p.classroom_email, u.email) AS email,
+      `SELECT p.id AS participant_id, p.display_name AS name, p.assigned_questions_snapshot, COALESCE(p.classroom_email, u.email) AS email,
         COALESCE(p.classroom_google_user_id, (SELECT a.account_id FROM accounts a WHERE a.user_id = u.id AND a.provider_id = 'google' ORDER BY a.updated_at DESC LIMIT 1)) AS google_user_id
        FROM participants p LEFT JOIN users u ON u.id = p.user_id
        WHERE p.run_id = ? AND p.status = 'submitted'`,
-    ).bind(runId).all<{ participant_id: string; name: string; email: string | null; google_user_id: string | null }>(),
+    ).bind(runId).all<{ participant_id: string; name: string; email: string | null; google_user_id: string | null; assigned_questions_snapshot: string | null }>(),
     db.prepare("SELECT google_user_id, name, email FROM expected_run_students WHERE run_id = ?")
       .bind(runId).all<{ google_user_id: string; name: string; email: string | null }>(),
     db.prepare(
@@ -114,7 +114,7 @@ export async function classroomGradePreview(actor: Actor, runId: string) {
     rows: result.results.map((row) => {
       const match = matchClassroomStudent({ googleUserId: row.google_user_id, email: row.email, name: row.name }, expected.results);
       const submission = submissionByUser.get(match?.googleUserId ?? "");
-      const assignedQuestions = questionsForParticipant(run, row.participant_id);
+      const assignedQuestions = questionsForParticipant(run, { id: row.participant_id, assigned_questions_snapshot: row.assigned_questions_snapshot });
       const assignedIds = new Set(assignedQuestions.map((question) => question.id));
       const assignedGrades = gradeResult.results.filter((grade) => grade.participant_id === row.participant_id && assignedIds.has(grade.question_id));
       const assignedMax = assignedQuestions.reduce((total, question) => total + question.points, 0);

@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { Copy, Pencil, Play, Search, Trash2 } from "lucide-react";
+import { Accessibility, Copy, Pencil, Play, Search, Trash2 } from "lucide-react";
 
 import type { ExamSummary } from "@/server/repository";
 import { Button } from "@/components/ui/button";
@@ -45,9 +45,18 @@ export function ExamLibrary({ initialExams, subjects }: ExamLibraryProps) {
     setWorkingId("");
   }
 
-  async function duplicate(examId: string) {
+  /**
+   * `adapted` deja la copia atada a la original. Ese lazo es lo que después
+   * permite asignársela a un alumno dentro de la misma sala que el resto, en
+   * vez de abrirle una sala aparte con otro código.
+   */
+  async function duplicate(examId: string, adapted = false) {
     setWorkingId(examId);
-    const response = await fetch(`/api/exams/${encodeURIComponent(examId)}/duplicate`, { method: "POST" });
+    const response = await fetch(`/api/exams/${encodeURIComponent(examId)}/duplicate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ adapted }),
+    });
     const body = await response.json() as { id?: string; error?: string };
     if (response.ok && body.id) window.location.assign(`/evaluaciones/${encodeURIComponent(body.id)}`);
     else setActionError(body.error ?? "No se pudo duplicar la evaluación");
@@ -111,6 +120,7 @@ export function ExamLibrary({ initialExams, subjects }: ExamLibraryProps) {
                 {exam.accessRole === "owner" || exam.accessRole === "edit" ? <Button type="button" size="sm" disabled={exam.status !== "ready" || workingId === exam.id} onClick={() => createRun(exam.id)}><Play data-icon="inline-start" /> Abrir sala</Button> : null}
                 <Button asChild variant="outline" size="sm"><a href={`/evaluaciones/${encodeURIComponent(exam.id)}`}><Pencil data-icon="inline-start" /> {exam.accessRole === "owner" || exam.accessRole === "edit" ? "Editar" : "Ver"}</a></Button>
                 <Button type="button" variant="ghost" size="icon-sm" disabled={workingId === exam.id} aria-label={`Duplicar ${exam.title}`} onClick={() => duplicate(exam.id)}><Copy /></Button>
+                {exam.accessRole === "owner" || exam.accessRole === "edit" ? <Button type="button" variant="ghost" size="icon-sm" disabled={workingId === exam.id} title="Crear una versión adaptada, para asignarla a un alumno en la misma sala" aria-label={`Crear versión adaptada de ${exam.title}`} onClick={() => duplicate(exam.id, true)}><Accessibility /></Button> : null}
                 {exam.accessRole === "owner" ? <Button type="button" variant={deleteId === exam.id ? "destructive" : "ghost"} size={deleteId === exam.id ? "sm" : "icon-sm"} disabled={workingId === exam.id} aria-label={`Borrar ${exam.title}`} onClick={() => remove(exam.id)}><Trash2 />{deleteId === exam.id ? "Confirmar borrado" : null}</Button> : null}
               </div>
             </article>

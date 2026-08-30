@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Clock3, Minus, Plus, Radio, Square, Users } from "lucide-react";
+import { AlertTriangle, Check, Clock3, Link2, Minus, Plus, Radio, Square, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { copyForIncident } from "@/lib/incident-copy";
+import { clipboardDetail, copyForIncident } from "@/lib/incident-copy";
 import { formatAssignedProgress } from "@/lib/exam-progress";
 import { matchedExpectedStudentIndexes } from "@/lib/student-identity";
 
@@ -21,6 +21,8 @@ interface MonitorSnapshot {
   };
   questionCount: number;
   serverNow: number;
+  /** Versiones adaptadas de esta evaluación, para asignarlas por alumno. */
+  adaptedExams?: Array<{ id: string; title: string; status: string; questionCount: number }>;
   participants: Array<Record<string, string | number | null>>;
   incidents: Array<Record<string, string | number | object>>;
   expected: Array<Record<string, string | null>>;
@@ -41,6 +43,29 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
   const [now, setNow] = useState(initialSnapshot.serverNow);
   const [working, setWorking] = useState(false);
   const [selectedParticipant, setSelectedParticipant] = useState<string | null>(null);
+  // Mismo centinela que el resto de las islas: hasta que no hidrata, los
+  // controles son HTML plano y un clic no llega a ningún manejador.
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
+  const [linkCopiado, setLinkCopiado] = useState(false);
+
+  /**
+   * El link sale del origen del navegador, no de un dominio fijo: así funciona
+   * igual en producción, en una copia de prueba o en desarrollo.
+   */
+  async function copiarLink() {
+    const url = `${window.location.origin}/rendir/${snapshot.run.code}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Sin permiso de portapapeles —o sin HTTPS— queda el camino de siempre:
+      // se muestra el link para copiarlo a mano.
+      window.prompt("Copiá el link para compartirlo:", url);
+      return;
+    }
+    setLinkCopiado(true);
+    window.setTimeout(() => setLinkCopiado(false), 2_000);
+  }
 
   const refresh = useCallback(async () => {
     const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/state`);
@@ -135,8 +160,28 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
     setWorking(false);
   }
 
+  /**
+   * La versión adaptada se asigna antes de que el alumno empiece: cambiarla
+   * después dejaría sus respuestas colgando de preguntas que ya no tiene. El
+   * servidor lo rechaza igual; acá se avisa con el motivo.
+   */
+  async function assignExam(participantId: string, examId: string) {
+    setWorking(true);
+    const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/control`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "assign-exam", participantId, examId: examId || null }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      window.alert(body.error ?? "No se pudo asignar la versión");
+    }
+    await refresh();
+    setWorking(false);
+  }
+
   return (
-    <div className="grid gap-5">
+    <div className="grid gap-5" data-monitor-ready={ready}>
       <section className="rounded-lg border bg-paper p-5 shadow-card" aria-labelledby="run-title">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div>
@@ -144,6 +189,11 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
             <h1 id="run-title" className="mt-1 text-2xl font-semibold text-ink">{snapshot.run.title}</h1>
             <p className="mt-3 text-sm text-muted">Código de ingreso</p>
             <p className="mono-number mt-1 text-3xl font-bold tracking-[.18em] text-brand" aria-label={`Código ${snapshot.run.code.split("").join(" ")}`}>{snapshot.run.code}</p>
+            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => void copiarLink()}>
+              {linkCopiado ? <Check data-icon="inline-start" aria-hidden="true" /> : <Link2 data-icon="inline-start" aria-hidden="true" />}
+              {linkCopiado ? "Link copiado" : "Copiar link de ingreso"}
+            </Button>
+            <span aria-live="polite" className="sr-only">{linkCopiado ? "Link copiado al portapapeles" : ""}</span>
           </div>
           <div className="flex flex-col items-end gap-3">
             <span className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${snapshot.run.status === "running" ? "border-ok/30 text-ok" : "text-ink-2"}`}><Radio className="size-4" aria-hidden="true" /> {snapshot.run.status === "lobby" ? "Esperando" : snapshot.run.status === "running" ? "En curso" : "Cerrada"}</span>
@@ -174,7 +224,7 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
             <table className="w-full min-w-[580px] text-left text-sm">
               <thead className="sticky top-0 bg-inset text-xs text-ink-2"><tr><th className="px-4 py-2.5">Alumno</th><th className="px-4 py-2.5">Estado</th><th className="px-4 py-2.5 text-right">Avance</th><th className="px-4 py-2.5 text-right">Puntaje</th><th className="px-4 py-2.5 text-right">Tiempo</th><th className="px-4 py-2.5 text-right">Última señal</th><th className="px-4 py-2.5">Acciones</th></tr></thead>
               <tbody className="divide-y">
-                {snapshot.participants.map((participant) => <tr key={String(participant.id)}><th scope="row" className="px-4 py-3 font-medium text-ink"><button type="button" className="hover:text-brand hover:underline" onClick={() => setSelectedParticipant(String(participant.id))}>{String(participant.name)}</button>{snapshot.run.delivery_mode === "async" ? <span className="mt-1 block text-xs font-normal text-muted">{participant.attempt_started_at ? `Inició ${timeFormatter.format(Number(participant.attempt_started_at))}` : "Todavía no inició"}</span> : null}</th><td className="px-4 py-3"><Status value={String(participant.status)} /></td><td className="mono-number px-4 py-3 text-right">{formatAssignedProgress(Number(participant.answered), Number(participant.assigned_questions ?? snapshot.questionCount))}</td><td className="mono-number px-4 py-3 text-right">{participant.score === null ? "—" : `${Number(participant.percent ?? 0)}%`}{Number(participant.pending_manual) ? " + pendiente" : ""}</td><td className="mono-number px-4 py-3 text-right">{Number(participant.extra_time_s) > 0 ? `+${Math.round(Number(participant.extra_time_s) / 60)} min` : "base"}</td><td className="mono-number px-4 py-3 text-right text-muted">{timeFormatter.format(Number(participant.last_seen))}</td><td className="px-4 py-3"><div className="flex gap-1"><Button type="button" size="xs" variant="outline" disabled={working || snapshot.run.status === "ended"} onClick={() => void participantControl(participant, "participant-time")}>Tiempo</Button>{participant.status === "submitted" && snapshot.run.status === "running" ? <Button type="button" size="xs" variant="outline" disabled={working} onClick={() => void participantControl(participant, "reopen")}>Reabrir</Button> : null}</div></td></tr>)}
+                {snapshot.participants.map((participant) => <tr key={String(participant.id)}><th scope="row" className="px-4 py-3 font-medium text-ink"><button type="button" className="hover:text-brand hover:underline" onClick={() => setSelectedParticipant(String(participant.id))}>{String(participant.name)}</button>{snapshot.run.delivery_mode === "async" ? <span className="mt-1 block text-xs font-normal text-muted">{participant.attempt_started_at ? `Inició ${timeFormatter.format(Number(participant.attempt_started_at))}` : "Todavía no inició"}</span> : null}</th><td className="px-4 py-3"><Status value={String(participant.status)} /></td><td className="mono-number px-4 py-3 text-right">{formatAssignedProgress(Number(participant.answered), Number(participant.assigned_questions ?? snapshot.questionCount))}</td><td className="mono-number px-4 py-3 text-right">{participant.score === null ? "—" : `${Number(participant.percent ?? 0)}%`}{Number(participant.pending_manual) ? " + pendiente" : ""}</td><td className="mono-number px-4 py-3 text-right">{Number(participant.extra_time_s) > 0 ? `+${Math.round(Number(participant.extra_time_s) / 60)} min` : "base"}</td><td className="mono-number px-4 py-3 text-right text-muted">{timeFormatter.format(Number(participant.last_seen))}</td><td className="px-4 py-3"><div className="flex flex-wrap items-center gap-1">{(snapshot.adaptedExams ?? []).length ? <><label className="sr-only" htmlFor={`version-${participant.id}`}>Versión de {String(participant.name)}</label><select id={`version-${participant.id}`} className="h-7 max-w-[11rem] rounded-md border bg-paper px-1.5 text-xs text-ink-2" value={String(participant.assigned_exam_id ?? "")} disabled={working || participant.status === "submitted" || snapshot.run.status === "ended"} onChange={(event) => void assignExam(String(participant.id), event.target.value)}><option value="">Versión original</option>{(snapshot.adaptedExams ?? []).map((exam) => <option key={exam.id} value={exam.id}>{exam.title}</option>)}</select></> : null}<Button type="button" size="xs" variant="outline" disabled={working || snapshot.run.status === "ended"} onClick={() => void participantControl(participant, "participant-time")}>Tiempo</Button>{participant.status === "submitted" && snapshot.run.status === "running" ? <Button type="button" size="xs" variant="outline" disabled={working} onClick={() => void participantControl(participant, "reopen")}>Reabrir</Button> : null}</div></td></tr>)}
                 {!snapshot.participants.length ? <tr><td colSpan={7} className="px-4 py-10 text-center text-muted">Todavía no ingresó ningún alumno.</td></tr> : null}
               </tbody>
             </table>
@@ -186,12 +236,12 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
         <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="incidents-title">
           <div className="flex items-center justify-between border-b px-4 py-3"><div><h2 id="incidents-title" className="font-semibold text-ink">Avisos de actividad</h2><p className="mt-0.5 text-xs text-muted">Señales para revisar; no prueban una conducta por sí solas.</p></div><span className="mono-number text-sm text-warn">{activityIncidents.length}</span></div>
           <div className="max-h-[32rem] divide-y overflow-auto">
-            {activityIncidents.map((incident) => <article key={String(incident.id)} className="p-4"><div className="flex items-start gap-2"><AlertTriangle className={`mt-0.5 size-4 shrink-0 ${incident.source === "server" ? "text-alert" : "text-warn"}`} aria-hidden="true" /><div><p className="text-sm font-semibold text-ink">{String(incident.name)}</p><p className="mt-0.5 text-sm text-ink-2">{incidentLabel(String(incident.type), Number(incident.duration_ms))}</p><p className="mt-1 text-xs text-muted">{incident.source === "server" ? "Detectado automáticamente" : "Informado por el navegador"} · {timeFormatter.format(Number(incident.at))}</p></div></div></article>)}
+            {activityIncidents.map((incident) => <article key={String(incident.id)} className="p-4"><div className="flex items-start gap-2"><AlertTriangle className={`mt-0.5 size-4 shrink-0 ${incident.source === "server" ? "text-alert" : "text-warn"}`} aria-hidden="true" /><div><p className="text-sm font-semibold text-ink">{String(incident.name)}</p><p className="mt-0.5 text-sm text-ink-2">{incidentLabel(String(incident.type), Number(incident.duration_ms), incident.meta as Record<string, unknown> | undefined)}</p><p className="mt-1 text-xs text-muted">{incident.source === "server" ? "Detectado automáticamente" : "Informado por el navegador"} · {timeFormatter.format(Number(incident.at))}</p></div></div></article>)}
             {!activityIncidents.length ? <p className="p-6 text-center text-sm text-muted">No hay avisos de actividad registrados.</p> : null}
           </div>
         </section>
 
-        {rhythmIncidents.length ? <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="rhythm-title"><div className="flex items-center justify-between border-b px-4 py-3"><div><h2 id="rhythm-title" className="flex items-center gap-2 font-semibold text-ink"><Clock3 className="size-4 text-muted" />Ritmo de resolución</h2><p className="mt-0.5 text-xs text-muted">Contexto secundario; no es una señal de integridad ni prueba una conducta.</p></div><span className="mono-number text-sm text-muted">{rhythmIncidents.length}</span></div><div className="max-h-72 divide-y overflow-auto">{rhythmIncidents.map((incident) => <article key={String(incident.id)} className="p-4"><div className="flex items-start gap-2"><Clock3 className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" /><div><p className="text-sm font-semibold text-ink">{String(incident.name)}</p><p className="mt-0.5 text-sm text-ink-2">{incidentLabel(String(incident.type), Number(incident.duration_ms))}</p><p className="mt-1 text-xs text-muted">Observación automática · {timeFormatter.format(Number(incident.at))}</p></div></div></article>)}</div></section> : null}
+        {rhythmIncidents.length ? <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="rhythm-title"><div className="flex items-center justify-between border-b px-4 py-3"><div><h2 id="rhythm-title" className="flex items-center gap-2 font-semibold text-ink"><Clock3 className="size-4 text-muted" />Ritmo de resolución</h2><p className="mt-0.5 text-xs text-muted">Contexto secundario; no es una señal de integridad ni prueba una conducta.</p></div><span className="mono-number text-sm text-muted">{rhythmIncidents.length}</span></div><div className="max-h-72 divide-y overflow-auto">{rhythmIncidents.map((incident) => <article key={String(incident.id)} className="p-4"><div className="flex items-start gap-2"><Clock3 className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" /><div><p className="text-sm font-semibold text-ink">{String(incident.name)}</p><p className="mt-0.5 text-sm text-ink-2">{incidentLabel(String(incident.type), Number(incident.duration_ms), incident.meta as Record<string, unknown> | undefined)}</p><p className="mt-1 text-xs text-muted">Observación automática · {timeFormatter.format(Number(incident.at))}</p></div></div></article>)}</div></section> : null}
       </div>
 
       <aside className="rounded-md border border-warn/25 bg-paper p-4 text-sm leading-relaxed text-ink-2"><strong className="text-ink">Los avisos necesitan contexto.</strong> Cambiar de Wi-Fi, perder conexión o alternar ventanas puede generar señales legítimas. Testra nunca cambia una nota automáticamente por estos eventos. <a href="/docs/vigilancia" className="font-semibold text-brand underline-offset-2 hover:underline">Qué significa cada aviso</a>.</aside>
@@ -211,9 +261,11 @@ function Status({ value }: { value: string }) {
   return <span className={`rounded-sm border px-1.5 py-0.5 text-xs font-semibold ${value === "active" ? "border-ok/25 text-ok" : value === "disconnected" ? "border-alert/25 text-alert" : "text-ink-2"}`}>{labels[value] ?? value}</span>;
 }
 
-function incidentLabel(type: string, durationMs: number) {
+function incidentLabel(type: string, durationMs: number, meta?: Record<string, unknown>) {
   const duration = durationMs > 0 ? ` (${(durationMs / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} s)` : "";
-  return `${copyForIncident(type).title}${duration}`;
+  // Para el portapapeles la duración no dice nada; lo que importa es el tamaño.
+  const detalle = type === "atajo-copiar-pegar" ? clipboardDetail(meta) : "";
+  return `${copyForIncident(type).title}${duration}${detalle ? ` · ${detalle}` : ""}`;
 }
 
 function timelineLabel(type: string) {

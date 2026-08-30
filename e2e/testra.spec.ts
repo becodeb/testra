@@ -562,3 +562,210 @@ test("la supervision se enciende sin recargar y registra la salida de ventana co
   // La duracion tiene que ser la real, no el 0 que se veia en Windows.
   expect(registrado.duration_ms).toBeGreaterThanOrEqual(1_000);
 });
+
+/**
+ * Ajustes de lectura, para chicos con adecuaciones.
+ *
+ * "Bulletproof" acá tiene un significado concreto y medible: el criterio 1.4.12
+ * de WCAG 2.2 no pide que el contenido USE cierto espaciado, pide que SOBREVIVA
+ * a él sin perder contenido ni funcionalidad. Eso es exactamente lo que se
+ * verifica: con todo al máximo la evaluación se sigue leyendo, se sigue
+ * respondiendo y se sigue guardando.
+ *
+ * Los dos casos que rompen si nadie los cuida son la matemática y el código: a
+ * KaTeX se le parten las fórmulas si se le separan los glifos, y el
+ * monoespaciado deja de estar en columna.
+ */
+test("la evaluacion sobrevive al espaciado maximo y sigue respondiendose", async ({ page, isMobile }) => {
+  const stamp = Date.now();
+  const payload = examPayload(`Lectura ${stamp}`);
+  payload.questions = [
+    {
+      ...payload.questions[0],
+      prompt: "Con $ax^2+bx+c=0$, y este fragmento:\n```python\ndef d(a, b, c):\n    return b**2 - 4*a*c\n```\n¿Como se llama $b^2-4ac$?",
+    },
+  ] as typeof payload.questions;
+  const examCreation = await page.request.post("/api/exams", { data: payload });
+  const exam = await examCreation.json() as { id: string };
+  const runCreation = await page.request.post("/api/runs", { data: { examId: exam.id } });
+  const run = await runCreation.json() as { id: string; code: string };
+
+  await page.goto(`/rendir/${run.code}`);
+  await page.locator("[data-join-ready=true]").waitFor();
+  await page.getByLabel("Tu nombre y apellido").fill(`Lectura ${stamp}`);
+  await page.getByRole("button", { name: "Entrar a la sala" }).click();
+  await expect(page.getByText(new RegExp(`Sala de espera · ${run.code}`))).toBeVisible();
+  await page.request.post(`/api/runs/${run.id}/control`, { data: { action: "start" } });
+  await page.locator("[data-student-ready=true]").waitFor();
+
+  // Arranca sin cambiar nada: quien no lo necesita no ve ninguna diferencia.
+  const zona = page.locator("#contenido");
+  expect(await zona.evaluate((el) => getComputedStyle(el).letterSpacing)).toBe("normal");
+
+  await page.locator("[data-reading-toggle]").click();
+  const panel = page.locator("[data-reading-panel]");
+  await expect(panel).toBeVisible();
+
+  // El maximo de cada escala, todos a la vez, que es el caso peor.
+  // Se hace clic en la etiqueta, que es lo que toca una persona: el radio en si
+  // esta visualmente oculto a proposito —queda accesible por teclado y para el
+  // lector de pantalla, y el recuadro que se ve es la etiqueta—.
+  for (const grupo of await panel.locator("fieldset").all()) {
+    const opciones = grupo.locator("label");
+    await opciones.nth(await opciones.count() - 1).click();
+    await expect(grupo.locator("input[type=radio]").last()).toBeChecked();
+  }
+
+  const medidas = await zona.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    const pre = el.querySelector("pre");
+    const katex = el.querySelector(".katex");
+    return {
+      escala: Number(cs.getPropertyValue("--lectura-escala")),
+      interlineado: Number(cs.getPropertyValue("--lectura-interlineado")),
+      letras: cs.letterSpacing,
+      preLetras: pre ? getComputedStyle(pre).letterSpacing : null,
+      katexLetras: katex ? getComputedStyle(katex).letterSpacing : null,
+      preDesborda: pre ? pre.scrollWidth > pre.clientWidth + 1 : false,
+    };
+  });
+
+  expect(medidas.escala).toBeGreaterThan(1);
+  // Piso del criterio 1.4.12 de WCAG 2.2.
+  expect(medidas.interlineado).toBeGreaterThanOrEqual(1.5);
+  expect(medidas.letras).not.toBe("normal");
+  // Formulas y codigo quedan afuera del espaciado, o se rompen.
+  expect(medidas.preLetras).toBe("normal");
+  expect(medidas.katexLetras).toBe("normal");
+  expect(medidas.preDesborda).toBe(false);
+
+  // Nada se sale de la pantalla: scrollear en horizontal para leer una
+  // pregunta es justamente perder funcionalidad.
+  const desborde = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(desborde).toBeLessThanOrEqual(1);
+
+  // Se sigue pudiendo responder, y la respuesta llega al servidor.
+  // Las opciones son botones con rol de radio, no inputs nativos.
+  await page.locator("#contenido").getByRole("radio").first().click();
+  await expect(page.getByText("Guardado", { exact: true })).toBeVisible();
+
+  // Con el texto agrandado, el campo donde se escribe tiene que acompañar.
+  const campos = page.locator("#contenido textarea, #contenido input[type=text]");
+  if (await campos.count()) {
+    const proporcion = await campos.first().evaluate((el) => {
+      const zona = el.closest("#contenido") as HTMLElement;
+      return parseFloat(getComputedStyle(el).fontSize) / parseFloat(getComputedStyle(zona).fontSize);
+    });
+    expect(proporcion).toBeGreaterThanOrEqual(0.95);
+  }
+
+  // Usar el panel no puede parecerse a hacer trampa: cero avisos.
+  const estado = await page.request.get(`/api/runs/${run.id}/state`);
+  const cuerpo = await estado.json() as { incidents: Array<{ type: string }> };
+  expect(cuerpo.incidents).toEqual([]);
+
+  // Y sigue siendo accesible con todo puesto.
+  if (!isMobile) {
+    const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag22aa"]).analyze();
+    expect(axe.violations.filter((v) => ["serious", "critical"].includes(v.impact ?? ""))).toEqual([]);
+  }
+
+  // La preferencia sobrevive a recargar: nadie tiene que reconfigurar a mitad.
+  await page.reload();
+  await page.locator("[data-student-ready=true]").waitFor();
+  expect(await zona.evaluate((el) => getComputedStyle(el).letterSpacing)).not.toBe("normal");
+});
+
+/**
+ * Exámenes paralelos para chicos con adecuaciones.
+ *
+ * Lo que se prueba no es sólo que funcione, sino que funcione SIN exponer al
+ * alumno: entra con el mismo código que el resto, en la misma sala, y su
+ * pantalla no dice en ningún lado que está rindiendo otra cosa. Que la versión
+ * sea distinta lo sabe el docente y nadie más.
+ */
+test("una version adaptada se asigna por alumno dentro de la misma sala", async ({ page, browser, isMobile }) => {
+  test.skip(Boolean(isMobile), "La asignación se hace desde el monitor, que es de escritorio");
+  // Levanta dos alumnos en contextos separados: necesitan sesiones distintas.
+  test.setTimeout(90_000);
+  const stamp = Date.now();
+  const preguntas = (cantidad: number, etiqueta: string) => Array.from({ length: cantidad }, (_, index) => ({
+    id: `q-${etiqueta}-${stamp}-${index}`,
+    position: index,
+    type: "mc" as const,
+    points: 1,
+    prompt: `${etiqueta} pregunta ${index + 1}`,
+    config: {
+      options: [{ id: "a", text: `${etiqueta} opcion A` }, { id: "b", text: `${etiqueta} opcion B` }],
+      correctOptionId: "a",
+    },
+  }));
+
+  const base = { ...examPayload(`Original ${stamp}`), shuffleQuestions: false, shuffleOptions: false };
+  const original = await (await page.request.post("/api/exams", {
+    data: { ...base, questions: preguntas(4, "ALFA") },
+  })).json() as { id: string };
+
+  // La versión adaptada nace atada a la original, y se acorta a la mitad.
+  const adaptada = await (await page.request.post(`/api/exams/${original.id}/duplicate`, { data: { adapted: true } })).json() as { id: string; title: string };
+  expect(adaptada.title).toContain("adaptada");
+  await page.request.patch(`/api/exams/${adaptada.id}`, {
+    data: { ...base, id: adaptada.id, title: adaptada.title, status: "ready", questions: preguntas(2, "BETA"), updatedAt: new Date().toISOString() },
+  });
+
+  const run = await (await page.request.post("/api/runs", { data: { examId: original.id } })).json() as { id: string; code: string };
+
+  const entrar = async (nombre: string) => {
+    const contexto = await browser.newContext({ baseURL: "http://127.0.0.1:4321" });
+    const hoja = await contexto.newPage();
+    await hoja.goto(`/rendir/${run.code}`);
+    await hoja.locator("[data-join-ready=true]").waitFor();
+    await hoja.getByLabel("Tu nombre y apellido").fill(nombre);
+    await hoja.getByRole("button", { name: "Entrar a la sala" }).click();
+    await expect(hoja.getByText(new RegExp(`Sala de espera · ${run.code}`))).toBeVisible();
+    return hoja;
+  };
+  const comun = await entrar(`Comun ${stamp}`);
+  const adecuacion = await entrar(`Adecuacion ${stamp}`);
+
+  // El docente asigna desde el monitor, con el selector de la fila del alumno.
+  await page.goto(`/sesiones/${run.id}`);
+  await page.locator("[data-monitor-ready=true]").waitFor();
+  const fila = page.getByRole("row", { name: new RegExp(`Adecuacion ${stamp}`) });
+  await fila.locator("select").selectOption({ label: adaptada.title });
+  await expect(fila.locator("select")).toHaveValue(adaptada.id);
+
+
+  await page.request.post(`/api/runs/${run.id}/control`, { data: { action: "start" } });
+
+  for (const [hoja, propias, ajenas] of [[comun, "ALFA", "BETA"], [adecuacion, "BETA", "ALFA"]] as const) {
+    await hoja.locator("[data-student-ready=true]").waitFor();
+    await expect(hoja.locator("#contenido")).toContainText(`${propias} pregunta 1`);
+    const html = await hoja.content();
+    expect(html).toContain(`${propias} pregunta 1`);
+    // No debe filtrarse ni una pregunta de la otra versión.
+    expect(html).not.toContain(`${ajenas} pregunta 1`);
+    // Ni el título de la versión paralela, que es lo que delataría la adecuación.
+    expect(html).not.toContain(adaptada.title);
+  }
+
+  // Cada uno responde su propia primera pregunta y entrega.
+  for (const hoja of [comun, adecuacion]) {
+    await hoja.locator("#contenido").getByRole("radio").first().click();
+    await expect(hoja.getByText("Guardado", { exact: true })).toBeVisible();
+  }
+
+  // El docente ve las dos versiones conviviendo, con distinta cantidad.
+  const estado = await (await page.request.get(`/api/runs/${run.id}/state`)).json() as {
+    participants: Array<{ name: string; assigned_questions: number; assigned_exam_id: string | null }>;
+  };
+  const filaComun = estado.participants.find((p) => p.name.startsWith("Comun"))!;
+  const filaAdaptada = estado.participants.find((p) => p.name.startsWith("Adecuacion"))!;
+  expect(filaComun.assigned_questions).toBe(4);
+  expect(filaComun.assigned_exam_id).toBeNull();
+  expect(filaAdaptada.assigned_questions).toBe(2);
+  expect(filaAdaptada.assigned_exam_id).toBe(adaptada.id);
+
+  await comun.context().close();
+  await adecuacion.context().close();
+});

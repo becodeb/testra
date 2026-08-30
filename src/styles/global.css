@@ -348,3 +348,76 @@ html[data-overlay-open="true"] .page-content { view-transition-name: none; }
   html { font-size: 15px; }
   .page-content { padding-block: 1.35rem; }
 }
+
+/* Ajustes de lectura de la evaluación.
+   Los valores los elige el alumno; acá sólo se aplican. La lógica y de dónde
+   sale cada número están en src/lib/reading-settings.ts. */
+[data-lectura] {
+  --lectura-escala: 1;
+  --lectura-interlineado: 1.6;
+  --lectura-letras: 0em;
+  --lectura-palabras: 0em;
+  --lectura-fondo: var(--color-paper);
+
+  font-size: calc(1rem * var(--lectura-escala));
+  line-height: var(--lectura-interlineado);
+  letter-spacing: var(--lectura-letras);
+  word-spacing: var(--lectura-palabras);
+}
+
+/* El tono de fondo alcanza al lienzo y a las tarjetas: si sólo se pintara una,
+   la otra queda como un rectángulo blanco al lado y encandila igual. */
+[data-lectura][data-lectura-fondo="true"],
+[data-lectura][data-lectura-fondo="true"] .bg-paper,
+[data-lectura][data-lectura-fondo="true"] .bg-white {
+  background-color: var(--lectura-fondo);
+}
+
+/* La matemática y el código quedan afuera del espaciado a propósito. KaTeX
+   ubica cada glifo por posición calculada, así que separarlos parte las
+   fórmulas; y el monoespaciado deja de estar alineado en columna. El tamaño
+   sí los alcanza: agrandar no los rompe. */
+[data-lectura] .katex,
+[data-lectura] .katex *,
+[data-lectura] pre,
+[data-lectura] pre *,
+[data-lectura] code {
+  letter-spacing: normal;
+  word-spacing: normal;
+}
+
+/* Un interlineado grande no debe pisar la fórmula de arriba. */
+[data-lectura] .katex-display {
+  line-height: normal;
+}
+
+/* Que el texto quede separado no debe empujar las respuestas fuera de la
+   tarjeta ni obligar a scrollear en horizontal. */
+[data-lectura] .rich-content {
+  overflow-wrap: anywhere;
+}
+
+/* Los campos de respuesta traen su propio tamaño de letra, así que no heredan
+   nada por su cuenta. Sin esto el alumno agranda el enunciado y termina
+   escribiendo su respuesta en un cuadro diminuto. */
+[data-lectura] :is(input:not([type="radio"]):not([type="checkbox"]), textarea) {
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+}
+
+/* El campo de una línea tiene altura fija y recortaría el texto agrandado. */
+[data-lectura] input:not([type="radio"]):not([type="checkbox"]) {
+  height: auto;
+  min-height: calc(2.25rem * var(--lectura-escala));
+}
+
+/* El tono de fondo le baja el contraste al texto secundario, que ya venía
+   justo: #6b7280 pasa de 4,83:1 sobre blanco a 4,35:1 sobre el azulado, y AA
+   pide 4,5:1. Un ajuste pensado para leer mejor no puede dejar texto más
+   difícil de leer que antes, así que dentro de la zona teñida se oscurece.
+   #5c626d queda arriba de 5,5:1 contra los cuatro fondos. */
+[data-lectura][data-lectura-fondo="true"] .text-muted {
+  color: #5c626d;
+}
