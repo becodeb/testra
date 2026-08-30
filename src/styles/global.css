@@ -421,3 +421,16 @@ html[data-overlay-open="true"] .page-content { view-transition-name: none; }
 [data-lectura][data-lectura-fondo="true"] .text-muted {
   color: #5c626d;
 }
+
+/* La barra de secciones en pantallas chicas se desplaza cuando las secciones no
+   entran, pero sin mostrar la barra de scroll: en Android se dibuja encima del
+   borde y parece que algo se rompió. El `w-max` con `mx-auto` de adentro las
+   centra cuando sí entran, y las deja empezar desde el principio cuando no
+   —centrarlas con `justify-center` recortaría la primera—. */
+.nav-secciones {
+  scrollbar-width: none;
+}
+
+.nav-secciones::-webkit-scrollbar {
+  display: none;
+}

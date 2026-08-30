@@ -71,15 +71,15 @@ const correctionCount = actor && isTeacher(actor) ? await teacherPendingCorrecti
           >Resultados</a>
           {actor?.superadmin ? <a href="/admin" aria-current={active === "admin" ? "page" : undefined} class:list={["relative flex h-full items-center px-3 text-sm font-medium text-ink-2 hover:text-ink", active === "admin" && "font-semibold text-brand after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand"]}>Consola</a> : null}
         </nav>
-        <div class="flex items-center justify-self-end">{Astro.locals.user && actor ? <ProfileMenu client:load name={actor.name} email={actor.email} image={actor.image} role={actor.role === "teacher" ? "Docente" : "Alumno"} /> : <span class="text-xs text-muted">Demo local</span>}</div>
+        <div class="col-start-3 flex items-center justify-self-end">{Astro.locals.user && actor ? <ProfileMenu client:load name={actor.name} email={actor.email} image={actor.image} role={actor.role === "teacher" ? "Docente" : "Alumno"} /> : <span class="text-xs text-muted">Demo local</span>}</div>
       </div>
-      <nav aria-label="Navegación principal móvil" class="mx-auto flex max-w-[1280px] overflow-x-auto border-t px-4 md:hidden">
-        <a href="/evaluaciones" aria-current={active === "evaluaciones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "evaluaciones" && "border-b-2 border-brand font-semibold text-brand"]}>Evaluaciones</a>
-        <a href="/sesiones" aria-current={active === "sesiones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "sesiones" && "border-b-2 border-brand font-semibold text-brand"]}>Sesiones</a>
-        <a href="/correcciones" aria-current={active === "correcciones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "correcciones" && "border-b-2 border-brand font-semibold text-brand"]}>Correcciones{correctionCount ? ` (${correctionCount})` : ""}</a>
-        <a href="/resultados" aria-current={active === "resultados" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "resultados" && "border-b-2 border-brand font-semibold text-brand"]}>Resultados</a>
-              {actor?.superadmin ? <a href="/admin" aria-current={active === "admin" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-3 py-2.5 text-sm font-medium text-ink-2", active === "admin" && "border-b-2 border-brand font-semibold text-brand"]}>Consola</a> : null}
-</nav>
+      <nav aria-label="Navegación principal móvil" class="nav-secciones mx-auto max-w-[1280px] overflow-x-auto border-t px-3 md:hidden"><div class="mx-auto flex w-max">
+        <a href="/evaluaciones" aria-current={active === "evaluaciones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-2.5 py-2.5 text-sm font-medium text-ink-2", active === "evaluaciones" && "border-b-2 border-brand font-semibold text-brand"]}>Evaluaciones</a>
+        <a href="/sesiones" aria-current={active === "sesiones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-2.5 py-2.5 text-sm font-medium text-ink-2", active === "sesiones" && "border-b-2 border-brand font-semibold text-brand"]}>Sesiones</a>
+        <a href="/correcciones" aria-current={active === "correcciones" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-2.5 py-2.5 text-sm font-medium text-ink-2", active === "correcciones" && "border-b-2 border-brand font-semibold text-brand"]}>Correcciones{correctionCount ? ` (${correctionCount})` : ""}</a>
+        <a href="/resultados" aria-current={active === "resultados" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-2.5 py-2.5 text-sm font-medium text-ink-2", active === "resultados" && "border-b-2 border-brand font-semibold text-brand"]}>Resultados</a>
+              {actor?.superadmin ? <a href="/admin" aria-current={active === "admin" ? "page" : undefined} class:list={["min-h-10 shrink-0 px-2.5 py-2.5 text-sm font-medium text-ink-2", active === "admin" && "border-b-2 border-brand font-semibold text-brand"]}>Consola</a> : null}
+      </div></nav>
     </header>
     {fullBleed ? <slot /> : <main id="contenido" class="page-content mx-auto w-full max-w-[1280px] px-4 py-7 lg:px-6"><slot /></main>}
   </body>
