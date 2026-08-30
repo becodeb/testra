@@ -77,12 +77,24 @@ export function AiCorrectionReview({ items, runTitle, withoutSuggestion, onClose
    * Además la confirmación de guardado no llegaría a verse, porque el ítem
    * desaparecería en el mismo instante.
    */
-  const [queue] = useState(() => items);
+  const [queue, setQueue] = useState(() => items);
+  // Una respuesta salteada se va al final de la cola. Solo se puede saltear una
+  // vez: si no, dar a "saltear" en todas dejaría al docente girando para
+  // siempre sin terminar nunca.
+  const [skipped, setSkipped] = useState<Set<string>>(() => new Set());
   const [pendingWithout] = useState(() => withoutSuggestion);
 
   const item = queue[index];
   const done = index >= queue.length;
   const resolvedCount = Object.keys(resolved).length;
+  const currentId = item ? `${item.participantId}:${item.questionId}` : "";
+  const canSkip = Boolean(item) && !skipped.has(currentId) && queue.length - index > 1;
+
+  function skip() {
+    if (!item || !canSkip) return;
+    setSkipped((current) => new Set(current).add(currentId));
+    setQueue((current) => [...current.slice(0, index), ...current.slice(index + 1), current[index]]);
+  }
 
   const suggestedRubric = useMemo(
     () => (item ? rubricScoresFromSuggestion(item.rubric, item.aiCriteria) : null),
@@ -149,6 +161,11 @@ export function AiCorrectionReview({ items, runTitle, withoutSuggestion, onClose
         void resolve(item.aiSuggestedScore);
         return;
       }
+      if (event.key.toLowerCase() === "s" && canSkip) {
+        event.preventDefault();
+        skip();
+        return;
+      }
       if (/^[0-9]$/.test(event.key) && Number(event.key) <= item.maxPoints) {
         event.preventDefault();
         void resolve(Number(event.key));
@@ -199,6 +216,11 @@ export function AiCorrectionReview({ items, runTitle, withoutSuggestion, onClose
               <div><dt className="text-[.7rem] font-semibold tracking-[.07em] text-muted uppercase">Corregidas</dt><dd className="mono-number mt-1 text-2xl font-bold text-ink">{resolvedCount}</dd></div>
               <div><dt className="text-[.7rem] font-semibold tracking-[.07em] text-muted uppercase">Puntos dados</dt><dd className="mono-number mt-1 text-2xl font-bold text-ink">{Object.values(resolved).reduce((total, value) => total + value, 0)}</dd></div>
             </dl>
+            {skipped.size && resolvedCount < queue.length ? (
+              <p className="mx-auto mt-5 max-w-[42ch] text-sm text-muted">
+                Salteaste {skipped.size} respuesta{skipped.size === 1 ? "" : "s"} y {skipped.size === 1 ? "volvió" : "volvieron"} al final de la cola.
+              </p>
+            ) : null}
             {pendingWithout > 0 ? (
               <p className="mx-auto mt-6 max-w-[42ch] rounded-md border border-warn/30 bg-warn/5 px-4 py-3 text-sm text-ink-2">
                 Quedan <strong>{pendingWithout}</strong> respuesta{pendingWithout === 1 ? "" : "s"} sin sugerencia de la IA en esta evaluación. Se corrigen a mano desde la bandeja.
@@ -276,6 +298,7 @@ export function AiCorrectionReview({ items, runTitle, withoutSuggestion, onClose
                       </Button>
                     ) : null}
                     <Button type="button" variant="outline" disabled={saving} onClick={() => setAdjusting(true)}>Ajustar puntaje</Button>
+                    {canSkip ? <Button type="button" variant="ghost" disabled={saving} onClick={skip}>Saltear por ahora</Button> : null}
                     {canAcceptDirectly ? null : <span className="text-xs text-warn">La IA no puntuó cada criterio de la rúbrica: cargalos vos.</span>}
                   </div>
                 )}
@@ -307,6 +330,7 @@ export function AiCorrectionReview({ items, runTitle, withoutSuggestion, onClose
               <p className="flex flex-wrap items-center gap-3 text-xs text-muted">
                 <span><kbd className="rounded-sm border px-1 py-0.5">A</kbd> aceptar</span>
                 <span><kbd className="rounded-sm border px-1 py-0.5">0</kbd>–<kbd className="rounded-sm border px-1 py-0.5">9</kbd> puntuar</span>
+                        <span><kbd className="rounded-sm border px-1 py-0.5">S</kbd> saltear</span>
                 <span><kbd className="rounded-sm border px-1 py-0.5">Esc</kbd> salir</span>
               </p>
             </footer>

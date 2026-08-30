@@ -39,6 +39,10 @@ function devWebsocket() {
 }
 
 export default defineConfig({
+  // La barra de herramientas de desarrollo se dibuja encima de la página y se
+  // come clics cerca del borde inferior: en las pruebas de punta a punta hace
+  // fallar acciones que en el producto funcionan. No es parte de Testra.
+  devToolbar: { enabled: false },
   output: "server",
   adapter: node({ mode: "standalone" }),
   integrations: [react()],

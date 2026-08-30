@@ -1008,7 +1008,7 @@ export async function getRunAnalysisData(runId: string, actor: Actor) {
 
 export async function listPendingCorrections(actor: Actor, runId?: string) {
   const result = await db.prepare(
-    `SELECT p.id AS participant_id, p.run_id, p.submitted_at, p.display_name AS name, r.title,
+    `SELECT p.id AS participant_id, p.run_id, p.submitted_at, p.display_name AS name, r.title, r.code AS run_code,
       COALESCE(p.assigned_questions_snapshot, r.questions_snapshot) AS questions_snapshot,
       g.question_id, a.value, g.points_awarded, g.feedback, g.rubric_scores,
       g.grading_status, g.teacher_note, g.ai_suggested_score, g.ai_confidence, g.ai_feedback, g.ai_teacher_note, g.ai_criteria, g.ai_error
@@ -1027,6 +1027,7 @@ export async function listPendingCorrections(actor: Actor, runId?: string) {
     submitted_at: number;
     name: string;
     title: string;
+    run_code: string;
     questions_snapshot: string;
     question_id: string;
     value: string | null;
@@ -1052,6 +1053,7 @@ export async function listPendingCorrections(actor: Actor, runId?: string) {
       runId: row.run_id,
       studentName: row.name,
       runTitle: row.title,
+      runCode: row.run_code,
       submittedAt: row.submitted_at,
       questionId: question.id,
       prompt: question.prompt,

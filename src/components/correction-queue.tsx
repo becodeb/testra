@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
 export interface CorrectionItem {
-  participantId: string; runId: string; studentName: string; runTitle: string; submittedAt: number;
+  participantId: string; runId: string; studentName: string; runTitle: string; runCode?: string; submittedAt: number;
   questionId: string; prompt: string; maxPoints: number; answer: string; pointsAwarded: number | null;
   feedback: string; teacherNote?: string; rubricScores: Record<string, number>; rubric: RubricCriterion[];
   gradingStatus?: string; aiSuggestedScore?: number | null; aiConfidence?: number | null;
@@ -18,13 +18,25 @@ export interface CorrectionItem {
 }
 
 interface Job { id: string; status: "queued" | "processing" | "completed" | "failed" | "cancelled"; total: number; processed: number; failed: number; error?: string | null }
+const fechaCorta = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const itemKey = (item: CorrectionItem) => `${item.participantId}:${item.questionId}`;
 const pendingStatus = (item: CorrectionItem) => !["graded", "auto_graded"].includes(item.gradingStatus ?? (item.pointsAwarded === null ? "pending_manual" : "graded"));
 
 export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }: { initialItems: CorrectionItem[]; embedded?: boolean; onGradeSaved?: (participantId: string, previous: number | null, next: number) => void }) {
   const [items, setItems] = useState(initialItems);
   const [selectedKey, setSelectedKey] = useState(initialItems[0] ? itemKey(initialItems[0]) : "");
-  const [runFilter, setRunFilter] = useState("");
+  /**
+   * Nivel 1 son las tomas; nivel 2, las respuestas de una. `null` = nivel 1.
+   *
+   * Embebida dentro de una toma —la pestaña Correcciones de Resultados— el
+   * docente ya eligió la evaluación: mostrarle la lista de tomas ahí sería
+   * hacerlo elegir de nuevo lo que acaba de elegir.
+   */
+  const [openRun, setOpenRun] = useState<string | null>(() => {
+    if (!embedded) return null;
+    const tomas = new Set(initialItems.map((item) => item.runId));
+    return tomas.size === 1 ? [...tomas][0] : null;
+  });
   const [studentFilter, setStudentFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"pending" | "suggested" | "graded" | "all">("pending");
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "week" | "month">("all");
@@ -51,9 +63,24 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
       window.removeEventListener("keydown", onKey);
     };
   }, [expanded]);
-  const runs = useMemo(() => [...new Map(items.map((item) => [item.runId, item.runTitle])).entries()], [items]);
+  /** Resumen por toma: es lo que se ve al entrar a Correcciones. */
+  const runs = useMemo(() => {
+    const porToma = new Map<string, { runId: string; runTitle: string; runCode: string; pending: number; suggested: number; total: number; lastAt: number }>();
+    for (const item of items) {
+      const fila = porToma.get(item.runId) ?? { runId: item.runId, runTitle: item.runTitle, runCode: item.runCode ?? "", pending: 0, suggested: 0, total: 0, lastAt: 0 };
+      fila.total += 1;
+      if (pendingStatus(item)) {
+        fila.pending += 1;
+        if (item.aiSuggestedScore !== null && item.aiSuggestedScore !== undefined) fila.suggested += 1;
+      }
+      fila.lastAt = Math.max(fila.lastAt, item.submittedAt);
+      porToma.set(item.runId, fila);
+    }
+    // Primero lo que espera hace más tiempo: es lo que el alumno está esperando.
+    return [...porToma.values()].sort((a, b) => (b.pending > 0 ? 1 : 0) - (a.pending > 0 ? 1 : 0) || a.lastAt - b.lastAt);
+  }, [items]);
   const filtered = useMemo(() => items.filter((item) => {
-    if (runFilter && item.runId !== runFilter) return false;
+    if (openRun && item.runId !== openRun) return false;
     if (studentFilter && !item.studentName.toLocaleLowerCase().includes(studentFilter.toLocaleLowerCase())) return false;
     if (statusFilter === "pending" && !pendingStatus(item)) return false;
     if (statusFilter === "suggested" && !["ai_suggested", "ai_review_required"].includes(item.gradingStatus ?? "")) return false;
@@ -63,7 +90,7 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
     if (dateFilter === "week" && age > 7 * 24 * 60 * 60 * 1000) return false;
     if (dateFilter === "month" && age > 30 * 24 * 60 * 60 * 1000) return false;
     return true;
-  }).sort((a, b) => mode === "question" ? a.prompt.localeCompare(b.prompt) || a.studentName.localeCompare(b.studentName) : a.studentName.localeCompare(b.studentName) || a.prompt.localeCompare(b.prompt)), [dateFilter, items, mode, runFilter, statusFilter, studentFilter]);
+  }).sort((a, b) => mode === "question" ? a.prompt.localeCompare(b.prompt) || a.studentName.localeCompare(b.studentName) : a.studentName.localeCompare(b.studentName) || a.prompt.localeCompare(b.prompt)), [dateFilter, items, mode, openRun, statusFilter, studentFilter]);
   const activeIndex = Math.max(0, filtered.findIndex((item) => itemKey(item) === selectedKey));
   const active = filtered[activeIndex] ?? null;
   const pending = items.filter(pendingStatus).length;
@@ -72,7 +99,7 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
   // respuesta abierta. Entran las pendientes que ya tienen sugerencia; las que
   // la IA no llegó a sugerir se cuentan aparte para avisarlo al cerrar, o el
   // docente termina la cola creyendo que no quedó nada.
-  const runForReview = runFilter || active?.runId || "";
+  const runForReview = openRun || active?.runId || "";
   const reviewQueue = useMemo(
     () => items.filter((item) => item.runId === runForReview && pendingStatus(item) && item.aiSuggestedScore !== null && item.aiSuggestedScore !== undefined),
     [items, runForReview],
@@ -97,7 +124,7 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
   }, [job]);
 
   async function analyze() {
-    const runId = runFilter || active?.runId;
+    const runId = openRun || active?.runId;
     if (!runId) return;
     setJobError("");
     const response = await fetch("/api/corrections/jobs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId }) });
@@ -148,13 +175,109 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
     onResolve={(item: CorrectionItem, values: ReviewValues) => save(item, values, false)}
   /> : null;
 
-  return <section className={`grid gap-4 ${expanded ? "fixed inset-0 z-50 overflow-y-auto bg-canvas p-4 lg:p-6" : ""}`} data-correction-ready={ready ? "true" : "false"} data-correction-expanded={expanded ? "true" : "false"}>
-    <header className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold tracking-[.1em] text-brand uppercase">Bandeja de trabajo</p><h2 id="correction-title" className="mt-1 text-2xl font-semibold text-ink">Correcciones pendientes</h2><p className="mt-1 text-sm text-muted">{pending} por revisar · {items.length - pending} resueltas</p></div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setExpanded((value) => !value)}>{expanded ? <><Minimize2 data-icon="inline-start" />Salir</> : <><Maximize2 data-icon="inline-start" />Pantalla completa</>}</Button><Button type="button" variant="outline" size="sm" onClick={() => void addComment()}><MessageSquarePlus data-icon="inline-start" />Comentario</Button>{reviewQueue.length ? <Button type="button" size="sm" onClick={() => setReviewing(true)}><Sparkles data-icon="inline-start" />Corregir todo con sugerencias · {reviewQueue.length}</Button> : null}<Button type="button" size="sm" variant={reviewQueue.length ? "outline" : "default"} onClick={() => void analyze()} disabled={!active || job?.status === "processing"}><BrainCircuit data-icon="inline-start" />Pedir sugerencias a la IA</Button></div></header>
+  const abierta = openRun ? runs.find((fila) => fila.runId === openRun) : null;
+
+  // ── Nivel 1: las tomas que esperan corrección ──────────────────────────
+  if (!openRun) {
+    const conPendientes = runs.filter((fila) => fila.pending > 0);
+    return <section className="grid gap-5" data-correction-ready={ready ? "true" : "false"} data-correction-level="tomas">
+      <header>
+        <p className="text-xs font-bold tracking-[.1em] text-brand uppercase">Bandeja de trabajo</p>
+        <h2 id="correction-title" className="mt-1 text-2xl font-semibold tracking-[-.02em] text-ink">Correcciones pendientes</h2>
+        <p className="mt-1 text-sm text-muted">
+          {conPendientes.length
+            ? `${pending} respuesta${pending === 1 ? "" : "s"} en ${conPendientes.length} ${conPendientes.length === 1 ? "evaluación" : "evaluaciones"}. Empezá por la que espera hace más tiempo.`
+            : "No queda nada por corregir."}
+        </p>
+      </header>
+
+      {conPendientes.length ? <ul className="grid gap-3">
+        {conPendientes.map((fila) => {
+          const corregidas = fila.total - fila.pending;
+          const avance = fila.total ? Math.round(corregidas / fila.total * 100) : 0;
+          return <li key={fila.runId}>
+            <button
+              type="button"
+              onClick={() => setOpenRun(fila.runId)}
+              className="group grid w-full gap-3 rounded-xl border bg-paper p-5 text-left shadow-card transition-colors hover:border-brand sm:grid-cols-[1fr_auto] sm:items-center"
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-semibold text-ink group-hover:text-brand">{fila.runTitle}</span>
+                <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">{fila.runCode ? <span className="mono-number rounded-sm bg-inset px-1.5 py-0.5 font-semibold tracking-[.08em] text-ink-2">{fila.runCode}</span> : null}<span>Última entrega {fechaCorta.format(fila.lastAt)}</span></span>
+                <span className="mt-3 block h-1.5 max-w-md overflow-hidden rounded-full bg-inset">
+                  <span className="block h-full rounded-full bg-brand" style={{ width: `${avance}%` }} />
+                </span>
+                <span className="mt-1.5 block text-xs text-muted">{corregidas} de {fila.total} corregida{fila.total === 1 ? "" : "s"}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-3">
+                {fila.suggested ? <span className="inline-flex items-center gap-1 rounded-full bg-brand-soft px-2.5 py-1 text-xs font-semibold text-brand-deep"><Sparkles className="size-3.5" aria-hidden="true" />{fila.suggested} con sugerencia</span> : null}
+                <span className="mono-number rounded-full bg-warn/12 px-3 py-1 text-sm font-bold text-warn">{fila.pending}</span>
+                <ArrowRight className="size-4 text-muted group-hover:text-brand" aria-hidden="true" />
+              </span>
+            </button>
+          </li>;
+        })}
+      </ul> : <div className="rounded-xl border border-dashed bg-paper p-10 text-center">
+        <p className="text-xs font-bold tracking-[.1em] text-brand uppercase">Bandeja al día</p>
+        <h3 className="mt-2 text-xl font-semibold text-ink">No hay desarrollos para corregir</h3>
+        <p className="mt-2 text-sm text-muted">Las respuestas nuevas van a aparecer acá cuando los alumnos entreguen.</p>
+      </div>}
+
+      {/* Las tomas ya cerradas siguen accesibles: volver a mirar una corrección
+          hecha, o cambiarla, es parte del trabajo y no puede desaparecer solo
+          porque no quede nada pendiente. */}
+      {runs.some((fila) => fila.pending === 0) ? <details className="rounded-xl border bg-paper">
+        <summary className="cursor-pointer px-5 py-3.5 text-sm font-semibold text-ink-2 hover:bg-inset">
+          Evaluaciones ya corregidas · {runs.filter((fila) => fila.pending === 0).length}
+        </summary>
+        <ul className="grid gap-1 border-t p-2">
+          {runs.filter((fila) => fila.pending === 0).map((fila) => <li key={fila.runId}>
+            <button
+              type="button"
+              onClick={() => setOpenRun(fila.runId)}
+              className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-inset"
+            >
+              <span className="min-w-0 flex-1 truncate text-ink-2">{fila.runTitle}</span>
+              {fila.runCode ? <span className="mono-number shrink-0 text-xs tracking-[.08em] text-muted">{fila.runCode}</span> : null}
+              <span className="mono-number shrink-0 text-xs text-ok">{fila.total} corregida{fila.total === 1 ? "" : "s"}</span>
+            </button>
+          </li>)}
+        </ul>
+      </details> : null}
+    </section>;
+  }
+
+  // ── Nivel 2: las respuestas de esa toma ────────────────────────────────
+  return <section className={`grid gap-4 ${expanded ? "fixed inset-0 z-50 overflow-y-auto bg-canvas p-4 lg:p-6" : ""}`} data-correction-ready={ready ? "true" : "false"} data-correction-expanded={expanded ? "true" : "false"} data-correction-level="respuestas">
+    {embedded ? null : <div>
+      <button type="button" onClick={() => setOpenRun(null)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:underline"><ArrowLeft className="size-4" aria-hidden="true" />Todas las evaluaciones</button>
+    </div>}
+    <header className="flex flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-xs font-bold tracking-[.1em] text-brand uppercase">Corrigiendo</p>
+        <h2 id="correction-title" className="mt-1 truncate text-2xl font-semibold tracking-[-.02em] text-ink">{abierta?.runTitle ?? ""}</h2>
+        {abierta?.runCode ? <p className="mono-number mt-1 text-xs font-semibold tracking-[.12em] text-muted">{abierta.runCode}</p> : null}
+        <p className="mt-1 text-sm text-muted">{abierta?.pending ?? 0} por revisar · {(abierta?.total ?? 0) - (abierta?.pending ?? 0)} resueltas</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={() => setExpanded((value) => !value)}>{expanded ? <><Minimize2 data-icon="inline-start" />Salir</> : <><Maximize2 data-icon="inline-start" />Pantalla completa</>}</Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => void addComment()}><MessageSquarePlus data-icon="inline-start" />Comentario</Button>
+        {reviewQueue.length
+          ? <Button type="button" size="sm" onClick={() => setReviewing(true)}><Sparkles data-icon="inline-start" />Corregir todo con sugerencias · {reviewQueue.length}</Button>
+          : <Button type="button" size="sm" onClick={() => void analyze()} disabled={job?.status === "processing"} aria-busy={job?.status === "processing"}><BrainCircuit data-icon="inline-start" />Pedir sugerencias a la IA</Button>}
+      </div>
+    </header>
     {job ? <div className="rounded-md border border-brand/20 bg-brand-soft/40 px-4 py-3 text-sm text-ink-2"><div className="flex items-center justify-between gap-3"><span><strong>{job.status === "completed" ? (job.failed ? "Análisis terminado con avisos" : "Análisis completo") : job.status === "failed" ? "El análisis quedó a medias" : "Analizando respuestas en segundo plano"}</strong> · {job.processed}/{job.total}{job.error ? <span className="mt-1 block font-normal text-warn">{job.error}</span> : null}</span>{["queued", "processing"].includes(job.status) ? <Button type="button" variant="ghost" size="xs" onClick={() => void fetch(`/api/corrections/jobs/${job.id}`, { method: "DELETE" }).then(() => setJob({ ...job, status: "cancelled" }))}>Cancelar</Button> : null}</div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white"><div className="h-full bg-brand transition-[width]" style={{ width: `${job.total ? job.processed / job.total * 100 : 100}%` }} /></div></div> : null}
     {jobError ? <p className="rounded-md border border-alert/30 bg-alert/5 px-4 py-3 text-sm text-alert">{jobError}</p> : null}
-    <div className="grid gap-3 rounded-lg border bg-inset p-3 md:grid-cols-[1fr_1fr_9rem_9rem_9rem_auto]"><label className="text-xs font-semibold text-ink-2">Evaluación<select className="mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm" value={runFilter} onChange={(event) => setRunFilter(event.target.value)}><option value="">Todas</option>{runs.map(([id, title]) => <option key={id} value={id}>{title}</option>)}</select></label><label className="text-xs font-semibold text-ink-2">Alumno<Input className="mt-1" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Buscar por nombre" /></label><label className="text-xs font-semibold text-ink-2">Estado<select className="mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="pending">Pendientes</option><option value="suggested">Con sugerencia IA</option><option value="graded">Corregidas</option><option value="all">Todas</option></select></label><label className="text-xs font-semibold text-ink-2">Fecha<select className="mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm" value={dateFilter} onChange={(event) => setDateFilter(event.target.value as typeof dateFilter)}><option value="all">Cualquier fecha</option><option value="today">Últimas 24 h</option><option value="week">Últimos 7 días</option><option value="month">Últimos 30 días</option></select></label><label className="text-xs font-semibold text-ink-2">Orden<select className="mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm" value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}><option value="question">Por pregunta</option><option value="student">Por alumno</option></select></label><Button type="button" variant="ghost" size="sm" className="self-end" onClick={() => { setRunFilter(""); setStudentFilter(""); setStatusFilter("pending"); setDateFilter("all"); }}><Filter data-icon="inline-start" />Limpiar</Button></div>
+    <div className="grid gap-3 rounded-lg border bg-inset p-3 md:grid-cols-[1fr_9rem_9rem_9rem_auto]">
+      <label className="text-xs font-semibold text-ink-2">Alumno<Input className="mt-1" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Buscar por nombre" /></label>
+      <label className="text-xs font-semibold text-ink-2">Estado<select className="mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="pending">Pendientes</option><option value="suggested">Con sugerencia IA</option><option value="graded">Corregidas</option><option value="all">Todas</option></select></label>
+      <label className="text-xs font-semibold text-ink-2">Fecha<select className="mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm" value={dateFilter} onChange={(event) => setDateFilter(event.target.value as typeof dateFilter)}><option value="all">Cualquier fecha</option><option value="today">Últimas 24 h</option><option value="week">Últimos 7 días</option><option value="month">Últimos 30 días</option></select></label>
+      <label className="text-xs font-semibold text-ink-2">Orden<select className="mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm" value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}><option value="question">Por pregunta</option><option value="student">Por alumno</option></select></label>
+      <Button type="button" variant="ghost" size="sm" className="self-end" onClick={() => { setStudentFilter(""); setStatusFilter("pending"); setDateFilter("all"); }}><Filter data-icon="inline-start" />Limpiar</Button>
+    </div>
     {active ? <div className={`grid overflow-hidden rounded-xl border bg-paper shadow-card lg:grid-cols-[17rem_1fr] ${expanded ? "min-h-[calc(100dvh-13rem)]" : "min-h-[34rem]"}`}>
-      <aside className={`overflow-y-auto border-b bg-inset lg:border-r lg:border-b-0 ${expanded ? "max-h-[calc(100dvh-13rem)]" : "max-h-[72dvh]"}`} aria-label="Respuestas"><div className="sticky top-0 z-10 border-b bg-inset p-3 text-xs font-semibold text-muted">{filtered.length} respuesta{filtered.length === 1 ? "" : "s"}</div>{filtered.map((item, index) => <button key={itemKey(item)} type="button" onClick={() => setSelectedKey(itemKey(item))} className={`w-full border-b p-3 text-left transition-colors ${itemKey(item) === itemKey(active) ? "bg-white shadow-[inset_3px_0_0_var(--color-brand)]" : "hover:bg-white/70"}`}><span className="flex items-center justify-between gap-2"><strong className="truncate text-sm text-ink">{item.studentName}</strong><span className={`size-2 rounded-full ${pendingStatus(item) ? item.aiSuggestedScore !== null && item.aiSuggestedScore !== undefined ? "bg-brand" : "bg-warn" : "bg-ok"}`} /></span><span className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{mode === "question" ? item.answer || "Sin respuesta" : item.prompt}</span><span className="mt-1 block text-[.7rem] text-muted">{index + 1} / {filtered.length} · {item.runTitle}</span></button>)}</aside>
+      <aside className={`overflow-y-auto border-b bg-inset lg:border-r lg:border-b-0 ${expanded ? "max-h-[calc(100dvh-13rem)]" : "max-h-[72dvh]"}`} aria-label="Respuestas"><div className="sticky top-0 z-10 border-b bg-inset p-3 text-xs font-semibold text-muted">{filtered.length} respuesta{filtered.length === 1 ? "" : "s"}</div>{filtered.map((item, index) => <button key={itemKey(item)} type="button" onClick={() => setSelectedKey(itemKey(item))} className={`w-full border-b p-3 text-left transition-colors ${itemKey(item) === itemKey(active) ? "bg-white shadow-[inset_3px_0_0_var(--color-brand)]" : "hover:bg-white/70"}`}><span className="flex items-center justify-between gap-2"><strong className="truncate text-sm text-ink">{item.studentName}</strong><span className={`size-2 rounded-full ${pendingStatus(item) ? item.aiSuggestedScore !== null && item.aiSuggestedScore !== undefined ? "bg-brand" : "bg-warn" : "bg-ok"}`} /></span><span className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{mode === "question" ? item.answer || "Sin respuesta" : item.prompt}</span><span className="mt-1 block text-[.7rem] text-muted">{index + 1} / {filtered.length}</span></button>)}</aside>
       <FocusedCorrection key={itemKey(active)} item={active} comments={comments} workingPosition={`${activeIndex + 1} de ${filtered.length}`} onPrevious={() => activeIndex > 0 && setSelectedKey(itemKey(filtered[activeIndex - 1]))} onNext={() => activeIndex < filtered.length - 1 && setSelectedKey(itemKey(filtered[activeIndex + 1]))} onSave={save} onReject={() => void rejectSuggestion(active)} />
     </div> : <div className="rounded-lg border border-dashed bg-paper p-10 text-center text-sm text-muted">No hay respuestas que coincidan con estos filtros.</div>}
     {review}

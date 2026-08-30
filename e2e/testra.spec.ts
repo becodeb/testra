@@ -409,6 +409,12 @@ test("corrections is a real work inbox instead of a redirect", async ({ page, is
   await page.locator("[data-correction-ready=true]").waitFor();
   await expect(page).toHaveURL(/\/correcciones$/);
   await expect(page.getByRole("heading", { name: "Correcciones pendientes" })).toBeVisible();
+  // La bandeja arranca por toma. La del alumno sembrado ya esta corregida, asi
+  // que vive en el desplegable de cerradas: entrar ahi tiene que seguir siendo
+  // posible, o se pierde el acceso a revisar lo ya corregido.
+  await page.getByText(/Evaluaciones ya corregidas/).click();
+  await page.getByRole("button", { name: /P9XR3A/ }).click();
+  await page.locator("[data-correction-level=respuestas]").waitFor();
   await page.getByLabel("Estado").selectOption("all");
   await expect(page.getByText("Tomás Benítez", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Guardar y siguiente" })).toBeVisible();
@@ -418,6 +424,8 @@ test("correcting takes over the whole screen and Escape gives it back", async ({
   test.skip(Boolean(isMobile), "Fullscreen correcting is covered once on desktop");
   await page.goto("/correcciones");
   await page.locator("[data-correction-ready=true]").waitFor();
+  await page.locator("[data-correction-level=tomas] li button").first().click();
+  await page.locator("[data-correction-level=respuestas]").waitFor();
   await page.getByRole("button", { name: "Pantalla completa" }).click();
   await expect(page.locator("[data-correction-expanded=true]")).toBeVisible();
   await expect(page.getByRole("button", { name: "Salir", exact: true })).toBeVisible();
