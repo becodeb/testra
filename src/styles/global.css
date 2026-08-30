@@ -444,3 +444,12 @@ html[data-overlay-open="true"] .page-content { view-transition-name: none; }
 .page-content :where(.grid) > * {
   min-width: 0;
 }
+
+/* Reserva el canal de la barra de scroll aunque no haga falta.
+   Sin esto, cada vez que se abre un cuadro —que bloquea el scroll del fondo—
+   la barra desaparece y la página entera se corre 15 px: todo cambia de tamaño
+   un poco y se siente como un parpadeo. Reservar el canal siempre cuesta esos
+   15 px en las pantallas cortas, y vale la pena. */
+html {
+  scrollbar-gutter: stable;
+}
