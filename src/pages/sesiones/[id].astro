@@ -15,6 +15,8 @@ const capabilities = await getRunCapabilities(Astro.params.id!, actor);
 ---
 
 <AppLayout title={String(snapshot.run.title)} active="sesiones">
+  {/* Classroom va arriba a proposito: es de lo mejor que tiene el producto y
+      abajo del monitor no lo veia nadie. */}
+  {capabilities.manageClassroom ? <div class="mb-5"><ClassroomPanel client:load runId={Astro.params.id!} linked={Boolean(snapshot.run.classroom_course_id && snapshot.run.classroom_coursework_id)} ended={snapshot.run.status === "ended"} /></div> : null}
   <LiveRunMonitor client:load runId={Astro.params.id!} initialSnapshot={snapshot} canControl={capabilities.openRuns} />
-  {capabilities.manageClassroom ? <div class="mt-5"><ClassroomPanel client:load runId={Astro.params.id!} linked={Boolean(snapshot.run.classroom_course_id && snapshot.run.classroom_coursework_id)} ended={snapshot.run.status === "ended"} /></div> : null}
 </AppLayout>

@@ -1,5 +1,5 @@
 import { Clock3, Eye, ShieldAlert } from "lucide-react";
-import { copyForIncident } from "@/lib/incident-copy";
+import { clipboardDetail, copyForIncident } from "@/lib/incident-copy";
 
 export interface Incident {
   id: string;
@@ -9,6 +9,7 @@ export interface Incident {
   source: string;
   questionNumber: number | null;
   questionPrompt: string | null;
+  meta?: Record<string, unknown>;
 }
 
 const dateFormatter = new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short" });
@@ -54,6 +55,9 @@ function IncidentCard({ incident }: { incident: Incident }) {
             {dateFormatter.format(incident.at)}
             {incident.duration_ms ? ` · ${(incident.duration_ms / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} s` : ""}
           </p>
+          {incident.type === "atajo-copiar-pegar" && clipboardDetail(incident.meta)
+            ? <p className="mt-1 text-xs font-medium text-ink-2">{clipboardDetail(incident.meta)}</p>
+            : null}
           <p className="mt-2 text-sm text-ink-2">
             {incident.questionNumber
               ? `Estaba en la pregunta ${incident.questionNumber}: ${incident.questionPrompt}`

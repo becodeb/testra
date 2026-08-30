@@ -71,6 +71,7 @@ interface ParticipantDetail {
     source: string;
     questionNumber: number | null;
     questionPrompt: string | null;
+    meta?: Record<string, unknown>;
   }>;
   timeline: Array<{
     id: string;

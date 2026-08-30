@@ -24,3 +24,21 @@ export const incidentCopy: Record<string, IncidentCopy> = {
 export function copyForIncident(type: string): IncidentCopy {
   return incidentCopy[type] ?? { title: "Actividad para revisar", what: "Testra registró un evento durante la evaluación.", normal: "Puede tener explicaciones normales según el dispositivo y el contexto.", review: "Revisá la secuencia completa y conversá con el alumno si hace falta." };
 }
+
+/**
+ * Qué se copió, en cantidad. Testra nunca guarda el contenido, así que el
+ * tamaño es todo lo que hay —y aun así ayuda: no es lo mismo un desliz de tres
+ * caracteres que un bloque entero.
+ */
+export function clipboardDetail(meta: Record<string, unknown> | undefined): string {
+  if (!meta) return "";
+  const accion = typeof meta.action === "string"
+    ? { copy: "Copió", copiar: "Copió", cut: "Cortó", cortar: "Cortó", paste: "Pegó", pegar: "Pegó" }[meta.action] ?? null
+    : null;
+  const cantidad = typeof meta.characters === "number" ? `${meta.characters} caracteres` : null;
+  if (meta.deteccion === "atajo") return `${accion ?? "Usó el atajo"} con el teclado; el navegador no informó cuánto.`;
+  if (accion && cantidad) return `${accion} ${cantidad}.`;
+  if (cantidad) return `${cantidad}.`;
+  if (accion) return `${accion}, sin cantidad disponible.`;
+  return "";
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clipboardCharacterCount, clockGap, isDuplicateClipboardIncident, isWindowPresenceEvent, nextPresence, supervisionTampering, type Absence, type PresenceSignal } from "@/hooks/use-exam-monitoring";
+import { clipboardCharacterCount, clipboardShortcut, clockGap, isDuplicateClipboardIncident, isWindowPresenceEvent, nextPresence, supervisionTampering, type Absence, type PresenceSignal } from "@/hooks/use-exam-monitoring";
 
 /** Reproduce una secuencia de eventos y devuelve las ausencias cerradas. */
 function replay(signals: ReadonlyArray<[PresenceSignal, number]>) {
@@ -164,5 +164,29 @@ describe("presencia con el filtro de ventana puesto", () => {
       ["hidden", 5, win],
       ["visible", 8_000, win],
     ], win)).toEqual([{ durationMs: 8_000, sawHidden: true }]);
+  });
+});
+
+describe("atajo de portapapeles", () => {
+  const tecla = (key: string, mods: { ctrlKey?: boolean; metaKey?: boolean } = {}) =>
+    ({ key, ctrlKey: false, metaKey: false, ...mods });
+
+  it("reconoce copiar, cortar y pegar con Ctrl", () => {
+    expect(clipboardShortcut(tecla("c", { ctrlKey: true }))).toBe("copiar");
+    expect(clipboardShortcut(tecla("x", { ctrlKey: true }))).toBe("cortar");
+    expect(clipboardShortcut(tecla("v", { ctrlKey: true }))).toBe("pegar");
+  });
+
+  it("acepta Cmd, que es el de las Mac", () => {
+    expect(clipboardShortcut(tecla("c", { metaKey: true }))).toBe("copiar");
+  });
+
+  it("acepta mayuscula, que es lo que llega con Shift o Bloq Mayus", () => {
+    expect(clipboardShortcut(tecla("C", { ctrlKey: true }))).toBe("copiar");
+  });
+
+  it("ignora la tecla sola y otros atajos", () => {
+    expect(clipboardShortcut(tecla("c"))).toBeNull();
+    expect(clipboardShortcut(tecla("s", { ctrlKey: true }))).toBeNull();
   });
 });

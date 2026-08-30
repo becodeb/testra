@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CircleDot, ClipboardList, Clock3, Radio, Square, Users } from "lucide-react";
+import { CircleDot, Clock3, Radio, Square, Users } from "lucide-react";
 
 import type { PlatformOverview } from "@/server/repository";
 
@@ -45,7 +45,8 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
     return () => { active = false; window.clearInterval(poll); };
   }, []);
 
-  const { totals, liveRuns, recentRuns, platformExams } = overview;
+  const { totals, liveRuns, recentRuns } = overview;
+
 
   async function closeRun(run: (typeof liveRuns)[number]) {
     const hasStudents = Number(run.active) > 0 || Number(run.participants) > 0;
@@ -147,41 +148,6 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
         )}
       </section>
 
-      <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="exams-title">
-        <div className="border-b p-5">
-          <h2 id="exams-title" className="flex items-center gap-2 font-semibold text-ink">
-            <ClipboardList className="size-4 text-brand" aria-hidden="true" />
-            Todas las evaluaciones
-          </h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="bg-inset text-xs text-ink-2">
-              <tr>
-                <th className="px-4 py-3">Evaluación</th>
-                <th className="px-4 py-3">Materia</th>
-                <th className="px-4 py-3">Docente</th>
-                <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3 text-right">Preguntas</th>
-                <th className="px-4 py-3 text-right">Tomas</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {platformExams.map((exam) => (
-                <tr key={exam.id} className="hover:bg-canvas">
-                  <th scope="row" className="px-4 py-3"><a href={`/admin/evaluaciones/${encodeURIComponent(exam.id)}`} className="font-semibold text-brand hover:underline">{exam.title}</a></th>
-                  <td className="px-4 py-3 text-ink-2">{exam.subject}</td>
-                  <td className="px-4 py-3"><span className="block text-ink-2">{exam.teacher_name ?? "—"}</span><span className="block text-xs text-muted">{exam.teacher_email ?? ""}</span></td>
-                  <td className="px-4 py-3 text-xs font-semibold">{exam.status === "ready" ? "Lista" : "Borrador"}</td>
-                  <td className="mono-number px-4 py-3 text-right">{exam.questions}</td>
-                  <td className="mono-number px-4 py-3 text-right">{exam.runs}</td>
-                </tr>
-              ))}
-              {!platformExams.length ? <tr><td colSpan={6} className="px-4 py-10 text-center text-muted"><Users className="mx-auto mb-2 size-5" />No hay evaluaciones.</td></tr> : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
 
       <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="recientes-title">
         <div className="border-b p-5">

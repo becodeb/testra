@@ -61,6 +61,22 @@ export function clipboardCharacterCount(
   return selectionText.length > 0 ? selectionText.length : null;
 }
 
+/**
+ * El atajo de portapapeles, mirado como tecla.
+ *
+ * El evento `copy` sólo llega si el navegador tuvo algo que copiar: sin
+ * selección, Ctrl+C no dispara nada y la acción quedaba sin registrar. Mirar la
+ * tecla cubre ese caso, y en Mac hay que aceptar Cmd además de Ctrl.
+ */
+export function clipboardShortcut(event: { key: string; ctrlKey: boolean; metaKey: boolean }): "copiar" | "cortar" | "pegar" | null {
+  if (!event.ctrlKey && !event.metaKey) return null;
+  const key = event.key.toLowerCase();
+  if (key === "c") return "copiar";
+  if (key === "x") return "cortar";
+  if (key === "v") return "pegar";
+  return null;
+}
+
 export function isDuplicateClipboardIncident(
   previous: { action: string; characters: number | null; questionId: string; at: number } | null,
   next: { action: string; characters: number | null; questionId: string; at: number },
@@ -231,16 +247,31 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
     };
     const onBlur = (event: Event) => { if (isWindowPresenceEvent(event, window)) applyPresence("blur"); };
     const onFocus = (event: Event) => { if (isWindowPresenceEvent(event, window)) applyPresence("focus"); };
+    // Cuándo llegó el último evento real de portapapeles, para no contar dos
+    // veces la misma acción: si el navegador ya lo reportó con su cantidad de
+    // caracteres, ese registro es mejor que el del atajo y manda.
+    let ultimoPortapapeles = 0;
     const onKeyDown = (event: KeyboardEvent) => {
       if (!watching()) return;
       if (event.key === "F12") {
         if (blockClipboard) event.preventDefault();
         emit({ type: "atajo-f12", at: Date.now(), durationMs: 0, meta: {} });
+        return;
       }
+      const atajo = clipboardShortcut(event);
+      if (!atajo) return;
+      // No se bloquea acá: bloquear la tecla impediría que llegue el evento de
+      // portapapeles, que es el que sabe cuántos caracteres eran.
+      const at = Date.now();
+      window.setTimeout(() => {
+        if (!watching() || ultimoPortapapeles >= at) return;
+        emit({ type: "atajo-copiar-pegar", at, durationMs: 0, meta: { action: atajo, characters: null, deteccion: "atajo" } });
+      }, 250);
     };
     const onClipboard = (event: ClipboardEvent) => {
       if (!watching()) return;
       const at = Date.now();
+      ultimoPortapapeles = at;
       const action = event.type;
       const characters = clipboardCharacterCount(event);
       const fingerprint = { action, characters, questionId: questionRef.current, at };
