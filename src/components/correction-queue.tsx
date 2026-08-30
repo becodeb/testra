@@ -18,6 +18,7 @@ export interface CorrectionItem {
 }
 
 interface Job { id: string; status: "queued" | "processing" | "completed" | "failed" | "cancelled"; total: number; processed: number; failed: number; error?: string | null }
+const ABRIR_REVISION = "testra:abrir-revision";
 const fechaCorta = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const itemKey = (item: CorrectionItem) => `${item.participantId}:${item.questionId}`;
 const pendingStatus = (item: CorrectionItem) => !["graded", "auto_graded"].includes(item.gradingStatus ?? (item.pointsAwarded === null ? "pending_manual" : "graded"));
@@ -49,6 +50,15 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
   const [reviewing, setReviewing] = useState(false);
 
   useEffect(() => { setReady(true); void fetch("/api/corrections/comments").then((response) => response.ok ? response.json() : []).then(setComments); }, []);
+  // Vuelta del análisis: se entra a la toma y se abre la revisión de una.
+  const [abrirAlVolver, setAbrirAlVolver] = useState(false);
+  useEffect(() => {
+    let pedido: string | null = null;
+    try { pedido = window.sessionStorage.getItem(ABRIR_REVISION); window.sessionStorage.removeItem(ABRIR_REVISION); } catch { return; }
+    if (pedido === null) return;
+    if (pedido) setOpenRun(pedido);
+    setAbrirAlVolver(true);
+  }, []);
   // Escape sale de pantalla completa y el fondo no scrollea mientras tanto.
   useEffect(() => {
     if (!expanded) return;
@@ -110,6 +120,15 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
   );
   const reviewRunTitle = items.find((item) => item.runId === runForReview)?.runTitle ?? "";
 
+  // Se abre en cuanto hay sugerencias que revisar. En dos pasos a propósito: si
+  // se abriera junto con elegir la toma, la cola todavía estaría vacía y el
+  // cuadro mostraría "terminaste la cola" apenas aparece.
+  useEffect(() => {
+    if (!abrirAlVolver || !reviewQueue.length) return;
+    setReviewing(true);
+    setAbrirAlVolver(false);
+  }, [abrirAlVolver, reviewQueue.length]);
+
   useEffect(() => { if (filtered.length && !filtered.some((item) => itemKey(item) === selectedKey)) setSelectedKey(itemKey(filtered[0])); }, [filtered, selectedKey]);
   useEffect(() => {
     if (!job || !["queued", "processing"].includes(job.status)) return;
@@ -118,7 +137,13 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
       if (!response.ok) return;
       const next = await response.json() as Job;
       setJob(next);
-      if (["completed", "failed"].includes(next.status)) window.setTimeout(() => window.location.reload(), 500);
+      if (["completed", "failed"].includes(next.status)) {
+        // Pedir sugerencias y despues tener que apretar otro boton para verlas
+        // es un paso de mas: se deja anotado que la revision tiene que abrirse
+        // sola, porque para tomar las sugerencias hay que recargar la pagina.
+        try { window.sessionStorage.setItem(ABRIR_REVISION, openRun ?? ""); } catch { /* sin almacenamiento, se abre a mano */ }
+        window.setTimeout(() => window.location.reload(), 500);
+      }
     }, 1_500);
     return () => window.clearInterval(timer);
   }, [job]);

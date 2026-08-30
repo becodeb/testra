@@ -240,22 +240,23 @@ export function AiCorrectionReview({ items, runTitle, withoutSuggestion, onClose
               </blockquote>
 
               <section className="mt-5 rounded-lg border border-brand/25 bg-brand-soft/40 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="flex items-center gap-2 text-sm font-bold text-brand-deep"><Sparkles className="size-4" aria-hidden="true" />La IA sugiere</p>
-                    {(() => {
-                      const level = confidenceLevel(item.aiConfidence ?? 0);
-                      const style = CONFIDENCE_STYLES[level];
-                      return (
-                        <p className="mt-2 flex items-center gap-2">
-                          <span className="h-[5px] w-22 overflow-hidden rounded-full bg-ink/10"><span className={`block h-full rounded-full ${style.bar}`} style={{ width: `${Math.round((item.aiConfidence ?? 0) * 100)}%` }} /></span>
-                          <span className={`text-xs ${style.text}`}>Confianza {Math.round((item.aiConfidence ?? 0) * 100)}%{level === "baja" ? " · revisala con cuidado" : ""}</span>
-                        </p>
-                      );
-                    })()}
-                  </div>
-                  <p className="flex items-baseline gap-1"><span className="mono-number text-3xl leading-none font-bold text-brand-deep">{item.aiSuggestedScore}</span><span className="text-sm font-medium text-ink-2">de {item.maxPoints}</span></p>
-                </div>
+                <p className="flex items-center gap-2 text-sm font-bold text-brand-deep"><Sparkles className="size-4" aria-hidden="true" />La IA sugiere</p>
+                {/* El puntaje es la decisión: va grande y al principio, no
+                    arrinconado a la derecha donde se pasa de largo. */}
+                <p className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span className="mono-number text-5xl leading-none font-bold tracking-[-.03em] text-brand-deep">{item.aiSuggestedScore}</span>
+                  <span className="text-lg font-semibold text-ink-2">de {item.maxPoints} punto{item.maxPoints === 1 ? "" : "s"}</span>
+                </p>
+                {(() => {
+                  const level = confidenceLevel(item.aiConfidence ?? 0);
+                  const style = CONFIDENCE_STYLES[level];
+                  return (
+                    <p className="mt-2.5 flex items-center gap-2">
+                      <span className="h-[5px] w-24 overflow-hidden rounded-full bg-ink/10"><span className={`block h-full rounded-full ${style.bar}`} style={{ width: `${Math.round((item.aiConfidence ?? 0) * 100)}%` }} /></span>
+                      <span className={`text-xs ${style.text}`}>Confianza {Math.round((item.aiConfidence ?? 0) * 100)}%{level === "baja" ? " · revisala con cuidado" : ""}</span>
+                    </p>
+                  );
+                })()}
 
                 {item.aiTeacherNote ? <p className="mt-3 text-sm leading-6 text-ink-2">{item.aiTeacherNote}</p> : null}
                 {Array.isArray(item.aiCriteria) && item.aiCriteria.length ? (
@@ -294,10 +295,10 @@ export function AiCorrectionReview({ items, runTitle, withoutSuggestion, onClose
                   <div className="mt-4 flex flex-wrap items-center gap-2">
                     {canAcceptDirectly ? (
                       <Button type="button" disabled={saving} onClick={() => void resolve(item.aiSuggestedScore ?? 0)}>
-                        <Check data-icon="inline-start" />{saving ? "Guardando…" : `Aceptar ${item.aiSuggestedScore} de ${item.maxPoints}`}
+                        <Check data-icon="inline-start" />{saving ? "Guardando…" : "Aceptar esta sugerencia"}
                       </Button>
                     ) : null}
-                    <Button type="button" variant="outline" disabled={saving} onClick={() => setAdjusting(true)}>Ajustar puntaje</Button>
+                    <Button type="button" variant="outline" disabled={saving} onClick={() => setAdjusting(true)}>Poner otro puntaje</Button>
                     {canSkip ? <Button type="button" variant="ghost" disabled={saving} onClick={skip}>Saltear por ahora</Button> : null}
                     {canAcceptDirectly ? null : <span className="text-xs text-warn">La IA no puntuó cada criterio de la rúbrica: cargalos vos.</span>}
                   </div>
