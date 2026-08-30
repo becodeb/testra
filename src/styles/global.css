@@ -434,3 +434,13 @@ html[data-overlay-open="true"] .page-content { view-transition-name: none; }
 .nav-secciones::-webkit-scrollbar {
   display: none;
 }
+
+/* Los elementos de una grilla no se encogen por debajo de su contenido: su
+   `min-width` es `auto`, no cero. Una tabla ancha adentro estira la columna
+   entera y con ella la página, y en el teléfono eso se ve como scroll
+   horizontal y un encabezado que deja de cubrir todo el ancho al alejar el
+   zoom. Las tablas ya saben desplazarse dentro de su propio marco; esto es lo
+   que las deja hacerlo. Va con `:where` para no ganarle a nada. */
+.page-content :where(.grid) > * {
+  min-width: 0;
+}
