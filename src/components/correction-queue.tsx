@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BrainCircuit, Check, Filter, Maximize2, MessageSquarePlus, Minimize2, Save, Sparkles, X } from "lucide-react";
 
 import type { RubricCriterion } from "@/domain/exam";
+import { AiCorrectionReview, type ReviewValues } from "@/components/ai-correction-review";
 import { RichContent } from "@/components/rich-content";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,7 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
   const [jobError, setJobError] = useState("");
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
 
   useEffect(() => { setReady(true); void fetch("/api/corrections/comments").then((response) => response.ok ? response.json() : []).then(setComments); }, []);
   // Escape sale de pantalla completa y el fondo no scrollea mientras tanto.
@@ -65,6 +67,21 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
   const activeIndex = Math.max(0, filtered.findIndex((item) => itemKey(item) === selectedKey));
   const active = filtered[activeIndex] ?? null;
   const pending = items.filter(pendingStatus).length;
+
+  // El cuadro de revisión trabaja sobre UNA evaluación: la filtrada, o la de la
+  // respuesta abierta. Entran las pendientes que ya tienen sugerencia; las que
+  // la IA no llegó a sugerir se cuentan aparte para avisarlo al cerrar, o el
+  // docente termina la cola creyendo que no quedó nada.
+  const runForReview = runFilter || active?.runId || "";
+  const reviewQueue = useMemo(
+    () => items.filter((item) => item.runId === runForReview && pendingStatus(item) && item.aiSuggestedScore !== null && item.aiSuggestedScore !== undefined),
+    [items, runForReview],
+  );
+  const reviewPendingWithoutSuggestion = useMemo(
+    () => items.filter((item) => item.runId === runForReview && pendingStatus(item) && (item.aiSuggestedScore === null || item.aiSuggestedScore === undefined)).length,
+    [items, runForReview],
+  );
+  const reviewRunTitle = items.find((item) => item.runId === runForReview)?.runTitle ?? "";
 
   useEffect(() => { if (filtered.length && !filtered.some((item) => itemKey(item) === selectedKey)) setSelectedKey(itemKey(filtered[0])); }, [filtered, selectedKey]);
   useEffect(() => {
@@ -119,8 +136,20 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
 
   // En pantalla completa la bandeja tapa la navegación y la lista de sesiones:
   // corregir desarrollos con media pantalla era el reclamo real.
+  // Mientras esté abierto se monta sí o sí. Si dependiera de `reviewQueue`, al
+  // guardar la última respuesta la cola quedaría vacía y el cuadro se cerraría
+  // solo: el docente nunca vería la pantalla de cierre ni el aviso de las que
+  // quedaron sin sugerencia. El cuadro congela su propia cola al abrirse.
+  const review = reviewing ? <AiCorrectionReview
+    items={reviewQueue}
+    runTitle={reviewRunTitle}
+    withoutSuggestion={reviewPendingWithoutSuggestion}
+    onClose={() => setReviewing(false)}
+    onResolve={(item: CorrectionItem, values: ReviewValues) => save(item, values, false)}
+  /> : null;
+
   return <section className={`grid gap-4 ${expanded ? "fixed inset-0 z-50 overflow-y-auto bg-canvas p-4 lg:p-6" : ""}`} data-correction-ready={ready ? "true" : "false"} data-correction-expanded={expanded ? "true" : "false"}>
-    <header className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold tracking-[.1em] text-brand uppercase">Bandeja de trabajo</p><h2 id="correction-title" className="mt-1 text-2xl font-semibold text-ink">Correcciones pendientes</h2><p className="mt-1 text-sm text-muted">{pending} por revisar · {items.length - pending} resueltas</p></div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setExpanded((value) => !value)}>{expanded ? <><Minimize2 data-icon="inline-start" />Salir</> : <><Maximize2 data-icon="inline-start" />Pantalla completa</>}</Button><Button type="button" variant="outline" size="sm" onClick={() => void addComment()}><MessageSquarePlus data-icon="inline-start" />Comentario</Button><Button type="button" size="sm" onClick={() => void analyze()} disabled={!active || job?.status === "processing"}><BrainCircuit data-icon="inline-start" />Corregir todo con IA</Button></div></header>
+    <header className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold tracking-[.1em] text-brand uppercase">Bandeja de trabajo</p><h2 id="correction-title" className="mt-1 text-2xl font-semibold text-ink">Correcciones pendientes</h2><p className="mt-1 text-sm text-muted">{pending} por revisar · {items.length - pending} resueltas</p></div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setExpanded((value) => !value)}>{expanded ? <><Minimize2 data-icon="inline-start" />Salir</> : <><Maximize2 data-icon="inline-start" />Pantalla completa</>}</Button><Button type="button" variant="outline" size="sm" onClick={() => void addComment()}><MessageSquarePlus data-icon="inline-start" />Comentario</Button>{reviewQueue.length ? <Button type="button" size="sm" onClick={() => setReviewing(true)}><Sparkles data-icon="inline-start" />Revisar {reviewQueue.length} sugerencia{reviewQueue.length === 1 ? "" : "s"}</Button> : null}<Button type="button" size="sm" variant={reviewQueue.length ? "outline" : "default"} onClick={() => void analyze()} disabled={!active || job?.status === "processing"}><BrainCircuit data-icon="inline-start" />Corregir todo con IA</Button></div></header>
     {job ? <div className="rounded-md border border-brand/20 bg-brand-soft/40 px-4 py-3 text-sm text-ink-2"><div className="flex items-center justify-between gap-3"><span><strong>{job.status === "completed" ? "Análisis completo" : job.status === "failed" ? "El análisis se interrumpió" : "Analizando respuestas en segundo plano"}</strong> · {job.processed}/{job.total}{job.failed ? ` · ${job.failed} sin analizar` : ""}</span>{["queued", "processing"].includes(job.status) ? <Button type="button" variant="ghost" size="xs" onClick={() => void fetch(`/api/corrections/jobs/${job.id}`, { method: "DELETE" }).then(() => setJob({ ...job, status: "cancelled" }))}>Cancelar</Button> : null}</div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white"><div className="h-full bg-brand transition-[width]" style={{ width: `${job.total ? job.processed / job.total * 100 : 100}%` }} /></div></div> : null}
     {jobError ? <p className="rounded-md border border-alert/30 bg-alert/5 px-4 py-3 text-sm text-alert">{jobError}</p> : null}
     <div className="grid gap-3 rounded-lg border bg-inset p-3 md:grid-cols-[1fr_1fr_9rem_9rem_9rem_auto]"><label className="text-xs font-semibold text-ink-2">Evaluación<select className="mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm" value={runFilter} onChange={(event) => setRunFilter(event.target.value)}><option value="">Todas</option>{runs.map(([id, title]) => <option key={id} value={id}>{title}</option>)}</select></label><label className="text-xs font-semibold text-ink-2">Alumno<Input className="mt-1" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Buscar por nombre" /></label><label className="text-xs font-semibold text-ink-2">Estado<select className="mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="pending">Pendientes</option><option value="suggested">Con sugerencia IA</option><option value="graded">Corregidas</option><option value="all">Todas</option></select></label><label className="text-xs font-semibold text-ink-2">Fecha<select className="mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm" value={dateFilter} onChange={(event) => setDateFilter(event.target.value as typeof dateFilter)}><option value="all">Cualquier fecha</option><option value="today">Últimas 24 h</option><option value="week">Últimos 7 días</option><option value="month">Últimos 30 días</option></select></label><label className="text-xs font-semibold text-ink-2">Orden<select className="mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm" value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}><option value="question">Por pregunta</option><option value="student">Por alumno</option></select></label><Button type="button" variant="ghost" size="sm" className="self-end" onClick={() => { setRunFilter(""); setStudentFilter(""); setStatusFilter("pending"); setDateFilter("all"); }}><Filter data-icon="inline-start" />Limpiar</Button></div>
@@ -128,6 +157,7 @@ export function CorrectionQueue({ initialItems, embedded = false, onGradeSaved }
       <aside className={`overflow-y-auto border-b bg-inset lg:border-r lg:border-b-0 ${expanded ? "max-h-[calc(100dvh-13rem)]" : "max-h-[72dvh]"}`} aria-label="Respuestas"><div className="sticky top-0 z-10 border-b bg-inset p-3 text-xs font-semibold text-muted">{filtered.length} respuesta{filtered.length === 1 ? "" : "s"}</div>{filtered.map((item, index) => <button key={itemKey(item)} type="button" onClick={() => setSelectedKey(itemKey(item))} className={`w-full border-b p-3 text-left transition-colors ${itemKey(item) === itemKey(active) ? "bg-white shadow-[inset_3px_0_0_var(--color-brand)]" : "hover:bg-white/70"}`}><span className="flex items-center justify-between gap-2"><strong className="truncate text-sm text-ink">{item.studentName}</strong><span className={`size-2 rounded-full ${pendingStatus(item) ? item.aiSuggestedScore !== null && item.aiSuggestedScore !== undefined ? "bg-brand" : "bg-warn" : "bg-ok"}`} /></span><span className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{mode === "question" ? item.answer || "Sin respuesta" : item.prompt}</span><span className="mt-1 block text-[.7rem] text-muted">{index + 1} / {filtered.length} · {item.runTitle}</span></button>)}</aside>
       <FocusedCorrection key={itemKey(active)} item={active} comments={comments} workingPosition={`${activeIndex + 1} de ${filtered.length}`} onPrevious={() => activeIndex > 0 && setSelectedKey(itemKey(filtered[activeIndex - 1]))} onNext={() => activeIndex < filtered.length - 1 && setSelectedKey(itemKey(filtered[activeIndex + 1]))} onSave={save} onReject={() => void rejectSuggestion(active)} />
     </div> : <div className="rounded-lg border border-dashed bg-paper p-10 text-center text-sm text-muted">No hay respuestas que coincidan con estos filtros.</div>}
+    {review}
   </section>;
 }
 
