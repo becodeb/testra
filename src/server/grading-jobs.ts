@@ -110,6 +110,33 @@ export function kickGradingJobs(now = Date.now()) {
   void resumeGradingJobs().catch((error) => console.error("[correcciones] no se pudieron reanudar procesos", error));
 }
 
+/**
+ * Cómo cierra un lote de corrección.
+ *
+ * Cerrar siempre como "completo" era el peor de los finales posibles: si una
+ * respuesta quedaba sin procesar, el docente leía "Análisis completo" y
+ * publicaba notas creyendo que estaban todas. Un lote con trabajo sin terminar
+ * se cierra como fallado y dice cuántas quedaron.
+ */
+export function jobClosure(remaining: number, failed: number): { status: "completed" | "failed"; error: string | null } {
+  if (remaining > 0) {
+    return { status: "failed", error: `Quedaron ${remaining} respuesta${remaining === 1 ? "" : "s"} sin analizar. Se corrigen a mano desde la bandeja.` };
+  }
+  if (failed > 0) {
+    return { status: "completed", error: `${failed} respuesta${failed === 1 ? " no se pudo analizar" : "s no se pudieron analizar"}. Se corrigen a mano desde la bandeja.` };
+  }
+  return { status: "completed", error: null };
+}
+
+/**
+ * La pregunta de una respuesta puede no estar en el examen de la toma: se
+ * regeneró con variantes, o al alumno se le asignó una versión adaptada
+ * después de que entrara al lote. Antes esto salteaba la respuesta en silencio
+ * —el ítem quedaba encolado para siempre y el contador nunca llegaba al total—.
+ * Ahora se marca como fallada, con el motivo a la vista.
+ */
+export const MISSING_QUESTION_ERROR = "La pregunta ya no está en el examen de esta toma. Corregila a mano.";
+
 async function processGradingJob(jobId: string, provider: AiGradingProvider) {
   const claimed = await db.prepare("UPDATE grading_jobs SET status = 'processing', started_at = COALESCE(started_at, ?) WHERE id = ? AND status IN ('queued', 'processing') RETURNING run_id")
     .bind(Date.now(), jobId).first<{ run_id: string | null }>();
@@ -120,7 +147,15 @@ async function processGradingJob(jobId: string, provider: AiGradingProvider) {
       const job = await db.prepare("SELECT status FROM grading_jobs WHERE id = ?").bind(jobId).first<{ status: JobStatus }>();
       if (job?.status === "cancelled") return;
       const question = (JSON.parse(row.questions_snapshot) as FullQuestion[]).find((item) => item.id === row.question_id);
-      if (!question || question.type !== "long") continue;
+      if (!question || question.type !== "long") {
+        // Nunca dejar un ítem colgado: se cierra como fallado y cuenta.
+        await db.batch([
+          db.prepare("UPDATE grades SET grading_status = 'pending_manual', ai_error = ? WHERE id = ?").bind(MISSING_QUESTION_ERROR, row.grade_id),
+          db.prepare("UPDATE grading_job_items SET status = 'failed' WHERE job_id = ? AND grade_id = ?").bind(jobId, row.grade_id),
+          db.prepare("UPDATE grading_jobs SET processed = processed + 1, failed = failed + 1 WHERE id = ?").bind(jobId),
+        ]);
+        continue;
+      }
       await db.batch([
         db.prepare("UPDATE grades SET grading_status = 'ai_processing' WHERE id = ?").bind(row.grade_id),
         db.prepare("UPDATE grading_job_items SET status = 'processing' WHERE job_id = ? AND grade_id = ?").bind(jobId, row.grade_id),
@@ -157,7 +192,11 @@ async function processGradingJob(jobId: string, provider: AiGradingProvider) {
         ]);
       }
     }
-    await db.prepare("UPDATE grading_jobs SET status = 'completed', completed_at = ? WHERE id = ? AND status = 'processing'").bind(Date.now(), jobId).run();
+    const restantes = await db.prepare("SELECT COUNT(*) AS n FROM grading_job_items WHERE job_id = ? AND status IN ('queued', 'processing')").bind(jobId).first<{ n: number }>();
+    const fallados = await db.prepare("SELECT COUNT(*) AS n FROM grading_job_items WHERE job_id = ? AND status = 'failed'").bind(jobId).first<{ n: number }>();
+    const cierre = jobClosure(Number(restantes?.n ?? 0), Number(fallados?.n ?? 0));
+    await db.prepare("UPDATE grading_jobs SET status = ?, completed_at = ?, error = ? WHERE id = ? AND status = 'processing'")
+      .bind(cierre.status, Date.now(), cierre.error, jobId).run();
   } catch (error) {
     const message = error instanceof Error ? error.message : "Falló el lote de corrección";
     await db.prepare("UPDATE grading_jobs SET status = 'failed', completed_at = ?, error = ? WHERE id = ?").bind(Date.now(), message.slice(0, 1000), jobId).run();
