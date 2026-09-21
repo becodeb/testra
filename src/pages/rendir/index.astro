@@ -7,7 +7,10 @@ const actor = getActor(Astro.locals, "teacher");
 if (actor && isTeacher(actor)) return Astro.redirect("/evaluaciones");
 ---
 
-<StudentLayout title="Ingresar a una evaluación">
+<StudentLayout
+  title="Ingresar a una evaluación"
+  description="Escribí el código que te dio tu docente para entrar a una evaluación de Testra. No hace falta crear una cuenta."
+>
   <main id="contenido" class="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-lg place-items-center px-4 py-12">
     <JoinRun client:load />
   </main>

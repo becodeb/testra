@@ -3,6 +3,7 @@ import { Image } from "astro:assets";
 
 import testraMark from "@/assets/testra-mark.png";
 import { ProfileMenu } from "@/components/profile-menu";
+import Seo from "@/components/Seo.astro";
 import "@/styles/global.css";
 import { getActor, isTeacher } from "@/server/actors";
 import { teacherPendingCorrectionCount } from "@/server/repository";
@@ -21,15 +22,10 @@ const correctionCount = actor && isTeacher(actor) ? await teacherPendingCorrecti
 <!doctype html>
 <html lang="es">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width" />
-    <meta name="theme-color" content="#FFFFFF" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <meta
-      name="description"
-      content="Testra ayuda a docentes a crear, aplicar y corregir evaluaciones en línea."
-    />
-    <title>{title} · Testra</title>
+    {/* Ninguna ruta del panel docente esta en PUBLIC_ROUTES, asi que todas salen
+        noindex solas. Antes cada una publicaba la misma descripcion de producto,
+        que ademas de inutil invitaba a indexar pantallas con datos de alumnos. */}
+    <Seo title={title} description="Panel de Testra." />
   </head>
   <body>
     <a class="skip-link" href="#contenido">Saltar al contenido</a>

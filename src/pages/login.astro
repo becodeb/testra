@@ -10,7 +10,10 @@ const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/
 const callbackURL = `/?next=${encodeURIComponent(next)}`;
 ---
 
-<StudentLayout title="Iniciar sesión">
+<StudentLayout
+  title="Iniciar sesión"
+  description="Entrá a Testra con tu cuenta de Google o con correo y contraseña para crear, tomar y corregir evaluaciones."
+>
   <main id="contenido" class="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-[1040px] place-items-center px-4 py-10 lg:px-6">
     <section class="grid w-full overflow-hidden rounded-xl border bg-paper shadow-[0_22px_60px_rgba(5,24,81,.12)] md:grid-cols-[1.05fr_.95fr]" aria-labelledby="login-title">
       <div class="hidden min-h-[560px] border-r bg-white p-10 md:flex md:flex-col">
