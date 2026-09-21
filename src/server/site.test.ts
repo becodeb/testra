@@ -43,8 +43,8 @@ describe("isPublicRoute", () => {
     }
   });
 
-  it("NO considera pública la raíz, que para un anónimo es un redirect", () => {
-    expect(isPublicRoute("/")).toBe(false);
+  it("considera pública la raíz, que para un anónimo es la portada", () => {
+    expect(isPublicRoute("/")).toBe(true);
   });
 
   it("no se deja engañar por un prefijo compartido", () => {

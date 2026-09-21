@@ -32,6 +32,7 @@ export interface PublicRoute {
  * la lista y el sitemap nunca pueden discrepar.
  */
 export const PUBLIC_ROUTES: readonly PublicRoute[] = [
+  { path: "/", priority: 1.0, changefreq: "monthly" },
   { path: "/rendir", priority: 0.9, changefreq: "monthly" },
   { path: "/acerca", priority: 0.8, changefreq: "monthly" },
   { path: "/docs/vigilancia", priority: 0.8, changefreq: "monthly" },

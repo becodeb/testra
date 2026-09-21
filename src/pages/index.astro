@@ -1,9 +1,267 @@
 ---
+import { Image } from "astro:assets";
+import { ArrowRight, Check, KeyRound, MonitorOff, ScanEye, SquarePen, UserCheck } from "lucide-react";
+
+import productoSesion from "@/assets/producto-sesion.png";
+import productoEvaluaciones from "@/assets/producto-evaluaciones.png";
+import StudentLayout from "@/layouts/StudentLayout.astro";
 import { getActor } from "@/server/actors";
 
+// Para quien ya entró, la raíz sigue siendo el desvío de siempre hacia su
+// panel. La portada es para el visitante anónimo: antes de esto, `/` era un
+// redirect y el dominio no tenía ninguna página que explicara qué es Testra.
 const actor = getActor(Astro.locals);
-if (!actor) return Astro.redirect("/rendir");
-const rawNext = Astro.url.searchParams.get("next") ?? "/";
-if (rawNext.startsWith("/") && !rawNext.startsWith("//") && rawNext !== "/") return Astro.redirect(rawNext);
-return Astro.redirect(actor.role === "teacher" ? "/evaluaciones" : "/rendir");
+if (actor) {
+  const rawNext = Astro.url.searchParams.get("next") ?? "/";
+  if (rawNext.startsWith("/") && !rawNext.startsWith("//") && rawNext !== "/") return Astro.redirect(rawNext);
+  return Astro.redirect(actor.role === "teacher" ? "/evaluaciones" : "/rendir");
+}
+
+const pasos = [
+  {
+    icono: SquarePen,
+    titulo: "Creá la evaluación",
+    detalle: "Preguntas de opción múltiple o de desarrollo, con puntaje por pregunta y orden aleatorio si lo querés.",
+  },
+  {
+    icono: KeyRound,
+    titulo: "Abrí la sala",
+    detalle: "Se genera un código de seis caracteres. Tus alumnos entran con ese código y su nombre, sin crear cuenta.",
+  },
+  {
+    icono: Check,
+    titulo: "Corregí y publicá",
+    detalle: "Lo de opción múltiple se corrige solo. En el desarrollo podés pedir una sugerencia de la IA y decidir vos.",
+  },
+];
+
+// Todas salen de páginas que ya existen: /acerca, /privacidad, /terminos y
+// /docs/vigilancia. Nada acá promete algo que el producto no haga.
+const preguntas = [
+  {
+    q: "¿Mis alumnos necesitan crearse una cuenta?",
+    a: "No. Entran con el código de la sala y su nombre, como invitados. La cuenta es opcional y solo hace falta del lado docente.",
+  },
+  {
+    q: "¿Testra usa la cámara, el micrófono o mira la pantalla?",
+    a: "No. No accede a la cámara, al micrófono, a la pantalla ni a otras aplicaciones del dispositivo, y no guarda el contenido de lo que se copia o se pega.",
+  },
+  {
+    q: "¿Un aviso prueba que un alumno se copió?",
+    a: "No. Un aviso describe algo que informó el navegador, como que la ventana perdió el foco. Tiene explicaciones cotidianas y no debe usarse como fundamento único de una sanción.",
+  },
+  {
+    q: "¿La inteligencia artificial pone la nota?",
+    a: "No. La IA organiza los incidentes y puede sugerir un puntaje en las respuestas de desarrollo, pero no califica ni sanciona. La decisión final es siempre del docente.",
+  },
+  {
+    q: "¿Se integra con Google Classroom?",
+    a: "Sí, y es opcional. Si el docente conecta Classroom, Testra puede cargar la lista de alumnos, publicar el enlace de la evaluación y enviar las calificaciones cuando él lo confirma.",
+  },
+];
+
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: preguntas.map(({ q, a }) => ({
+    "@type": "Question",
+    name: q,
+    acceptedAnswer: { "@type": "Answer", text: a },
+  })),
+};
 ---
+
+<StudentLayout
+  title="Evaluaciones en línea para docentes"
+  description="Creá una evaluación, abrí una sala con un código y corregí en el mismo lugar. Los alumnos entran sin cuenta y la nota siempre la decidís vos."
+>
+  <script type="application/ld+json" is:inline set:html={JSON.stringify(faqJsonLd).replace(/</g, "\\u003c")} />
+
+  <main id="contenido">
+    <section class="border-b bg-paper">
+      <div class="mx-auto grid max-w-[1180px] items-center gap-12 px-4 pt-14 pb-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.04fr)] lg:gap-14 lg:px-6 lg:pt-20">
+        <div>
+          <h1 class="text-[2.6rem] leading-[1.06] font-semibold tracking-[-.04em] text-ink md:text-[3.1rem]">
+            Evaluaciones en línea que no deciden por vos.
+          </h1>
+          <p class="mt-5 max-w-[46ch] text-lg leading-8 text-ink-2">
+            Creá la evaluación, abrí una sala con un código y corregí en el mismo lugar.
+          </p>
+          <div class="mt-8 flex flex-wrap gap-3">
+            <a
+              href="/login"
+              class="inline-flex h-11 items-center gap-2 rounded-md bg-brand px-5 text-sm font-semibold text-white transition-colors hover:bg-brand-deep active:translate-y-px"
+            >
+              Entrar a Testra
+              <ArrowRight aria-hidden="true" width={16} height={16} strokeWidth={2} />
+            </a>
+            <a
+              href="/rendir"
+              class="inline-flex h-11 items-center rounded-md border bg-white px-5 text-sm font-semibold text-ink-2 transition-colors hover:bg-inset active:translate-y-px"
+            >
+              Tengo un código
+            </a>
+          </div>
+        </div>
+
+        <div class="overflow-hidden rounded-xl border bg-canvas shadow-[0_22px_60px_rgba(5,24,81,.12)]">
+          <Image
+            src={productoSesion}
+            alt="Sala de una evaluación en Testra: el código de ingreso, la lista de alumnos con su avance y el panel de avisos de actividad."
+            widths={[640, 960, 1280]}
+            sizes="(min-width: 1024px) 640px, 100vw"
+            quality={82}
+            loading="eager"
+            class="w-full"
+          />
+        </div>
+      </div>
+    </section>
+
+    <section class="border-b bg-canvas">
+      <div class="mx-auto grid max-w-[1180px] items-center gap-12 px-4 py-16 lg:grid-cols-[minmax(0,1.06fr)_minmax(0,.94fr)] lg:gap-16 lg:px-6 lg:py-20">
+        <div class="order-2 overflow-hidden rounded-xl border bg-paper shadow-card lg:order-1">
+          <Image
+            src={productoEvaluaciones}
+            alt="Panel docente de Testra con el listado de evaluaciones y el trabajo pendiente de corrección."
+            widths={[560, 840, 1280]}
+            sizes="(min-width: 1024px) 560px, 100vw"
+            quality={82}
+            loading="lazy"
+            class="w-full"
+          />
+        </div>
+
+        <div class="order-1 lg:order-2">
+          <h2 class="text-3xl font-semibold tracking-[-.035em] text-ink md:text-4xl">
+            De la pregunta a la nota, en un mismo lugar
+          </h2>
+          <ol class="mt-8 grid gap-7">
+            {
+              pasos.map(({ icono: Icono, titulo, detalle }) => (
+                <li class="grid grid-cols-[auto_1fr] items-start gap-4">
+                  <span class="mt-0.5 grid size-9 shrink-0 place-items-center rounded-md bg-brand-soft text-brand-deep">
+                    <Icono aria-hidden="true" width={18} height={18} strokeWidth={2} />
+                  </span>
+                  <div>
+                    <h3 class="font-semibold text-ink">{titulo}</h3>
+                    <p class="mt-1.5 text-sm leading-6 text-ink-2">{detalle}</p>
+                  </div>
+                </li>
+              ))
+            }
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section class="bg-brand-deep">
+      <div class="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-6 px-4 py-12 lg:px-6">
+        <div>
+          <h2 class="text-2xl font-semibold tracking-[-.03em] text-white md:text-3xl">¿Te pasaron un código?</h2>
+          <p class="mt-2 max-w-[52ch] text-sm leading-6 text-blue-100">
+            Escribilo y entrá directo a la evaluación. No hace falta registrarse ni instalar nada.
+          </p>
+        </div>
+        <a
+          href="/rendir"
+          class="inline-flex h-11 shrink-0 items-center rounded-md bg-white px-5 text-sm font-semibold text-brand-deep transition-colors hover:bg-blue-50 active:translate-y-px"
+        >
+          Tengo un código
+        </a>
+      </div>
+    </section>
+
+    <section class="border-b bg-paper">
+      <div class="mx-auto max-w-[1180px] px-4 py-16 lg:px-6 lg:py-20">
+        <p class="text-xs font-bold tracking-[.12em] text-brand uppercase">Integridad</p>
+        <h2 class="mt-3 max-w-[22ch] text-3xl font-semibold tracking-[-.035em] text-ink md:text-4xl">
+          Los avisos dan contexto, no veredictos
+        </h2>
+
+        <div class="mt-10 grid gap-5 lg:grid-cols-[1.35fr_1fr]">
+          <article class="rounded-xl bg-brand-deep p-7 text-white">
+            <span class="grid size-10 place-items-center rounded-md bg-white/10">
+              <ScanEye aria-hidden="true" width={20} height={20} strokeWidth={1.8} />
+            </span>
+            <h3 class="mt-5 text-xl font-semibold">Qué se registra, y qué puede significar</h3>
+            <p class="mt-3 max-w-[54ch] text-sm leading-7 text-blue-100">
+              Cambios de pestaña, pérdida de foco, copiar y pegar, salidas de pantalla completa y desconexiones. Cada
+              aviso queda atado a la pregunta que el alumno estaba viendo, con su duración y su secuencia. Ninguna señal
+              cambia una nota por sí sola.
+            </p>
+            <a
+              href="/docs/vigilancia"
+              class="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-white underline underline-offset-4 hover:text-blue-100"
+            >
+              Ver qué significa cada aviso
+              <ArrowRight aria-hidden="true" width={15} height={15} strokeWidth={2} />
+            </a>
+          </article>
+
+          <div class="grid gap-5">
+            <article class="rounded-xl border bg-canvas p-6">
+              <span class="grid size-10 place-items-center rounded-md bg-inset text-ink-2">
+                <MonitorOff aria-hidden="true" width={20} height={20} strokeWidth={1.8} />
+              </span>
+              <h3 class="mt-4 font-semibold text-ink">Lo que nunca mira</h3>
+              <p class="mt-2 text-sm leading-6 text-ink-2">
+                Ni cámara, ni micrófono, ni la pantalla, ni otras pestañas. Tampoco guarda el texto que se copia.
+              </p>
+            </article>
+            <article class="rounded-xl border bg-canvas p-6">
+              <span class="grid size-10 place-items-center rounded-md bg-inset text-ink-2">
+                <UserCheck aria-hidden="true" width={20} height={20} strokeWidth={1.8} />
+              </span>
+              <h3 class="mt-4 font-semibold text-ink">La IA sugiere, el docente decide</h3>
+              <p class="mt-2 text-sm leading-6 text-ink-2">
+                Puede ordenar los incidentes y proponer un puntaje en las respuestas de desarrollo. No califica ni
+                sanciona a nadie.
+              </p>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="border-b bg-canvas">
+      <div class="mx-auto max-w-[760px] px-4 py-16 lg:px-6 lg:py-20">
+        <h2 class="text-3xl font-semibold tracking-[-.035em] text-ink md:text-4xl">Preguntas frecuentes</h2>
+        <div class="mt-8 grid gap-3">
+          {
+            preguntas.map(({ q, a }) => (
+              <details class="group rounded-xl border bg-paper px-5 py-4 open:shadow-card">
+                <summary class="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-ink marker:content-none">
+                  {q}
+                  <span
+                    class="grid size-6 shrink-0 place-items-center rounded-full border text-muted transition-transform group-open:rotate-45"
+                    aria-hidden="true"
+                  >
+                    +
+                  </span>
+                </summary>
+                <p class="mt-3 text-sm leading-7 text-ink-2">{a}</p>
+              </details>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <section class="bg-paper">
+      <div class="mx-auto max-w-[760px] px-4 py-16 text-center lg:px-6 lg:py-20">
+        <h2 class="text-3xl font-semibold tracking-[-.035em] text-ink md:text-4xl">Probalo con tu próxima evaluación</h2>
+        <p class="mx-auto mt-4 max-w-[48ch] text-base leading-7 text-ink-2">
+          Se entra con Google o con correo y contraseña. Tus alumnos no necesitan cuenta.
+        </p>
+        <a
+          href="/login"
+          class="mt-8 inline-flex h-11 items-center gap-2 rounded-md bg-brand px-6 text-sm font-semibold text-white transition-colors hover:bg-brand-deep active:translate-y-px"
+        >
+          Entrar a Testra
+          <ArrowRight aria-hidden="true" width={16} height={16} strokeWidth={2} />
+        </a>
+      </div>
+    </section>
+  </main>
+</StudentLayout>

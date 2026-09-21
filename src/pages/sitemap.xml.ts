@@ -4,9 +4,6 @@ import { PUBLIC_ROUTES, publicUrl } from "@/server/site";
 
 // El sitemap sale de la misma lista que decide el `noindex` de cada página, así
 // que no puede anunciar una URL que después se publica como no indexable.
-//
-// `/` queda afuera a propósito: para un visitante anónimo es un redirect a
-// `/rendir`, y un sitemap que lista redirects es un sitemap que miente.
 export const GET: APIRoute = () => {
   const urls = PUBLIC_ROUTES.map(
     (route) => `  <url>

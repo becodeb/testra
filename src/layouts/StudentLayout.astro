@@ -35,6 +35,9 @@ const actor = getAuthenticatedActor(Astro.locals);
           {actor ? <a href="/rendir" class="hover:text-ink">Ingresar código</a> : null}
           <a href="/acerca" class="hover:text-ink">Acerca de</a>
           <a href="/docs/vigilancia" class="hover:text-ink">Qué se registra</a>
+          {/* Sin sesión no había ninguna forma de entrar desde la cabecera. Se
+              esconde en /login, donde sería un botón hacia la misma página. */}
+          {!actor && Astro.url.pathname !== "/login" ? <a href="/login" class="inline-flex h-8 items-center rounded-md bg-brand px-3 font-semibold text-white transition-colors hover:bg-brand-deep">Entrar</a> : null}
           {actor ? <ProfileMenu client:load name={actor.name} email={actor.email} image={actor.image} role={actor.role === "teacher" ? "Docente" : "Alumno"} /> : null}
         </nav>
       </div>
