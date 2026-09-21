@@ -72,17 +72,17 @@ export function validateAiGradingResult(value: unknown, input: AiGradingInput) {
   return result;
 }
 
-export class GmiGradingProvider implements AiGradingProvider {
+export class RouterGradingProvider implements AiGradingProvider {
   // Un reintento: el modelo es no determinista y de vez en cuando devuelve un
-  // campo con el tipo equivocado. Reintentar cuesta centavos y evita dejar la
-  // respuesta sin sugerencia por un error que no se repite.
+  // campo con el tipo equivocado. El segundo intento puede caer en otro
+  // proveedor de la cascada, así que además de barato sirve para esquivar a uno
+  // que esté contestando mal.
   async grade(input: AiGradingInput): Promise<AiGradingResult> {
     const messages = buildAiGradingMessages(input);
     let last: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const raw = await chatJson(messages, {
-          maxTokens: 6000,
           unavailable: "La corrección con IA no está configurada",
           failed: "El asistente de corrección no respondió",
         });

@@ -1,6 +1,6 @@
 import type { FullQuestion } from "@/domain/exam";
 import type { Actor } from "@/server/actors";
-import { AI_GRADING_MODEL, GmiGradingProvider, type AiGradingInput, type AiGradingProvider } from "@/server/ai-grading";
+import { AI_GRADING_MODEL, RouterGradingProvider, type AiGradingInput, type AiGradingProvider } from "@/server/ai-grading";
 import { db } from "@/server/db/client";
 import { getRunCapabilities } from "@/server/exam-permissions";
 
@@ -93,7 +93,7 @@ export async function cancelGradingJob(actor: Actor, jobId: string) {
   return getGradingJob(actor, jobId);
 }
 
-export function ensureGradingJob(jobId: string, provider: AiGradingProvider = new GmiGradingProvider()) {
+export function ensureGradingJob(jobId: string, provider: AiGradingProvider = new RouterGradingProvider()) {
   if (workers.has(jobId)) return;
   workers.add(jobId);
   void processGradingJob(jobId, provider).finally(() => workers.delete(jobId));

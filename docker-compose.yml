@@ -41,7 +41,7 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      AI_ROUTER_URL: ${AI_ROUTER_URL:-https://ai-router.becode.com.ar}
       ALLOW_DEMO_AUTH: "false"
       PORT: "3000"
     ports:

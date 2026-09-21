@@ -31,9 +31,12 @@ export const serverEnv = {
   get GOOGLE_CLIENT_SECRET() {
     return optional("GOOGLE_CLIENT_SECRET") ?? "";
   },
-  // Inferencia en GMI Cloud (MiniMax M3). Ver `src/server/ai-client.ts`.
-  get GMI_API_KEY() {
-    return optional("GMI_API_KEY") ?? "";
+  // Inferencia a través del AI Router de BeCode. Ver `src/server/ai-client.ts`.
+  // Su cascada gratuita no pide credenciales, así que la IA viene prendida sin
+  // configurar nada. Definir la variable vacía es el interruptor para apagarla:
+  // `aiConfigured()` da falso y la app esconde todo lo que use IA.
+  get AI_ROUTER_URL() {
+    return process.env.AI_ROUTER_URL ?? "https://ai-router.becode.com.ar";
   },
   get ALLOW_DEMO_AUTH() {
     return optional("ALLOW_DEMO_AUTH");

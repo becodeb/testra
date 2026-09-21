@@ -52,7 +52,7 @@ export async function generateAiReport(scopeType: "run" | "participant", scopeId
       { role: "system", content: `Sos un asistente para docentes, no un perito técnico. Respondé SOLO JSON en español válido para este esquema: ${JSON.stringify(z.toJSONSchema(schema))}. Usá lenguaje cotidiano. No escribas IP, proxy, user agent, WebSocket, fingerprint, visibilitychange ni heurística: traducí cada término a lo que vivió la persona. Nunca declares que alguien copió o hizo trampa. Ninguna señal cambia una nota. Incluí explicaciones normales y una recomendación de revisión humana. La IA no califica ni sanciona.` },
       { role: "user", content: `${instructions}\n\nDatos:\n${compactInput.slice(0, 100_000)}` },
     ],
-    { maxTokens: 5000, unavailable: "El análisis con IA no está configurado", failed: "El análisis IA no respondió" },
+    { unavailable: "El análisis con IA no está configurado", failed: "El análisis IA no respondió" },
   );
   const content = schema.parse(raw);
   const generatedAt = Date.now();

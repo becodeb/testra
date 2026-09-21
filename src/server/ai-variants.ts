@@ -28,7 +28,7 @@ export async function generateQuestionVariants(actor: Actor, examId: string, que
       { role: "system", content: `Sos asistente de un docente. Devolvé SOLO JSON válido con {variants:[{prompt,config,rationale}]}. Generá exactamente ${count} variantes del mismo tipo, dificultad, objetivo y nivel. No copies literalmente. La config debe conservar la forma del original y siempre incluir una clave correcta inequívoca. No insertes ni decidas por el docente.` },
       { role: "user", content: JSON.stringify({ exam: { title: exam.title, subject: exam.subject, instructions: exam.instructions }, original }) },
     ],
-    { maxTokens: 7000, unavailable: "La asistencia con IA no está configurada", failed: "La asistencia IA no respondió" },
+    { unavailable: "La asistencia con IA no está configurada", failed: "La asistencia IA no respondió" },
   );
   return materializeQuestionVariants(original, raw);
 }

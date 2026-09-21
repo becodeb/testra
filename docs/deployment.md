@@ -79,7 +79,7 @@ Variables de entorno:
 | `BETTER_AUTH_SECRET` | sí | 32 caracteres aleatorios como mínimo |
 | `GOOGLE_CLIENT_ID` | no | Acceso con Google y Classroom |
 | `GOOGLE_CLIENT_SECRET` | no | Ídem |
-| `GMI_API_KEY` | no | Corrección, informes y variantes con IA (MiniMax M3 en GMI Cloud) |
+| `AI_ROUTER_URL` | no | Base del AI Router. Por omisión `https://ai-router.becode.com.ar`, que no pide credenciales. Definirla vacía apaga la IA |
 | `ALLOW_DEMO_AUTH` | no | Debe quedar sin definir o en `false` |
 | `DATABASE_POOL_MAX` | no | Conexiones del pool, 12 por omisión |
 
