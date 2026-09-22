@@ -18,6 +18,11 @@ export interface ClientIncident {
   meta: Record<string, unknown>;
 }
 
+export type LifecycleEvent = "hidden" | "pagehide";
+
+/** Recibe el aviso de que la página se ocultó o se cerró mientras se rendía. */
+export type LifecycleReporter = (event: LifecycleEvent, at: number, questionId: string) => void;
+
 interface UseExamMonitoringOptions {
   active: boolean;
   participantId: string;
@@ -26,6 +31,12 @@ interface UseExamMonitoringOptions {
   detectFocusLoss?: boolean;
   blockClipboard?: boolean;
   requireFullscreen?: boolean;
+  /**
+   * Por omisión el aviso va al servidor con `sendBeacon`, que es lo único que
+   * sobrevive al cierre de la pestaña. La demo pública no tiene servidor al que
+   * avisarle y promete no mandar nada: pasa uno que no hace nada.
+   */
+  reportLifecycle?: LifecycleReporter;
 }
 
 export interface Absence {
@@ -192,9 +203,20 @@ export function clockGap(elapsedMs: number, expectedMs: number, toleranceMs = 6_
   return drift > toleranceMs ? drift : null;
 }
 
-export function useExamMonitoring({ active, participantId, onIncident, activeQuestionId, detectFocusLoss = true, blockClipboard = false, requireFullscreen = false }: UseExamMonitoringOptions) {
+export function beaconLifecycleReporter(
+  participantId: string,
+  send: (url: string, data: Blob) => boolean = (url, data) => navigator.sendBeacon(url, data),
+): LifecycleReporter {
+  return (event, at, questionId) => {
+    const body = JSON.stringify({ participantId, event, at, questionId });
+    send("/api/student/lifecycle", new Blob([body], { type: "application/json" }));
+  };
+}
+
+export function useExamMonitoring({ active, participantId, onIncident, activeQuestionId, detectFocusLoss = true, blockClipboard = false, requireFullscreen = false, reportLifecycle }: UseExamMonitoringOptions) {
   const activeRef = useRef(active);
   const callbackRef = useRef(onIncident);
+  const lifecycleRef = useRef(reportLifecycle);
   const absenceRef = useRef<Absence | null>(null);
   const wasFullscreenRef = useRef(false);
   const questionRef = useRef(activeQuestionId);
@@ -203,8 +225,9 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
   useEffect(() => {
     activeRef.current = active;
     callbackRef.current = onIncident;
+    lifecycleRef.current = reportLifecycle;
     questionRef.current = activeQuestionId;
-  }, [active, activeQuestionId, onIncident]);
+  }, [active, activeQuestionId, onIncident, reportLifecycle]);
 
   useEffect(() => {
     const watching = () => activeRef.current;
@@ -213,10 +236,10 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
       callbackRef.current({ ...incident, meta: { ...incident.meta, questionId: questionRef.current } });
     };
 
-    const sendLifecycle = (event: "hidden" | "pagehide") => {
+    const beacon = beaconLifecycleReporter(participantId);
+    const sendLifecycle = (event: LifecycleEvent) => {
       if (!watching()) return;
-      const body = JSON.stringify({ participantId, event, at: Date.now(), questionId: questionRef.current });
-      navigator.sendBeacon("/api/student/lifecycle", new Blob([body], { type: "application/json" }));
+      (lifecycleRef.current ?? beacon)(event, Date.now(), questionRef.current);
     };
 
     const applyPresence = (signal: PresenceSignal) => {

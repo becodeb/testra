@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clipboardCharacterCount, clipboardShortcut, clockGap, isDuplicateClipboardIncident, isWindowPresenceEvent, nextPresence, supervisionTampering, type Absence, type PresenceSignal } from "@/hooks/use-exam-monitoring";
+import { beaconLifecycleReporter, clipboardCharacterCount, clipboardShortcut, clockGap, isDuplicateClipboardIncident, isWindowPresenceEvent, nextPresence, supervisionTampering, type Absence, type PresenceSignal } from "@/hooks/use-exam-monitoring";
 
 /** Reproduce una secuencia de eventos y devuelve las ausencias cerradas. */
 function replay(signals: ReadonlyArray<[PresenceSignal, number]>) {
@@ -188,5 +188,20 @@ describe("atajo de portapapeles", () => {
   it("ignora la tecla sola y otros atajos", () => {
     expect(clipboardShortcut(tecla("c"))).toBeNull();
     expect(clipboardShortcut(tecla("s", { ctrlKey: true }))).toBeNull();
+  });
+});
+
+describe("aviso de ciclo de vida", () => {
+  it("por omisión le manda al servidor el mismo beacon de siempre", async () => {
+    const sent: Array<{ url: string; data: Blob }> = [];
+    const report = beaconLifecycleReporter("participante-1", (url, data) => {
+      sent.push({ url, data });
+      return true;
+    });
+    report("hidden", 1_700_000_000_000, "q-3");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].url).toBe("/api/student/lifecycle");
+    expect(sent[0].data.type).toBe("application/json");
+    expect(await sent[0].data.text()).toBe(JSON.stringify({ participantId: "participante-1", event: "hidden", at: 1_700_000_000_000, questionId: "q-3" }));
   });
 });
