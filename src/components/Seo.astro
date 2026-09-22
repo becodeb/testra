@@ -39,6 +39,17 @@ const structuredData = {
   inLanguage: "es",
   offers: { "@type": "Offer", price: "0", priceCurrency: "ARS" },
 };
+
+// El buscador toma el nombre que muestra arriba de cada resultado —en vez del
+// dominio pelado— de los datos `WebSite` en la home del (sub)dominio, y solo
+// los lee ahí. Por eso este bloque va aparte y solo en `/`.
+const websiteData = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "Testra",
+  url: publicUrl("/"),
+  inLanguage: "es",
+};
 ---
 
 <meta charset="UTF-8" />
@@ -86,6 +97,16 @@ const structuredData = {
       type="application/ld+json"
       is:inline
       set:html={JSON.stringify(structuredData).replace(/</g, "\\u003c")}
+    />
+  ) : null
+}
+
+{
+  indexable && path === "/" ? (
+    <script
+      type="application/ld+json"
+      is:inline
+      set:html={JSON.stringify(websiteData).replace(/</g, "\\u003c")}
     />
   ) : null
 }

@@ -51,6 +51,52 @@ async function generarIconos() {
   }
 }
 
+/** Tamaños que entran en el mismo `favicon.ico`, del más chico al más grande. */
+const TAMANOS_FAVICON = [16, 32, 48];
+
+// El navegador (y cualquier crawler o generador de vista previa de enlaces)
+// pide `/favicon.ico` por omisión sin fijarse en los `<link rel="icon">`, y esa
+// ruta contestaba 404. Un ICO que adentro tiene PNG es válido en todos los
+// navegadores actuales, así que alcanza con armar el contenedor a mano.
+async function generarFavicon() {
+  const imagenes = await Promise.all(
+    TAMANOS_FAVICON.map((tamano) =>
+      sharp(marca)
+        .resize(tamano, tamano, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .png({ compressionLevel: 9 })
+        .toBuffer(),
+    ),
+  );
+
+  const TAMANO_ICONDIR = 6;
+  const TAMANO_ICONDIRENTRY = 16;
+  let offset = TAMANO_ICONDIR + TAMANO_ICONDIRENTRY * imagenes.length;
+
+  const iconDir = Buffer.alloc(TAMANO_ICONDIR);
+  iconDir.writeUInt16LE(0, 0); // reserved
+  iconDir.writeUInt16LE(1, 2); // type: 1 = ico
+  iconDir.writeUInt16LE(imagenes.length, 4);
+
+  const entradas = imagenes.map((buffer, i) => {
+    const tamano = TAMANOS_FAVICON[i];
+    const entrada = Buffer.alloc(TAMANO_ICONDIRENTRY);
+    entrada.writeUInt8(tamano === 256 ? 0 : tamano, 0); // width (0 = 256px)
+    entrada.writeUInt8(tamano === 256 ? 0 : tamano, 1); // height (0 = 256px)
+    entrada.writeUInt8(0, 2); // colorCount
+    entrada.writeUInt8(0, 3); // reserved
+    entrada.writeUInt16LE(1, 4); // planes
+    entrada.writeUInt16LE(32, 6); // bitCount
+    entrada.writeUInt32LE(buffer.length, 8); // bytesInRes
+    entrada.writeUInt32LE(offset, 12); // imageOffset
+    offset += buffer.length;
+    return entrada;
+  });
+
+  const ico = Buffer.concat([iconDir, ...entradas, ...imagenes]);
+  await writeFile(path.join(destino, "favicon.ico"), ico);
+  console.log("ok favicon.ico");
+}
+
 async function generarTarjetaSocial() {
   const ANCHO = 1200;
   const ALTO = 630;
@@ -98,5 +144,6 @@ async function generarManifiesto() {
 
 await mkdir(destino, { recursive: true });
 await generarIconos();
+await generarFavicon();
 await generarTarjetaSocial();
 await generarManifiesto();
