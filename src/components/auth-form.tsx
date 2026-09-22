@@ -21,9 +21,9 @@ function readableError(code?: string, fallback?: string) {
   return fallback || "No se pudo completar el acceso. Revisá los datos e intentá nuevamente.";
 }
 
-export function AuthForm({ callbackURL }: { callbackURL: string }) {
+export function AuthForm({ callbackURL, initialMode = "signin" }: { callbackURL: string; initialMode?: Mode }) {
   const [hydrated, setHydrated] = useState(false);
-  const [mode, setMode] = useState<Mode>("signin");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

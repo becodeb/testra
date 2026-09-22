@@ -8,6 +8,10 @@ import StudentLayout from "@/layouts/StudentLayout.astro";
 const rawNext = Astro.url.searchParams.get("next") ?? "/";
 const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
 const callbackURL = `/?next=${encodeURIComponent(next)}`;
+// Quien llega desde "Crear mi cuenta" (la demo, por ejemplo) ya decidió: el
+// formulario abre en el registro en vez de hacerle buscar el cambio de pestaña.
+// La canónica no cambia: Seo la arma con la ruta sola, sin query.
+const initialMode = Astro.url.searchParams.get("modo") === "registro" ? "signup" : "signin";
 ---
 
 <StudentLayout
@@ -35,7 +39,7 @@ const callbackURL = `/?next=${encodeURIComponent(next)}`;
         <p class="text-xs font-bold tracking-[.12em] text-[#087e89] uppercase">Acceso seguro</p>
         <h1 id="login-title" class="mt-3 text-3xl font-semibold tracking-[-.035em] text-ink">Entrá a Testra</h1>
         <p class="mt-3 text-sm leading-6 text-muted">Google es la forma más rápida de entrar. También podés usar correo y contraseña.</p>
-        <div class="mt-7"><AuthForm client:load callbackURL={callbackURL} /></div>
+        <div class="mt-7"><AuthForm client:load callbackURL={callbackURL} initialMode={initialMode} /></div>
       </div>
     </section>
   </main>
