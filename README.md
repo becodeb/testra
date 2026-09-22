@@ -71,6 +71,18 @@ Las migraciones se aplican solas al arrancar el contenedor.
 
 Nunca publiques `.env`, tokens de Coolify, credenciales de Postgres ni claves de proveedores de IA.
 
+## SEO e indexación
+
+- El indexado es fail-closed: `PUBLIC_ROUTES` en `src/server/site.ts` es la
+  única fuente de verdad tanto para el `robots` de cada página como para el
+  sitemap.
+- Después de deployar cambios en páginas públicas, corré
+  `node scripts/indexnow.mjs` para avisarle a Bing, Yandex, Seznam y Naver.
+  Google no usa IndexNow: para Google, el sitemap
+  (`https://testra.becode.com.ar/sitemap.xml`) se carga en Search Console.
+- Los íconos y la tarjeta social se regeneran con
+  `node scripts/generate-icons.mjs`.
+
 ## Documentación
 
 - [Arquitectura](docs/architecture.md)

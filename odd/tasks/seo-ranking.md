@@ -61,7 +61,7 @@ content pages. Needs the owner: Search Console (their Google account).
 - [x] T2 — The home page uses the searcher's words. Route: same writer.
   - Title "Exámenes y evaluaciones en línea para docentes"; description opens with "Creá un examen en línea"; step 1 detail opens with "Armá un examen"; the `SoftwareApplication` description names exámenes; hero image gets `fetchpriority="high"`.
   - Checks: rendered title, description and hero `<img>` attribute.
-- [ ] T3 — IndexNow. Route: same writer.
+- [x] T3 — IndexNow. Route: same writer.
   - `public/4b0e775e82ef465fd0811f776583d73b.txt`, `scripts/indexnow.mjs` (reads the live sitemap, checks the key file, POSTs to api.indexnow.org, has `--dry-run`), README section on SEO and indexing.
   - Checks: a dry run against the local server lists the 8 sitemap URLs and validates the key file.
 - [ ] T4 — Deliver. Route: parent, inline.
@@ -110,7 +110,21 @@ branch and the owner asked for a direct push).
   Testra</title>`, description meta matches, hero `<img>` carries
   `fetchpriority="high"`, page contains "Armá un examen", `/` has exactly 3
   `application/ld+json` blocks and `/acerca` has none with `"@type":"WebSite"`.
+- 2026-09-23: T3 done. Added `public/4b0e775e82ef465fd0811f776583d73b.txt`
+  (exact key, no trailing newline — checked byte length is 32) and
+  `scripts/indexnow.mjs` (checks the local key file, the deployed key file,
+  the live sitemap, then `--dry-run` lists or a real POST notifies). Added the
+  `## SEO e indexación` README section. Rebuilt (`npx astro build && npm run
+  build:ws`), restarted `node server.mjs` on :4391, and ran
+  `node scripts/indexnow.mjs http://127.0.0.1:4391 --dry-run`: listed exactly
+  the 8 sitemap URLs and the key location, exit 0.
+  `node scripts/indexnow.mjs http://127.0.0.1:1 --dry-run` failed fast with a
+  clear connection-error message, exit 1. Never ran it without `--dry-run`.
 
 ## Next step
 
-T1–T3 through one delegated writer, one commit per task.
+T1–T3 done, one commit each, on `seo/ranking`. T4 remains, owned by the
+parent: rebase on the latest `origin/feat/postgres-coolify`, push, confirm
+the Coolify deploy, check the live tags, and only then ping IndexNow for
+real (never with `--dry-run` dropped by anyone but the parent, after
+deploying).
