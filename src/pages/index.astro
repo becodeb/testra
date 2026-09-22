@@ -87,12 +87,15 @@ const faqJsonLd = {
           <p class="mt-5 max-w-[46ch] text-lg leading-8 text-ink-2">
             Creá la evaluación, abrí una sala con un código y corregí en el mismo lugar.
           </p>
+          {/* El visitante nuevo prueba sin comprometerse a nada; el alumno que
+              escribió el dominio sigue teniendo su código a mano, y el docente
+              que vuelve tiene "Entrar" en la cabecera y al pie de la página. */}
           <div class="mt-8 flex flex-wrap gap-3">
             <a
-              href="/login"
+              href="/demo"
               class="inline-flex h-11 items-center gap-2 rounded-md bg-brand px-5 text-sm font-semibold text-white transition-colors hover:bg-brand-deep active:translate-y-px"
             >
-              Entrar a Testra
+              Probar la demo
               <ArrowRight aria-hidden="true" width={16} height={16} strokeWidth={2} />
             </a>
             <a
@@ -190,13 +193,22 @@ const faqJsonLd = {
               aviso queda atado a la pregunta que el alumno estaba viendo, con su duración y su secuencia. Ninguna señal
               cambia una nota por sí sola.
             </p>
-            <a
-              href="/docs/vigilancia"
-              class="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-white underline underline-offset-4 hover:text-blue-100"
-            >
-              Ver qué significa cada aviso
-              <ArrowRight aria-hidden="true" width={15} height={15} strokeWidth={2} />
-            </a>
+            <div class="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3">
+              <a
+                href="/docs/vigilancia"
+                class="inline-flex items-center gap-2 text-sm font-semibold text-white underline underline-offset-4 hover:text-blue-100"
+              >
+                Ver qué significa cada aviso
+                <ArrowRight aria-hidden="true" width={15} height={15} strokeWidth={2} />
+              </a>
+              <a
+                href="/demo"
+                class="inline-flex items-center gap-2 text-sm font-semibold text-white underline underline-offset-4 hover:text-blue-100 focus-visible:outline-white"
+              >
+                Probar la demo
+                <ArrowRight aria-hidden="true" width={15} height={15} strokeWidth={2} />
+              </a>
+            </div>
           </article>
 
           <div class="grid gap-5">
