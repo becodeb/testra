@@ -21,7 +21,8 @@ const pasos = [
   {
     icono: SquarePen,
     titulo: "Creá la evaluación",
-    detalle: "Preguntas de opción múltiple o de desarrollo, con puntaje por pregunta y orden aleatorio si lo querés.",
+    detalle:
+      "Armá un examen con preguntas de opción múltiple o de desarrollo, con puntaje por pregunta y orden aleatorio si lo querés.",
   },
   {
     icono: KeyRound,
@@ -72,8 +73,8 @@ const faqJsonLd = {
 ---
 
 <StudentLayout
-  title="Evaluaciones en línea para docentes"
-  description="Creá una evaluación, abrí una sala con un código y corregí en el mismo lugar. Los alumnos entran sin cuenta y la nota siempre la decidís vos."
+  title="Exámenes y evaluaciones en línea para docentes"
+  description="Creá un examen en línea, abrí una sala con un código y corregí en el mismo lugar. Los alumnos entran sin cuenta y la nota siempre la decidís vos."
 >
   <script type="application/ld+json" is:inline set:html={JSON.stringify(faqJsonLd).replace(/</g, "\\u003c")} />
 
@@ -115,6 +116,7 @@ const faqJsonLd = {
             sizes="(min-width: 1024px) 640px, 100vw"
             quality={82}
             loading="eager"
+            fetchpriority="high"
             class="w-full"
           />
         </div>

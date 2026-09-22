@@ -58,7 +58,7 @@ content pages. Needs the owner: Search Console (their Google account).
   - `Seo.astro` emits `WebSite` JSON-LD (`name: "Testra"`, `url: <origin>/`) only on `/`.
   - `scripts/generate-icons.mjs` also writes `public/favicon.ico` (PNG inside ICO, 16/32/48).
   - Checks: `/` has the `WebSite` block and `/acerca` does not; `/favicon.ico` is 200 with an image type and 3 entries.
-- [ ] T2 — The home page uses the searcher's words. Route: same writer.
+- [x] T2 — The home page uses the searcher's words. Route: same writer.
   - Title "Exámenes y evaluaciones en línea para docentes"; description opens with "Creá un examen en línea"; step 1 detail opens with "Armá un examen"; the `SoftwareApplication` description names exámenes; hero image gets `fetchpriority="high"`.
   - Checks: rendered title, description and hero `<img>` attribute.
 - [ ] T3 — IndexNow. Route: same writer.
@@ -99,6 +99,17 @@ branch and the owner asked for a direct push).
   so no restore was needed. Manually parsed the ICO header: reserved=0,
   type=1, count=3, sizes 16/32/48, each of the 3 payloads starts with the PNG
   signature.
+- 2026-09-23: T2 done. `index.astro` title/description/step-1 detail now say
+  "examen"; `Seo.astro`'s `SoftwareApplication.description` too.
+  `fetchpriority="high"` added directly as a JSX prop on the hero `<Image>`;
+  traced `astro/dist/assets/services/service.js`'s `getHTMLAttributes` to
+  confirm it spreads unrecognized props straight to the `<img>` (no `priority`
+  boolean needed, that one is for the responsive `layout` feature this project
+  doesn't use). Verified live: built, started `node server.mjs` on :4391 and
+  curled `/` — `<title>Exámenes y evaluaciones en línea para docentes ·
+  Testra</title>`, description meta matches, hero `<img>` carries
+  `fetchpriority="high"`, page contains "Armá un examen", `/` has exactly 3
+  `application/ld+json` blocks and `/acerca` has none with `"@type":"WebSite"`.
 
 ## Next step
 
