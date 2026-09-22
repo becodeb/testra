@@ -25,6 +25,28 @@ export function copyForIncident(type: string): IncidentCopy {
   return incidentCopy[type] ?? { title: "Actividad para revisar", what: "Testra registró un evento durante la evaluación.", normal: "Puede tener explicaciones normales según el dispositivo y el contexto.", review: "Revisá la secuencia completa y conversá con el alumno si hace falta." };
 }
 
+type ClipboardAction = "copy" | "cut" | "paste";
+
+// La misma acción llega con dos nombres: el evento del navegador la informa en
+// inglés (`copy`) y el atajo de teclado la registra en castellano (`copiar`).
+// El docente y el alumno leen el registro a partir de acá, así que las dos
+// formas tienen que decir lo mismo en las dos pantallas.
+const CLIPBOARD_ACTIONS = new Map<string, ClipboardAction>([
+  ["copy", "copy"],
+  ["copiar", "copy"],
+  ["cut", "cut"],
+  ["cortar", "cut"],
+  ["paste", "paste"],
+  ["pegar", "paste"],
+]);
+
+function clipboardAction(meta: Record<string, unknown> | undefined): ClipboardAction | null {
+  return typeof meta?.action === "string" ? CLIPBOARD_ACTIONS.get(meta.action) ?? null : null;
+}
+
+const TEACHER_VERB: Record<ClipboardAction, string> = { copy: "Copió", cut: "Cortó", paste: "Pegó" };
+const STUDENT_VERB: Record<ClipboardAction, string> = { copy: "copiar", cut: "cortar", paste: "pegar" };
+
 /**
  * Qué se copió, en cantidad. Testra nunca guarda el contenido, así que el
  * tamaño es todo lo que hay —y aun así ayuda: no es lo mismo un desliz de tres
@@ -32,13 +54,38 @@ export function copyForIncident(type: string): IncidentCopy {
  */
 export function clipboardDetail(meta: Record<string, unknown> | undefined): string {
   if (!meta) return "";
-  const accion = typeof meta.action === "string"
-    ? { copy: "Copió", copiar: "Copió", cut: "Cortó", cortar: "Cortó", paste: "Pegó", pegar: "Pegó" }[meta.action] ?? null
-    : null;
+  const action = clipboardAction(meta);
+  const accion = action ? TEACHER_VERB[action] : null;
   const cantidad = typeof meta.characters === "number" ? `${meta.characters} caracteres` : null;
   if (meta.deteccion === "atajo") return `${accion ?? "Usó el atajo"} con el teclado; el navegador no informó cuánto.`;
   if (accion && cantidad) return `${accion} ${cantidad}.`;
   if (cantidad) return `${cantidad}.`;
   if (accion) return `${accion}, sin cantidad disponible.`;
   return "";
+}
+
+export interface StudentVisibleIncident {
+  type: string;
+  durationMs: number;
+  meta: Record<string, unknown>;
+}
+
+/**
+ * Lo que lee el alumno en el aviso que se le abre apenas queda registrado un
+ * evento. Es la otra mitad del mismo registro que ve el docente: por eso el
+ * portapapeles pasa por la misma lectura de la acción que `clipboardDetail`, y
+ * el atajo de teclado (`copiar`, sin cantidad) no cae en un genérico que el
+ * docente sí ve con su verbo.
+ */
+export function studentIncidentMessage(incident: StudentVisibleIncident): string {
+  if (incident.type === "cambio-de-pestana" || incident.type === "ventana-sin-foco") return `Estuviste fuera de la ventana ${(incident.durationMs / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} s.`;
+  if (incident.type === "atajo-copiar-pegar") {
+    const action = clipboardAction(incident.meta);
+    const verbo = action ? STUDENT_VERB[action] : "el portapapeles";
+    const characters = typeof incident.meta.characters === "number" ? ` (${incident.meta.characters} caracteres)` : " (cantidad no disponible)";
+    return `Usaste ${verbo}${characters}. Testra no guarda el contenido.`;
+  }
+  if (incident.type === "salida-pantalla-completa") return "Saliste de pantalla completa.";
+  if (incident.type === "manipulacion-de-supervision") return "Se detectó que se modificaron funciones del navegador que usa la supervisión. Quedó registrado.";
+  return "Se detectó el uso de F12. Testra lo registra; no pretende bloquear las herramientas del navegador.";
 }

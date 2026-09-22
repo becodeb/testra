@@ -15,6 +15,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { RichContent } from "@/components/rich-content";
 import { ReadingSettingsPanel, ReadingSettingsToggle, readingStyle, useReadingSettings } from "@/components/reading-settings";
+import { studentIncidentMessage } from "@/lib/incident-copy";
 
 export type StudentAnswerValue = string | boolean | string[];
 
@@ -421,7 +422,7 @@ export function StudentRuntime({
       </main>
 
       <div id="time-announcement" className="sr-only" aria-live="polite" />
-      <Dialog open={Boolean(incident)} onOpenChange={(open) => !open && setIncident(null)}><DialogContent><DialogHeader><DialogTitle>Este evento quedó registrado</DialogTitle><DialogDescription>{incident ? incidentMessage(incident) : ""} Tu docente ve el mismo registro. Los incidentes no cambian tu nota automáticamente.</DialogDescription></DialogHeader><DialogFooter><Button type="button" onClick={() => setIncident(null)}>Entendido</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={Boolean(incident)} onOpenChange={(open) => !open && setIncident(null)}><DialogContent><DialogHeader><DialogTitle>Este evento quedó registrado</DialogTitle><DialogDescription>{incident ? studentIncidentMessage(incident) : ""} Tu docente ve el mismo registro. Los incidentes no cambian tu nota automáticamente.</DialogDescription></DialogHeader><DialogFooter><Button type="button" onClick={() => setIncident(null)}>Entendido</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }
@@ -435,16 +436,4 @@ function StudentAnswer({ question, value, onChange }: { question: StudentQuestio
   if (question.type === "tf") return <RadioGroup value={typeof value === "boolean" ? String(value) : ""} onValueChange={(next) => onChange(next === "true")} className="grid gap-3 sm:grid-cols-2"><FieldLabel className="bg-white"><Field orientation="horizontal"><RadioGroupItem value="true" aria-label="Verdadero" />Verdadero</Field></FieldLabel><FieldLabel className="bg-white"><Field orientation="horizontal"><RadioGroupItem value="false" aria-label="Falso" />Falso</Field></FieldLabel></RadioGroup>;
   if (question.type === "sa") return <Field><FieldLabel htmlFor={`answer-${question.id}`}>Tu respuesta</FieldLabel><Input id={`answer-${question.id}`} value={typeof value === "string" ? value : ""} onChange={(event) => onChange(event.target.value)} autoComplete="off" /></Field>;
   return <Field><FieldLabel htmlFor={`answer-${question.id}`}>Tu desarrollo</FieldLabel><Textarea id={`answer-${question.id}`} className="min-h-56 leading-relaxed" value={typeof value === "string" ? value : ""} onChange={(event) => onChange(event.target.value)} /></Field>;
-}
-
-function incidentMessage(incident: ClientIncident) {
-  if (incident.type === "cambio-de-pestana" || incident.type === "ventana-sin-foco") return `Estuviste fuera de la ventana ${(incident.durationMs / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} s.`;
-  if (incident.type === "atajo-copiar-pegar") {
-    const action = incident.meta.action === "copy" ? "copiar" : incident.meta.action === "cut" ? "cortar" : incident.meta.action === "paste" ? "pegar" : "el portapapeles";
-    const characters = typeof incident.meta.characters === "number" ? ` (${incident.meta.characters} caracteres)` : " (cantidad no disponible)";
-    return `Usaste ${action}${characters}. Testra no guarda el contenido.`;
-  }
-  if (incident.type === "salida-pantalla-completa") return "Saliste de pantalla completa.";
-  if (incident.type === "manipulacion-de-supervision") return "Se detectó que se modificaron funciones del navegador que usa la supervisión. Quedó registrado.";
-  return "Se detectó el uso de F12. Testra lo registra; no pretende bloquear las herramientas del navegador.";
 }
