@@ -1,0 +1,25 @@
+---
+// La demo dibuja su propia cabecera: la de StudentLayout lleva al login y a las
+// páginas legales, y en medio de la demo esos links solo sirven para perderla.
+// Tampoco pregunta por la sesión: la demo es igual para todos y no toca la base.
+import Seo from "@/components/Seo.astro";
+import "@/styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<!doctype html>
+<html lang="es" class="demo-page">
+  <head>
+    <Seo title={title} description={description} />
+  </head>
+  <body>
+    <a class="skip-link" href="#contenido">Saltar al contenido</a>
+    <slot />
+  </body>
+</html>

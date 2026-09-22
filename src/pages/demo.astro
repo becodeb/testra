@@ -1,0 +1,18 @@
+---
+import { getImage } from "astro:assets";
+
+import testraMark from "@/assets/testra-mark.png";
+import { TestraDemo } from "@/components/demo/testra-demo";
+import DemoLayout from "@/layouts/DemoLayout.astro";
+
+// La marca se optimiza acá y la isla recibe solo la URL: `astro:assets` no
+// existe del lado del navegador.
+const mark = await getImage({ src: testraMark, width: 64 });
+---
+
+<DemoLayout
+  title="Probá Testra sin crear una cuenta"
+  description="Armá una evaluación, rendila como alumno y mirá qué registra Testra cuando cambiás de pestaña o copiás. En tres minutos y sin cuenta."
+>
+  <TestraDemo client:load markSrc={mark.src} />
+</DemoLayout>
