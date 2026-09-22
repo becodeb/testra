@@ -25,6 +25,7 @@ import {
   type FullQuestion,
   type QuestionType,
 } from "@/domain/exam";
+import { makeQuestion, newId, parsePastedExam, QUESTION_TYPE_LABELS } from "@/domain/exam-import";
 import { StatusBadge } from "@/components/status-badge";
 import { QuestionNavigator } from "@/components/question-navigator";
 import { Badge } from "@/components/ui/badge";
@@ -63,18 +64,6 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { RichContent } from "@/components/rich-content";
 
-const TYPE_LABELS: Record<QuestionType, string> = {
-  mc: "Opción única",
-  ms: "Varias opciones",
-  tf: "Verdadero / Falso",
-  sa: "Respuesta corta",
-  long: "Desarrollo",
-};
-
-function id(prefix: string) {
-  return `${prefix}-${crypto.randomUUID()}`;
-}
-
 function toLocalDateTime(value: string | null) {
   if (!value) return "";
   const date = new Date(value);
@@ -84,27 +73,6 @@ function toLocalDateTime(value: string | null) {
 
 function fromLocalDateTime(value: string) {
   return value ? new Date(value).toISOString() : null;
-}
-
-function makeQuestion(type: QuestionType = "mc", position = 0): FullQuestion {
-  const base = { id: id("q"), position, prompt: "", points: 1, section: "", assets: [] };
-  const options = [
-    { id: id("op"), text: "" },
-    { id: id("op"), text: "" },
-  ];
-
-  switch (type) {
-    case "mc":
-      return { ...base, type, config: { options, correctOptionId: "" } };
-    case "ms":
-      return { ...base, type, config: { options, correctOptionIds: [] } };
-    case "tf":
-      return { ...base, type, config: { correct: true } };
-    case "sa":
-      return { ...base, type, config: { accepted: [""] } };
-    case "long":
-      return { ...base, type, config: { aiEnabled: false, gradingCriteria: "", referenceAnswer: "", rubric: [] } };
-  }
 }
 
 export const sampleQuestions: FullQuestion[] = [
@@ -161,37 +129,6 @@ export const sampleQuestions: FullQuestion[] = [
     config: {},
   },
 ];
-
-function parsePastedExam(text: string): FullQuestion[] {
-  const blocks = text
-    .split(/\n\s*\n/)
-    .map((block) => block.trim())
-    .filter(Boolean);
-
-  return blocks.map((block, position) => {
-    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
-    const prompt = (lines.shift() ?? "").replace(/^\d+[).\-]\s*/, "");
-    const optionLines = lines.filter((line) => /^[A-Ha-h][).\-]\s+/.test(line));
-
-    if (optionLines.length >= 2) {
-      const question = makeQuestion("mc", position);
-      if (question.type !== "mc") return question;
-      return {
-        ...question,
-        prompt,
-        config: {
-          options: optionLines.map((line) => ({
-            id: id("op"),
-            text: line.replace(/^[A-Ha-h][).\-]\s+/, ""),
-          })),
-          correctOptionId: "",
-        },
-      };
-    }
-
-    return { ...makeQuestion("long", position), prompt } as FullQuestion;
-  });
-}
 
 interface ExamEditorProps {
   initialExam: ExamDraft;
@@ -406,11 +343,11 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
   function duplicateActive() {
     setQuestions((current) => {
       const duplicate = structuredClone(active);
-      duplicate.id = id("q");
+      duplicate.id = newId("q");
       if (duplicate.type === "mc" || duplicate.type === "ms") {
         const idMap = new Map<string, string>();
         duplicate.config.options = duplicate.config.options.map((option) => {
-          const nextId = id("op");
+          const nextId = newId("op");
           idMap.set(option.id, nextId);
           return { ...option, id: nextId };
         });
@@ -483,7 +420,7 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
   function addVariant(variant: FullQuestion) {
     setQuestions((current) => {
       const next = [...current];
-      next.splice(activeIndex + 1, 0, { ...variant, id: id("q") });
+      next.splice(activeIndex + 1, 0, { ...variant, id: newId("q") });
       return next.map((question, position) => ({ ...question, position }));
     });
     setActiveIndex(activeIndex + 1);
@@ -646,7 +583,7 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {Object.entries(TYPE_LABELS).map(([value, label]) => (
+                        {Object.entries(QUESTION_TYPE_LABELS).map(([value, label]) => (
                           <SelectItem key={value} value={value}>{label}</SelectItem>
                         ))}
                       </SelectGroup>
@@ -797,7 +734,7 @@ function AnswerKeyEditor({
       <div className="grid gap-4">
         <div><p className="font-semibold text-ink">Criterios de corrección</p><p className="mt-1 text-sm leading-relaxed text-muted">La rúbrica guía tanto la revisión docente como la sugerencia de IA. Sus criterios deben sumar {question.points} puntos.</p></div>
         {rubric.map((criterion, index) => <Field key={criterion.id} orientation="horizontal" className="rounded-md border bg-paper p-2.5"><Input aria-label={`Criterio ${index + 1}`} value={criterion.label} placeholder="Claridad conceptual" onChange={(event) => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, rubric: (current.config.rubric ?? []).map((item) => item.id === criterion.id ? { ...item, label: event.target.value } : item) } } : current)} /><Input aria-label={`Máximo criterio ${index + 1}`} className="w-24" type="number" min={0.01} max={question.points} value={criterion.maxPoints} onChange={(event) => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, rubric: (current.config.rubric ?? []).map((item) => item.id === criterion.id ? { ...item, maxPoints: Number(event.target.value) } : item) } } : current)} /><Button type="button" variant="ghost" size="icon-sm" aria-label={`Eliminar criterio ${index + 1}`} onClick={() => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, rubric: (current.config.rubric ?? []).filter((item) => item.id !== criterion.id) } } : current)}><Trash2 /></Button></Field>)}
-        <Button type="button" variant="outline" size="sm" className="justify-self-start" disabled={rubric.length >= 20} onClick={() => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, rubric: [...(current.config.rubric ?? []), { id: id("criterion"), label: "", maxPoints: rubric.length ? 1 : current.points }] } } : current)}><Plus data-icon="inline-start" />Agregar criterio</Button>
+        <Button type="button" variant="outline" size="sm" className="justify-self-start" disabled={rubric.length >= 20} onClick={() => onChange((current) => current.type === "long" ? { ...current, config: { ...current.config, rubric: [...(current.config.rubric ?? []), { id: newId("criterion"), label: "", maxPoints: rubric.length ? 1 : current.points }] } } : current)}><Plus data-icon="inline-start" />Agregar criterio</Button>
         {rubric.length ? <p className={`text-sm ${Math.abs(rubric.reduce((sum, item) => sum + item.maxPoints, 0) - question.points) < .001 ? "text-ok" : "text-alert"}`}>Total: {rubric.reduce((sum, item) => sum + item.maxPoints, 0)} / {question.points} puntos</p> : null}
         <div className="rounded-lg border bg-inset p-4">
           <p className="text-sm font-semibold text-ink">Ayuda para corregir con IA</p><p className="mt-1 text-sm text-muted">Opcional. Si lo dejás vacío la IA igual puede sugerir, guiándose solo por la consigna. También podés completarlo después de tomar la evaluación, desde la pantalla de corrección.</p>
@@ -941,7 +878,7 @@ function AnswerKeyEditor({
         className="self-start"
         onClick={() => onChange((current) => {
           if (current.type !== "mc" && current.type !== "ms") return current;
-          return { ...current, config: { ...current.config, options: [...current.config.options, { id: id("op"), text: "" }] } } as FullQuestion;
+          return { ...current, config: { ...current.config, options: [...current.config.options, { id: newId("op"), text: "" }] } } as FullQuestion;
         })}
       >
         <Plus data-icon="inline-start" /> Agregar opción
