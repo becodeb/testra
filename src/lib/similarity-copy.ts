@@ -154,9 +154,11 @@ export function closedPatternLine(closedPattern: NonNullable<SimilarityPair["clo
   return `Coinciden en ${sharedWrong} respuesta${sharedWrong === 1 ? "" : "s"} incorrecta${sharedWrong === 1 ? "" : "s"}; si hubieran respondido cada uno por su cuenta, lo esperable era ${expectedByChanceLabel(expectedByChance)}.`;
 }
 
-/** "nadie más la eligió" / "la eligieron X compañeros más". */
+/** "nadie más la eligió" / "la eligió 1 compañero más" / "la eligieron X compañeros más". */
 export function othersWithSameLine(othersWithSame: number): string {
-  return othersWithSame === 0 ? "nadie más la eligió" : `la eligieron ${othersWithSame} compañero${othersWithSame === 1 ? "" : "s"} más`;
+  if (othersWithSame === 0) return "nadie más la eligió";
+  if (othersWithSame === 1) return "la eligió 1 compañero más";
+  return `la eligieron ${othersWithSame} compañeros más`;
 }
 
 /** "«label»: los dos eligieron «answerLabel»; nadie más la eligió." / "...; la eligieron N compañeros más." */
