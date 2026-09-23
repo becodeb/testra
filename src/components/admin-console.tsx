@@ -98,7 +98,7 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
         </div>
 
         {liveRuns.length ? (
-          <div className="overflow-x-auto">
+          <div className="scroll-fade-x overflow-x-auto">
             <table className="w-full min-w-[820px] text-left text-sm">
               <thead className="bg-inset text-xs text-ink-2">
                 <tr>
@@ -153,7 +153,7 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
         <div className="border-b p-5">
           <h2 id="recientes-title" className="font-semibold text-ink">Últimas tomas cerradas</h2>
         </div>
-        <div className="overflow-x-auto">
+        <div className="scroll-fade-x overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="bg-inset text-xs text-ink-2">
               <tr>
@@ -172,7 +172,7 @@ export function AdminConsole({ initial }: { initial: PlatformOverview }) {
                     <span className="mono-number mt-0.5 block text-xs text-muted">{run.code}</span>
                   </th>
                   <td className="px-4 py-3 text-ink-2">{run.teacher_name ?? "—"}</td>
-                  <td className="px-4 py-3 text-xs text-muted">{run.ended_at ? dateFormatter.format(run.ended_at) : "—"}</td>
+                  <td className="px-4 py-3 text-xs whitespace-nowrap text-muted">{run.ended_at ? dateFormatter.format(run.ended_at) : "—"}</td>
                   <td className="mono-number px-4 py-3 text-right">{run.participants}</td>
                   <td className="px-4 py-3 text-xs">
                     {run.results_published_at

@@ -474,6 +474,36 @@ html[data-overlay-open="true"] .page-content { view-transition-name: none; }
   min-width: 0;
 }
 
+/* Aviso de que hay más columnas o pestañas tapadas al costado, sólo cuando
+   de verdad las hay: sombra en los bordes de un contenedor con scroll
+   horizontal (tabla ancha, barra de secciones). Técnica de degradés con
+   `background-attachment` local/scroll — dos capas "tapa" viajan con el
+   contenido (`local`) y son del mismo color que el fondo real: a scroll 0
+   quedan exactamente sobre el borde visible y ocultan la sombra; dos capas
+   "sombra" quedan fijas al marco (`scroll`) y son la sombra en sí, sólo
+   visible cuando la tapa correspondiente se corrió con el contenido porque
+   hay más para el costado. En una tabla que ya entra completa (desktop) tapa
+   y sombra coinciden siempre: no se ve nada. `--scroll-fade-bg` es el color
+   de fondo real detrás; el valor por defecto (#fff) sirve para tarjetas
+   blancas (`bg-paper`), y se pisa con un `style` inline cuando el fondo es
+   otro (p. ej. `bg-inset`). Nota: `@theme inline` no deja `--color-*` como
+   variable de runtime (Tailwind la resuelve en build), así que el fallback
+   va como color literal, no `var(--color-paper)` — si no, el `var()` con la
+   variable inexistente invalida toda la declaración. Sólo pone
+   `background-image`: el color de fondo real lo sigue poniendo la clase
+   `bg-*` de siempre, así no hay pelea de capas. */
+@utility scroll-fade-x {
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
+  background-size: 28px 100%, 28px 100%, 12px 100%, 12px 100%;
+  background-position: left, right, left, right;
+  background-image:
+    linear-gradient(to right, var(--scroll-fade-bg, #fff) 40%, transparent),
+    linear-gradient(to left, var(--scroll-fade-bg, #fff) 40%, transparent),
+    linear-gradient(to right, rgba(22, 24, 29, .18), transparent),
+    linear-gradient(to left, rgba(22, 24, 29, .18), transparent);
+}
+
 /* Reserva el canal de la barra de scroll aunque no haga falta.
    Sin esto, cada vez que se abre un cuadro —que bloquea el scroll del fondo—
    la barra desaparece y la página entera se corre 15 px: todo cambia de tamaño

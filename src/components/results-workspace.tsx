@@ -431,7 +431,8 @@ export function ResultsWorkspace({
                   role="tablist"
                   aria-label="Vistas de la toma"
                   data-results-ready={tabsReady ? "true" : "false"}
-                  className="flex gap-1 overflow-x-auto bg-inset px-3"
+                  className="scroll-fade-x flex gap-1 overflow-x-auto bg-inset px-3"
+                  style={{ "--scroll-fade-bg": "#f0f2f5" } as React.CSSProperties}
                 >
                   {TABS.map((item, index) => {
                     const current = tab === item.id;
@@ -502,7 +503,7 @@ export function ResultsWorkspace({
                       }
                     />
                   ) : null}
-                  <div className="overflow-x-auto">
+                  <div className="scroll-fade-x overflow-x-auto">
                     <table className="w-full min-w-[620px] text-left text-sm">
                       <thead className="bg-inset text-xs text-ink-2">
                         <tr>
@@ -546,8 +547,8 @@ export function ResultsWorkspace({
                                   {participant.status === "submitted" ? pending ? "Entregó" : "Corregida" : participant.status === "expired" ? "Vencida" : participant.status === "active" || participant.status === "disconnected" ? "En curso" : "No iniciada"}
                                 </span>
                               </td>
-                              <td className="mono-number px-4 py-3 text-xs text-muted">{participant.attempt_started_at ? attemptFormatter.format(Number(participant.attempt_started_at)) : "—"}</td>
-                              <td className="mono-number px-4 py-3 text-xs text-muted">{participant.submitted_at ? attemptFormatter.format(Number(participant.submitted_at)) : "—"}</td>
+                              <td className="mono-number px-4 py-3 text-xs whitespace-nowrap text-muted">{participant.attempt_started_at ? attemptFormatter.format(Number(participant.attempt_started_at)) : "—"}</td>
+                              <td className="mono-number px-4 py-3 text-xs whitespace-nowrap text-muted">{participant.submitted_at ? attemptFormatter.format(Number(participant.submitted_at)) : "—"}</td>
                               <td className="mono-number px-4 py-3 text-right text-xs text-muted">{attemptDuration(participant.attempt_started_at, participant.submitted_at)}</td>
                               <td className="mono-number px-4 py-3 text-right">
                                 {Number(participant.answered)}/
