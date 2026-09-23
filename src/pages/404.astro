@@ -1,0 +1,36 @@
+---
+// Página de "no encontrado" compartida. Antes, cada ruta que devolvía un 404
+// lo hacía con `new Response(mensaje, { status: 404 })`: sin `<head>`, sin
+// meta viewport, así que un celular la renderizaba a 980px y la mostraba
+// alejada. Las rutas que necesitan un 404 dinámico (sesión, evaluación,
+// código de ingreso inexistentes) ahora hacen
+// `return Astro.rewrite(\`/404?msg=${encodeURIComponent(mensaje)}\`)`, que
+// preserva la URL pedida y el mensaje exacto; esta página sólo le pone
+// viewport, marca y estilo. El estado 404 lo fija acá mismo, así no depende
+// de que cada llamador se acuerde.
+import { Image } from "astro:assets";
+
+import testraMark from "@/assets/testra-mark.png";
+import Seo from "@/components/Seo.astro";
+import "@/styles/global.css";
+
+Astro.response.status = 404;
+
+const message = Astro.url.searchParams.get("msg") || "No encontrado";
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <Seo title="No encontrado" description="Esta página no existe o ya no está disponible." />
+  </head>
+  <body>
+    <main class="grid min-h-dvh place-items-center px-4 py-12">
+      <div class="mx-auto max-w-sm text-center">
+        <span class="testra-mark mx-auto" aria-hidden="true"><Image src={testraMark} alt="" width={128} quality={90} loading="eager" /></span>
+        <p class="mt-5 text-lg font-semibold text-ink">{message}</p>
+        <a href="/" class="mt-4 inline-flex text-sm font-semibold text-brand hover:underline">Volver al inicio</a>
+      </div>
+    </main>
+  </body>
+</html>

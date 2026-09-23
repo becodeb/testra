@@ -12,7 +12,7 @@ const actor = getActor(Astro.locals, "teacher");
 if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
 if (!isTeacher(actor)) return Astro.redirect("/rendir");
 const exam = await getExam(Astro.params.id!, actor);
-if (!exam) return new Response("Evaluación inexistente", { status: 404 });
+if (!exam) return Astro.rewrite(`/404?msg=${encodeURIComponent("Evaluación inexistente")}`);
 const capabilities = await getExamCapabilities(exam.id, actor);
 const collaborators = capabilities.manageSharing ? await listExamCollaborators(exam.id, actor) ?? [] : [];
 ---

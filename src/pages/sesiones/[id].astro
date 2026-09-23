@@ -10,7 +10,7 @@ const actor = getActor(Astro.locals, "teacher");
 if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
 if (!isTeacher(actor) && !isSuperadmin(actor)) return Astro.redirect("/rendir");
 const snapshot = await getMonitorSnapshot(Astro.params.id!, actor);
-if (!snapshot) return new Response("Sesión inexistente", { status: 404 });
+if (!snapshot) return Astro.rewrite(`/404?msg=${encodeURIComponent("Sesión inexistente")}`);
 const capabilities = await getRunCapabilities(Astro.params.id!, actor);
 ---
 
