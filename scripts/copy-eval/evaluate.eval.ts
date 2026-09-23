@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { chatJson, type ChatMessage } from "@/server/ai-client";
 import { JevError, evaluateWithJev, jevConfigured, type JevAnswer, type JevErrorCode, type JevEvaluateRequest, type JevQuestionSpec, type JevResult } from "@/server/jev-client";
 import { buildJevRequest, eligibleParticipantIds, orderPairsForQuestion, SEMANTIC_REVIEW_PROBABILITY, SIMILARITY_CONTEXT, SIMILARITY_QUESTIONS } from "@/server/similarity-analysis";
-import { computeFragmentSignals, pairKey, type FragmentFinding, type SimilarityQuestion } from "@/server/similarity-signals";
+import { CLOSED_ALPHA_REVIEW, CLOSED_ALPHA_STRONG, computeFragmentSignals, pairKey, type FragmentFinding, type SimilarityQuestion } from "@/server/similarity-signals";
 
 import { runClosedSimulation, type AlphaCombination, type ClosedSimConfig, type ClosedSimSummary } from "./lib/closed-sim";
 import { allPairs, globalPairKey, loadDataset, questionToClassInput, type Dataset, type DatasetQuestion } from "./lib/dataset";
@@ -638,7 +638,6 @@ const CLOSED_SIM_MAX_MEAN_FALSE_FLAGS = 0.2;
 interface ClosedSimComboAggregate extends AlphaCombination {
   perConfig: Array<{ label: string; summary: ClosedSimSummary }>;
   worstMeanFalseFlags: number;
-  worstReviewOrStrongRate: number;
 }
 
 function evaluateClosedSim(): string {
@@ -690,11 +689,9 @@ function evaluateClosedSim(): string {
         alphaStrong: summary.alphaStrong,
         perConfig: [],
         worstMeanFalseFlags: 0,
-        worstReviewOrStrongRate: 1,
       };
       aggregate.perConfig.push({ label, summary });
       aggregate.worstMeanFalseFlags = Math.max(aggregate.worstMeanFalseFlags, summary.otherFalseFlagsMean ?? 0);
-      aggregate.worstReviewOrStrongRate = Math.min(aggregate.worstReviewOrStrongRate, summary.reviewOrStrongRate);
       combosByKey.set(key, aggregate);
     }
   }
@@ -702,12 +699,25 @@ function evaluateClosedSim(): string {
   const combos = [...combosByKey.values()];
   const eligible = combos.filter((combo) => combo.worstMeanFalseFlags <= CLOSED_SIM_MAX_MEAN_FALSE_FLAGS);
   const pool = eligible.length ? eligible : combos;
+  // Se elige por la detección PROMEDIO entre las clases simuladas, no por la
+  // peor: solo-tf no detecta nada con ningún α (π = 1), así que el peor caso
+  // empata siempre en 0 y el desempate terminaría premiando al α más estricto
+  // aunque detecte la mitad.
+  const meanDetection = (combo: ClosedSimComboAggregate) => mean(combo.perConfig.map(({ summary }) => summary.reviewOrStrongRate)) ?? 0;
+  const meanStrong = (combo: ClosedSimComboAggregate) => mean(combo.perConfig.map(({ summary }) => summary.strongRate)) ?? 0;
   const chosen = [...pool].sort(
-    (a, b) => b.worstReviewOrStrongRate - a.worstReviewOrStrongRate || a.worstMeanFalseFlags - b.worstMeanFalseFlags,
+    (a, b) =>
+      meanDetection(b) - meanDetection(a) || meanStrong(b) - meanStrong(a) || a.worstMeanFalseFlags - b.worstMeanFalseFlags,
   )[0];
-  const chosenNote = eligible.length
-    ? `Cumple el piso de ${CLOSED_SIM_MAX_MEAN_FALSE_FLAGS} falsos flags/clase (peor caso entre las 3 clases) y, entre las que lo cumplen, tiene la mejor detección peor-caso.`
-    : `**Ninguna combinación probada baja de ${CLOSED_SIM_MAX_MEAN_FALSE_FLAGS} falsos flags/clase en el peor caso** — se muestra la de mejor detección peor-caso igual, para referencia, pero ninguna cumple el criterio pedido.`;
+  const matchesProduction = chosen.alphaReview === CLOSED_ALPHA_REVIEW && chosen.alphaStrong === CLOSED_ALPHA_STRONG;
+  const chosenNote = [
+    eligible.length
+      ? `Cumple el techo de ${CLOSED_SIM_MAX_MEAN_FALSE_FLAGS} falsos flags/clase (media, en el peor caso entre las 3 clases) y, entre las que lo cumplen, tiene la mejor detección promedio.`
+      : `**Ninguna combinación probada baja de ${CLOSED_SIM_MAX_MEAN_FALSE_FLAGS} falsos flags/clase en el peor caso** — se muestra la de mejor detección promedio igual, para referencia, pero ninguna cumple el criterio pedido.`,
+    matchesProduction
+      ? `Coincide con las constantes de producción (\`CLOSED_ALPHA_REVIEW=${CLOSED_ALPHA_REVIEW}\`, \`CLOSED_ALPHA_STRONG=${CLOSED_ALPHA_STRONG}\`).`
+      : `**No coincide con producción** (\`CLOSED_ALPHA_REVIEW=${CLOSED_ALPHA_REVIEW}\`, \`CLOSED_ALPHA_STRONG=${CLOSED_ALPHA_STRONG}\`): revisar antes de confiar en estos números.`,
+  ].join(" ");
 
   return [
     "## 5. Preguntas cerradas, simulación sin IA (calibra el modelo de azar)",

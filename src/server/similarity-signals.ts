@@ -194,18 +194,20 @@ export function isLongEligible(tokens: Token[]): boolean {
 export const CLOSED_MIN_RESPONDENTS = 5;
 /**
  * Calibrados en T4 contra tres simulaciones de 200 semillas (15 mc, 10 tf, y
- * un examen mixto de 25 con sa de cola larga): de las combinaciones
- * probadas (α_review ∈ {0.05, 0.2, 1}, α_strong ∈ {0.001, 0.01}), estos dos
- * valores son los únicos que mantienen los falsos flags por clase en 0 (mc,
- * tf) o prácticamente 0 (~0.01, mixto) en el peor caso de las tres, al costo
- * de una detección baja en exámenes solo-mc o solo-tf (con pocas opciones
- * incorrectas, K chico, no hay margen estadístico salvo que casi todas las
- * preguntas coincidan). Con sa en la mezcla (espacio de respuestas más
- * abierto, K más grande) la detección sube bastante. Ver
+ * un examen mixto de 25 con sa de cola larga), probando α_review ∈ {0.05,
+ * 0.2, 1} y α_strong ∈ {0.001, 0.01}. El criterio: a lo sumo 0,2 pares
+ * inocentes marcados por clase en promedio, con la mejor detección posible.
+ * α_review = 1 (P ≤ 1/nPares) lo cumple con 0,045 (15 mc) y 0,12 (mixto) y
+ * duplica la detección del mixto (50,5 % contra 27 % con 0,05); α_strong =
+ * 0,01 sube la detección "fuerte" del mixto de 8 % a 17,3 % sin sumar falsos.
+ * Los falsos que quedan son siempre "para revisar", nunca "fuerte". Solo-tf
+ * no detecta nada con ningún α (π = 1: coincidir en un falso no dice nada) y
+ * solo-mc detecta poco (12 %): con tres opciones incorrectas, Σp² ≥ 1/3 y
+ * hacen falta muchas coincidencias para salir del azar. Ver
  * `scripts/copy-eval/results/` para la tabla completa.
  */
-export const CLOSED_ALPHA_REVIEW = 0.05;
-export const CLOSED_ALPHA_STRONG = 0.001;
+export const CLOSED_ALPHA_REVIEW = 1;
+export const CLOSED_ALPHA_STRONG = 0.01;
 export const CLOSED_MIN_SHARED_REVIEW = 2;
 export const CLOSED_MIN_SHARED_STRONG = 3;
 
