@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Re-renderiza una vez por segundo mientras `running` sea verdadero. El reloj
@@ -13,18 +13,6 @@ export function useSecondTicks(running: boolean) {
     return () => window.clearInterval(timer);
   }, [running]);
   return ticks;
-}
-
-export function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    const update = () => setMatches(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, [query]);
-  return matches;
 }
 
 /**
@@ -45,43 +33,4 @@ export function useSaveStatus(signal: string): "loading" | "done" {
     return () => window.clearTimeout(timer);
   }, [signal]);
   return state;
-}
-
-export interface FullscreenControl {
-  isFullscreen: boolean;
-  /** El navegador no la ofrece o la rechazó: la evaluación sigue sin ella. */
-  unavailable: boolean;
-  request: () => Promise<void>;
-  exit: () => void;
-}
-
-export function useFullscreen(): FullscreenControl {
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [unavailable, setUnavailable] = useState(false);
-
-  useEffect(() => {
-    const update = () => setIsFullscreen(Boolean(document.fullscreenElement));
-    update();
-    // En el iPhone no existe la API sobre la página: no hay nada que pedir.
-    setUnavailable(!document.fullscreenEnabled || typeof document.documentElement.requestFullscreen !== "function");
-    document.addEventListener("fullscreenchange", update);
-    return () => document.removeEventListener("fullscreenchange", update);
-  }, []);
-
-  const request = useCallback(async () => {
-    try {
-      // Sobre la página entera, para que las dos pantallas sigan a la vista.
-      await document.documentElement.requestFullscreen();
-    } catch {
-      // Pantalla completa es una invitación; un rechazo nunca bloquea la
-      // evaluación. Es lo que promete el producto.
-      setUnavailable(true);
-    }
-  }, []);
-
-  const exit = useCallback(() => {
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-  }, []);
-
-  return { isFullscreen, unavailable, request, exit };
 }

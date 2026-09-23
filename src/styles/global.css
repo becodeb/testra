@@ -324,35 +324,11 @@ html[data-overlay-open="true"] .page-content { view-transition-name: none; }
 }
 
 /* ─── Demo pública (/demo) ──────────────────────────────────────────────────
-   Todo movimiento de la demo cuenta un cambio de estado: algo que entra, algo
-   que se detectó, un número que cambió. Nada dura más de 200 ms salvo el
-   resaltado de un aviso nuevo, que es un estado y no una animación: se queda
-   2,4 s y se va con un fundido de 200 ms.
-
-   Todas usan `backwards` y no `both`: una animación de `transform` que queda
-   rellenando después de terminar convierte al elemento en el bloque contenedor
-   de sus hijos `fixed`, y el aviso del alumno se posiciona con `fixed` en el
-   teléfono. */
-
-.demo-page {
-  /* La barra de la demo queda pegada arriba en pantallas grandes, y en el
-     teléfono lo que queda pegado es el acceso a la pantalla del docente. Sin
-     este margen, el foco del teclado terminaba escondido debajo. */
-  scroll-padding-top: 4.5rem;
-}
-
-@media (min-width: 1024px) {
-  .demo-page {
-    scroll-padding-top: 9.5rem;
-  }
-
-  /* Al armar, la fila de "Abrir sala" queda pegada abajo y taparía el foco.
-     Solo mientras existe: antes de convertir, el margen hacía que enfocar
-     "Convertir en preguntas" corriera la página sin necesidad. */
-  .demo-page:has([data-demo-open-row]) {
-    scroll-padding-bottom: 5rem;
-  }
-}
+   Dos movimientos, y los dos cuentan un cambio de estado: la pantalla que
+   entra (el informe, o la evaluación al volver a rendir) y el aviso que se
+   abre. Usan `backwards` y no `both`: una animación de `transform` que queda
+   rellenando después de terminar convierte al elemento en el bloque
+   contenedor de sus hijos `fixed`. */
 
 .demo-enter {
   animation: demo-enter 180ms cubic-bezier(.2, .7, .3, 1) backwards;
@@ -362,96 +338,12 @@ html[data-overlay-open="true"] .page-content { view-transition-name: none; }
   from { opacity: 0; transform: translateY(6px); }
 }
 
-.demo-arrive {
-  animation: demo-arrive 180ms cubic-bezier(.2, .7, .3, 1) backwards;
-}
-
-@keyframes demo-arrive {
-  from { opacity: 0; transform: translateY(-6px); }
-}
-
-.demo-bump {
-  display: inline-block;
-  animation: demo-bump 180ms cubic-bezier(.2, .7, .3, 1);
-}
-
-@keyframes demo-bump {
-  50% { transform: scale(1.12); }
-}
-
-.demo-fade-in {
-  animation: demo-fade-in 150ms cubic-bezier(.2, .7, .3, 1) backwards;
-}
-
-.demo-fade-out {
-  animation: demo-fade-out 150ms cubic-bezier(.2, .7, .3, 1) forwards;
-  pointer-events: none;
-}
-
-@keyframes demo-fade-in {
-  from { opacity: 0; }
-}
-
-@keyframes demo-fade-out {
-  to { opacity: 0; }
-}
-
 .demo-dialog-in {
   animation: demo-dialog-in 150ms cubic-bezier(.2, .7, .3, 1) backwards;
 }
 
 @keyframes demo-dialog-in {
   from { opacity: 0; transform: translateY(6px) scale(.98); }
-}
-
-.demo-check-in {
-  animation: demo-check-in 150ms cubic-bezier(.2, .7, .3, 1) backwards;
-}
-
-@keyframes demo-check-in {
-  from { opacity: 0; transform: scale(.5); }
-}
-
-/* Un aviso recién llegado. El fondo se queda 2,4 s y vuelve en 200 ms: el
-   último 7,7 % de los 2,6 s. Un retraso negativo lo retoma donde iba si el
-   elemento se vuelve a montar, así que abrir la pantalla del docente en el
-   teléfono no vuelve a pintar como nuevo lo que ya no lo es. */
-.demo-fresh {
-  animation: demo-fresh 2600ms linear backwards;
-}
-
-@keyframes demo-fresh {
-  0%,
-  92.3% {
-    background-color: var(--color-brand-soft);
-    animation-timing-function: cubic-bezier(.2, .7, .3, 1);
-  }
-}
-
-@keyframes demo-fresh-static {
-  0%,
-  100% { background-color: var(--color-brand-soft); }
-}
-
-/* El control que el visitante tiene que usar ahora. Un anillo quieto, sin
-   latir: aparece una vez y se queda hasta que se usa. */
-.demo-cue {
-  position: relative;
-}
-
-.demo-cue::after {
-  content: "";
-  position: absolute;
-  inset: -4px;
-  border: 2px solid color-mix(in oklab, var(--color-brand) 35%, transparent);
-  border-radius: calc(var(--radius-md) + 4px);
-  pointer-events: none;
-  animation: demo-fade-in 150ms cubic-bezier(.2, .7, .3, 1) backwards;
-}
-
-.demo-connector-fill {
-  transform-origin: left center;
-  transition: transform 200ms cubic-bezier(.2, .7, .3, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -475,29 +367,8 @@ html[data-overlay-open="true"] .page-content { view-transition-name: none; }
 
   /* Demo: sin desplazamientos ni fundidos; cada cosa aparece en su estado final. */
   .demo-enter,
-  .demo-arrive,
-  .demo-bump,
-  .demo-fade-in,
-  .demo-dialog-in,
-  .demo-check-in,
-  .demo-cue::after {
+  .demo-dialog-in {
     animation: none !important;
-  }
-
-  .demo-fade-out {
-    display: none !important;
-  }
-
-  .demo-connector-fill {
-    transition: none !important;
-  }
-
-  /* El resaltado de lo nuevo es un estado, no un movimiento: se conserva el
-     mismo tiempo, pero entra y sale sin fundido. */
-  .demo-fresh {
-    animation-name: demo-fresh-static !important;
-    animation-duration: 2400ms !important;
-    animation-timing-function: step-end !important;
   }
 }
 
