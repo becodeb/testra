@@ -200,4 +200,40 @@ describe("evaluateWithJev", () => {
 
     await expect(evaluateWithJev(sampleRequest, { baseDelayMs: 0 })).rejects.toMatchObject({ code: "invalid_response" });
   });
+
+  it("un 200 con un cuerpo que no es JSON válido es invalid_response, sin reintentar", async () => {
+    setKey("test-key");
+    const fetchMock = vi.fn().mockResolvedValue(new Response("esto no es JSON", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(evaluateWithJev(sampleRequest, { baseDelayMs: 0 })).rejects.toMatchObject({ code: "invalid_response" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("si la señal del llamador ya está abortada, no llama ni una vez", async () => {
+    setKey("test-key");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(evaluateWithJev(sampleRequest, { baseDelayMs: 0, signal: controller.signal })).rejects.toMatchObject({ code: "unavailable" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("si la señal se aborta mientras espera la red, corta sin agotar los reintentos", async () => {
+    setKey("test-key");
+    const controller = new AbortController();
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("La operación se abortó.", "AbortError")));
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = evaluateWithJev(sampleRequest, { baseDelayMs: 0, signal: controller.signal });
+    controller.abort();
+
+    await expect(promise).rejects.toMatchObject({ code: "unavailable" });
+    // Un solo intento: el corte no dispara un segundo pedido.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

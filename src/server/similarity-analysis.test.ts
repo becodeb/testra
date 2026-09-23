@@ -84,11 +84,62 @@ describe("analyzeSimilarity", () => {
     const totalPairs = (ids.length * (ids.length - 1)) / 2; // 15
     expect(evaluator).toHaveBeenCalledTimes(5);
     expect(report.semantic.evaluatedPairs).toBe(5);
+    expect(report.semantic.notSelectedPairs).toBe(0); // los 15 entraban en el presupuesto por pregunta (20)
     expect(report.semantic.skippedPairs).toBe(totalPairs - 5);
     expect(report.semantic.status).toBe("partial");
   });
 
-  it("respeta el presupuesto por pregunta (max(20, 3×respondentes)) y cuenta lo salteado", async () => {
+  it("reparte maxCalls entre preguntas con round-robin: nadie se queda afuera del todo, y sobrevive el par mejor rankeado de cada una", async () => {
+    const questions = [
+      longQuestion("q1", "Consigna uno."),
+      longQuestion("q2", "Consigna dos."),
+      longQuestion("q3", "Consigna tres."),
+    ];
+    const participantIds = ["p1", "p2", "p3", "p4", "p5"];
+    // p1 y p2 comparten, en CADA pregunta, un pasaje distinto pero idéntico
+    // entre ellos: eso los pone primeros en la lista de esa pregunta (señal de
+    // fragmento), así que su llamada nunca debería ser la que se saltea.
+    const distinctiveByQuestion: Record<string, string> = {
+      q1: "Frase particular y poco común número uno que nadie más comparte en esta clase para nada, con más de doce palabras en total aquí.",
+      q2: "Frase particular y poco común número dos que nadie más comparte en esta clase para nada, con más de doce palabras en total aquí.",
+      q3: "Frase particular y poco común número tres que nadie más comparte en esta clase para nada, con más de doce palabras en total aquí.",
+    };
+    const participants: ParticipantEntry[] = participantIds.map((id) => {
+      const responses = new Map<string, ParticipantResponse>();
+      for (const question of questions) {
+        const text = id === "p1" || id === "p2" ? distinctiveByQuestion[question.id] : longText(`${question.id}${id}`);
+        responses.set(question.id, { kind: "long", text });
+      }
+      return { participantId: id, name: `Alumno ${id}`, responses };
+    });
+    const input: SimilarityClassInput = { questions, participants };
+
+    const callsByQuestion = new Map<string, number>();
+    const distinctivePairCalledFor = new Set<string>();
+    const evaluator: JevEvaluator = vi.fn(async (request) => {
+      const state = request.state as Record<string, string>;
+      const question = questions.find((candidate) => candidate.prompt === state.consigna)!;
+      callsByQuestion.set(question.id, (callsByQuestion.get(question.id) ?? 0) + 1);
+      if (state.respuesta_1 === state.respuesta_2) distinctivePairCalledFor.add(question.id);
+      return jevResult(0.1, 0.1, 0.1);
+    });
+
+    // 5 alumnos por pregunta -> 10 pares por pregunta -> 30 candidatos en
+    // total, todos dentro del presupuesto por pregunta (20). Con maxCalls: 9
+    // una repartición secuencial (pregunta por pregunta) agotaría el cupo
+    // entero en q1 y dejaría a q2/q3 en cero.
+    const report = await analyzeSimilarity(input, { evaluator, maxCalls: 9 });
+
+    expect(report.semantic.evaluatedPairs).toBe(9);
+    expect(callsByQuestion.get("q1")).toBe(3);
+    expect(callsByQuestion.get("q2")).toBe(3);
+    expect(callsByQuestion.get("q3")).toBe(3);
+    // El par con la señal más fuerte de cada pregunta sobrevivió al recorte:
+    // lo que se saltea es lo peor rankeado, no una pregunta entera.
+    expect(distinctivePairCalledFor.size).toBe(3);
+  });
+
+  it("el prefiltro por pregunta (max(20, 3×respondentes)) cuenta aparte como notSelectedPairs, y no baja el status", async () => {
     const questionId = "q-long";
     const question = longQuestion(questionId);
     const ids = Array.from({ length: 9 }, (_, index) => `p${index + 1}`);
@@ -102,7 +153,42 @@ describe("analyzeSimilarity", () => {
     const budget = Math.max(20, 3 * ids.length); // 27
     expect(evaluator).toHaveBeenCalledTimes(budget);
     expect(report.semantic.evaluatedPairs).toBe(budget);
-    expect(report.semantic.skippedPairs).toBe(totalPairs - budget);
+    // El prefiltro descartó 9 pares a propósito (funcionando como se espera):
+    // van en notSelectedPairs, no en skippedPairs, y el status queda "ok".
+    expect(report.semantic.notSelectedPairs).toBe(totalPairs - budget);
+    expect(report.semantic.skippedPairs).toBe(0);
+    expect(report.semantic.status).toBe("ok");
+  });
+
+  it("el presupuesto de tiempo aborta las llamadas en curso: cuentan como salteadas por tiempo, no como fallidas", async () => {
+    const questionId = "q-long";
+    const question = longQuestion(questionId);
+    const ids = ["p1", "p2", "p3", "p4"];
+    const participants = ids.map((id) => longParticipant(id, id, questionId));
+    const input: SimilarityClassInput = { questions: [question], participants };
+
+    // Evaluador lento que respeta la señal combinada (presupuesto + corte del
+    // llamador), tal como se le pide al evaluador por defecto: si se corta
+    // antes de resolver, rechaza como lo haría un fetch real abortado.
+    const evaluator: JevEvaluator = vi.fn(
+      (_request, signal) =>
+        new Promise<JevResult>((resolve, reject) => {
+          const timer = setTimeout(() => resolve(jevResult(0.1, 0.1, 0.1)), 200);
+          signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(new DOMException("La operación se abortó.", "AbortError"));
+          });
+        }),
+    );
+
+    const report = await analyzeSimilarity(input, { evaluator, concurrency: 4, timeBudgetMs: 20 });
+
+    // Las 6 llamadas posibles (4 alumnos) quedan cortadas por el presupuesto
+    // de 20ms frente a una respuesta que tarda 200ms: nada se evalúa, nada
+    // "falla" — todo queda salteado por tiempo.
+    expect(report.semantic.evaluatedPairs).toBe(0);
+    expect(report.semantic.failedPairs).toBe(0);
+    expect(report.semantic.skippedPairs).toBeGreaterThan(0);
     expect(report.semantic.status).toBe("partial");
   });
 

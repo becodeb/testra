@@ -199,10 +199,21 @@ function parseRetryAfterMs(header: string | null): number | null {
   return Math.min(RETRY_AFTER_CAP_MS, seconds * 1000);
 }
 
-function sleep(ms: number): Promise<void> {
-  if (ms <= 0) return Promise.resolve();
-  return new Promise((resolve) => setTimeout(resolve, ms));
+// Abortable: si `signal` se corta durante la espera, resuelve al toque en vez
+// de agotar el backoff para nada. El llamador es quien decide qué hacer con el
+// corte (el chequeo de `signal.aborted` vive en `evaluateWithJev`).
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
 }
+
+const ABORTED_MESSAGE = "Jev no respondió: el pedido se canceló";
 
 // --- Llamado principal -------------------------------------------------------
 
@@ -238,6 +249,9 @@ export async function evaluateWithJev(
   let lastError: JevError = new JevError("unavailable", "Jev no respondió");
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    // Antes de cada intento: si el llamador ya cortó, ni vale la pena pedir.
+    if (options.signal?.aborted) throw new JevError("unavailable", ABORTED_MESSAGE);
+
     const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
     const signal = options.signal ? AbortSignal.any([timeoutSignal, options.signal]) : timeoutSignal;
     try {
@@ -252,21 +266,31 @@ export async function evaluateWithJev(
       });
 
       if (response.ok) {
-        return parseJevResponse(await response.json(), request.questions);
+        // Un 200 con un cuerpo que no es JSON válido no es un error de red: es
+        // invalid_response directo, sin reintentar (dejar que response.json()
+        // tire su SyntaxError haría que el catch de abajo lo tratara como una
+        // falla transitoria y lo reintentara para nada).
+        const json: unknown = await response.json().catch(() => {
+          throw new JevError("invalid_response", "La respuesta de Jev no es JSON válido");
+        });
+        return parseJevResponse(json, request.questions);
       }
 
       const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
       const classified = await classifyErrorResponse(response);
       if (!classified.retryable || attempt >= maxRetries) throw classified.error;
       lastError = classified.error;
-      await sleep(retryAfterMs ?? backoffDelayMs(attempt, baseDelayMs));
+      await sleep(retryAfterMs ?? backoffDelayMs(attempt, baseDelayMs), options.signal);
     } catch (error) {
       if (error instanceof JevError) throw error;
-      // Red, timeout o abort: no hay respuesta que clasificar por status.
+      // Antes de clasificar como falla de red: si fue el corte del llamador,
+      // se informa así y se corta la tanda, sin gastar los reintentos que
+      // quedan en pedidos que van a abortarse igual.
+      if (options.signal?.aborted) throw new JevError("unavailable", ABORTED_MESSAGE);
       const networkError = new JevError("unavailable", describeNetworkError(error));
       if (attempt >= maxRetries) throw networkError;
       lastError = networkError;
-      await sleep(backoffDelayMs(attempt, baseDelayMs));
+      await sleep(backoffDelayMs(attempt, baseDelayMs), options.signal);
     }
   }
 

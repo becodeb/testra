@@ -101,6 +101,9 @@ export interface SimilarityReport {
     model: "typesafe-ai/jev";
     evaluatedPairs: number;
     failedPairs: number;
+    /** Pares que el prefiltro por pregunta dejó afuera a propósito (funcionando como se espera; nunca mueve el status a "partial"). */
+    notSelectedPairs: number;
+    /** Pares que SÍ se eligieron pero no se evaluaron: tope global (maxCalls), se acabó el tiempo, o se abortó. */
     skippedPairs: number;
     inputTokens: number | null;
     costUsd: number | null;
@@ -162,10 +165,10 @@ function buildJevRequest(question: SimilarityQuestion, textA: string, textB: str
 
 // --- analyzeSimilarity --------------------------------------------------------
 
-export type JevEvaluator = (request: JevEvaluateRequest) => Promise<JevResult>;
+export type JevEvaluator = (request: JevEvaluateRequest, signal: AbortSignal) => Promise<JevResult>;
 
 export interface AnalyzeSimilarityOptions {
-  /** `null` fuerza "no configurado"; si se omite, usa `evaluateWithJev` cuando `jevConfigured()`. */
+  /** `null` fuerza "no configurado"; si se omite, usa `evaluateWithJev` (reenviándole la señal de corte) cuando `jevConfigured()`. */
   evaluator?: JevEvaluator | null;
   concurrency?: number;
   timeBudgetMs?: number;
@@ -175,7 +178,9 @@ export interface AnalyzeSimilarityOptions {
 }
 
 const DEFAULT_CONCURRENCY = 4;
-const DEFAULT_TIME_BUDGET_MS = 60_000;
+// Por debajo de los ~100 s del proxy de Cloudflare con margen de sobra: el
+// POST que corre esto tiene que volver bien antes de ese límite.
+const DEFAULT_TIME_BUDGET_MS = 45_000;
 const DEFAULT_MAX_CALLS = 300;
 
 // Un error con alguno de estos códigos no se soluciona reintentando otro par:
@@ -194,15 +199,21 @@ interface PairCandidate {
  * Pares elegibles por pregunta de desarrollo: primero los que ya tienen una
  * señal de fragmento (código), después el ranking TF-IDF, hasta el
  * presupuesto `max(20, 3×respondentes)` de esa pregunta. Lo que sobra de ese
- * presupuesto se cuenta como salteado por selección.
+ * presupuesto se cuenta aparte como "no seleccionado": es el prefiltro
+ * funcionando como se espera (una clase de 30 alumnos tiene 435 pares por
+ * pregunta), no una falla, y nunca mueve el status a "partial".
+ *
+ * Devuelve una lista POR PREGUNTA, cada una ya en orden de prioridad, para que
+ * quien arme la tanda final pueda repartir el presupuesto global entre
+ * preguntas en vez de dejar que la primera pregunta se lo coma entero.
  */
 function selectCandidates(
   input: SimilarityClassInput,
   fragmentFindings: Map<string, FragmentFinding[]>,
-): { candidates: PairCandidate[]; skippedBySelection: number } {
+): { perQuestionCandidates: PairCandidate[][]; notSelectedPairs: number } {
   const byId = new Map(input.participants.map((participant) => [participant.participantId, participant]));
-  const allCandidates: PairCandidate[] = [];
-  let skippedBySelection = 0;
+  const perQuestionCandidates: PairCandidate[][] = [];
+  let notSelectedPairs = 0;
 
   for (const question of input.questions) {
     if (question.type !== "long") continue;
@@ -236,13 +247,14 @@ function selectCandidates(
       ordered.push([a, b]);
     }
 
-    skippedBySelection += Math.max(0, ordered.length - budget);
+    notSelectedPairs += Math.max(0, ordered.length - budget);
 
+    const questionCandidates: PairCandidate[] = [];
     for (const [a, b] of ordered.slice(0, budget)) {
       const responseA = byId.get(a)?.responses.get(question.id);
       const responseB = byId.get(b)?.responses.get(question.id);
       if (responseA?.kind !== "long" || responseB?.kind !== "long") continue;
-      allCandidates.push({
+      questionCandidates.push({
         pairKey: pairKey(a, b),
         a,
         b,
@@ -250,9 +262,29 @@ function selectCandidates(
         request: buildJevRequest(question, responseA.text, responseB.text),
       });
     }
+    if (questionCandidates.length) perQuestionCandidates.push(questionCandidates);
   }
 
-  return { candidates: allCandidates, skippedBySelection };
+  return { perQuestionCandidates, notSelectedPairs };
+}
+
+/**
+ * Intercala las listas (cada una ya ordenada por prioridad) en round-robin:
+ * primero el mejor candidato de cada pregunta, después el segundo mejor de
+ * cada una, etc. Así, cuando `maxCalls` corta la lista final, lo que se
+ * pierde es parejo entre preguntas y son los pares peor rankeados de cada una
+ * los que quedan afuera — nunca una pregunta entera solo por venir después en
+ * el orden de iteración.
+ */
+function interleaveRoundRobin<T>(lists: T[][]): T[] {
+  const result: T[] = [];
+  const maxLength = Math.max(0, ...lists.map((list) => list.length));
+  for (let index = 0; index < maxLength; index += 1) {
+    for (const list of lists) {
+      if (index < list.length) result.push(list[index]);
+    }
+  }
+  return result;
 }
 
 interface CallOutcome {
@@ -262,14 +294,22 @@ interface CallOutcome {
   error?: JevError;
 }
 
-/** Pool acotado por `concurrency`; corta apenas hay un error permanente, se agota el tiempo o llega la señal del llamador. */
+/**
+ * Pool acotado por `concurrency`. `signal` ya combina el presupuesto de
+ * tiempo con el corte del llamador (armado en `analyzeSimilarity`) y se le
+ * pasa a CADA llamada, para que un corte aborte también las que están en
+ * curso y no solo frene las que faltan arrancar.
+ *
+ * Corta apenas hay un error permanente. Una llamada que termina porque
+ * `signal` se activó —haya estado en curso o a punto de arrancar— cuenta como
+ * salteada por tiempo, nunca como una falla: no fue Jev el que no contestó
+ * bien, fue el presupuesto el que se acabó.
+ */
 async function runJevCalls(
   candidates: PairCandidate[],
   evaluator: JevEvaluator,
   concurrency: number,
-  deadline: number,
-  now: () => number,
-  signal: AbortSignal | undefined,
+  signal: AbortSignal,
 ): Promise<{ outcomes: CallOutcome[]; fatalCode: JevErrorCode | null; skippedByRuntime: number }> {
   const outcomes: CallOutcome[] = [];
   let fatalCode: JevErrorCode | null = null;
@@ -277,15 +317,16 @@ async function runJevCalls(
 
   async function worker(): Promise<void> {
     for (;;) {
-      if (fatalCode || signal?.aborted || now() >= deadline) return;
+      if (fatalCode || signal.aborted) return;
       const index = cursor;
       if (index >= candidates.length) return;
       cursor += 1;
       const candidate = candidates[index];
       try {
-        const result = await evaluator(candidate.request);
+        const result = await evaluator(candidate.request, signal);
         outcomes.push({ candidate, status: "ok", result });
       } catch (error) {
+        if (signal.aborted) return; // salteada por tiempo/corte, no fallida
         if (error instanceof JevError) {
           if (FATAL_JEV_CODES.has(error.code)) {
             fatalCode = error.code;
@@ -320,11 +361,19 @@ export async function analyzeSimilarity(input: SimilarityClassInput, options: An
   const closedFindings = computeClosedSignals(input);
   const fragmentFindings = computeFragmentSignals(input);
 
-  const { candidates: allCandidates, skippedBySelection } = selectCandidates(input, fragmentFindings);
+  const { perQuestionCandidates, notSelectedPairs } = selectCandidates(input, fragmentFindings);
+  // Round-robin ANTES de aplicar maxCalls: así el tope global recorta parejo
+  // entre preguntas en vez de dejar que la primera se lo coma entero.
+  const allCandidates = interleaveRoundRobin(perQuestionCandidates);
   const candidates = allCandidates.slice(0, maxCalls);
   const skippedByMaxCalls = allCandidates.length - candidates.length;
 
-  const evaluator = options.evaluator !== undefined ? options.evaluator : jevConfigured() ? evaluateWithJev : null;
+  const evaluator: JevEvaluator | null =
+    options.evaluator !== undefined
+      ? options.evaluator
+      : jevConfigured()
+        ? (request, signal) => evaluateWithJev(request, { signal })
+        : null;
 
   let status: SemanticStatus;
   let reason: string | undefined;
@@ -345,15 +394,12 @@ export async function analyzeSimilarity(input: SimilarityClassInput, options: An
     // Ninguno de los candidatos que sí se seleccionaron llegó a evaluarse.
     skippedByRuntime = candidates.length;
   } else {
-    const deadline = now() + timeBudgetMs;
-    const { outcomes, fatalCode, skippedByRuntime: runtimeSkipped } = await runJevCalls(
-      candidates,
-      evaluator,
-      concurrency,
-      deadline,
-      now,
-      options.signal,
-    );
+    // Una sola señal para todo: el presupuesto de tiempo Y el corte del
+    // llamador, combinados. Se la pasamos a cada llamada para que un corte
+    // aborte también las que están en curso, no solo las que faltan arrancar.
+    const timeoutSignal = AbortSignal.timeout(timeBudgetMs);
+    const signal = options.signal ? AbortSignal.any([timeoutSignal, options.signal]) : timeoutSignal;
+    const { outcomes, fatalCode, skippedByRuntime: runtimeSkipped } = await runJevCalls(candidates, evaluator, concurrency, signal);
     skippedByRuntime = runtimeSkipped;
 
     for (const outcome of outcomes) {
@@ -377,11 +423,14 @@ export async function analyzeSimilarity(input: SimilarityClassInput, options: An
       }
     }
 
-    const totalSkipped = skippedBySelection + skippedByMaxCalls + skippedByRuntime;
+    // `notSelectedPairs` (el prefiltro por pregunta) nunca entra acá: es
+    // presupuesto gastado a propósito, no una falla ni una carrera contra el
+    // reloj. Solo lo que SÍ se eligió y no se llegó a evaluar mueve a "partial".
+    const skippedPairs = skippedByMaxCalls + skippedByRuntime;
     if (fatalCode) {
       status = "unavailable";
       reason = fatalCode;
-    } else if (totalSkipped > 0) {
+    } else if (skippedPairs > 0) {
       status = "partial";
     } else if (failedPairs > 0 && evaluatedPairs === 0) {
       status = "unavailable";
@@ -406,7 +455,8 @@ export async function analyzeSimilarity(input: SimilarityClassInput, options: An
       model: "typesafe-ai/jev",
       evaluatedPairs,
       failedPairs,
-      skippedPairs: skippedBySelection + skippedByMaxCalls + skippedByRuntime,
+      notSelectedPairs,
+      skippedPairs: skippedByMaxCalls + skippedByRuntime,
       inputTokens: inputTokensSum,
       costUsd: costUsdSum,
     },
