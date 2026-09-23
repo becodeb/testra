@@ -2,15 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import type { FullQuestion } from "@/domain/exam";
 import {
+  FRAGMENT_LONGEST_RUN_ALONE_REVIEW,
   FRAGMENT_LONGEST_RUN_REVIEW,
+  closedLevelFor,
   computeClosedSignals,
   computeFragmentSignals,
   expectedTextFor,
   normalizeResponse,
   pairKey,
+  poissonBinomialTailProbability,
   questionLabel,
   rankPairsByTfIdf,
-  summarizeClosedPattern,
   tokenize,
   type ParticipantEntry,
   type SimilarityClassInput,
@@ -80,12 +82,31 @@ describe("normalizeResponse", () => {
   });
 });
 
-// --- mc/ms/tf/sa: coincidencias raras vs. distractor popular -----------------
+// --- mc/ms/tf/sa: coincidencias cerradas frente al azar ---------------------
 
-describe("computeClosedSignals + summarizeClosedPattern", () => {
-  function mcQuestion(): FullQuestion {
+describe("poissonBinomialTailProbability", () => {
+  it("coincide con un caso calculado a mano: dos monedas justas, P(X>=1)", () => {
+    // P(X=0) = 0.5*0.5 = 0.25 -> P(X>=1) = 0.75.
+    expect(poissonBinomialTailProbability([0.5, 0.5], 1)).toBeCloseTo(0.75, 10);
+  });
+
+  it("coincide con un caso calculado a mano: tres probabilidades distintas, P(X>=2)", () => {
+    // P(X=2) + P(X=3) enumerando los 8 casos a mano con p=[0.1,0.2,0.3]:
+    // P(X=2) = 0.1*0.2*0.7 + 0.1*0.8*0.3 + 0.9*0.2*0.3 = 0.092
+    // P(X=3) = 0.1*0.2*0.3 = 0.006  ->  P(X>=2) = 0.098
+    expect(poissonBinomialTailProbability([0.1, 0.2, 0.3], 2)).toBeCloseTo(0.098, 10);
+  });
+
+  it("da 1 si se pide 0 o menos éxitos, y 0 si se piden más que la cantidad de pruebas", () => {
+    expect(poissonBinomialTailProbability([0.3, 0.4], 0)).toBe(1);
+    expect(poissonBinomialTailProbability([0.3, 0.4], 3)).toBe(0);
+  });
+});
+
+describe("computeClosedSignals", () => {
+  function mcQuestion(id: string): FullQuestion {
     return {
-      id: "q-mc",
+      id,
       position: 0,
       prompt: "¿Cuál es la opción correcta?",
       points: 10,
@@ -96,85 +117,127 @@ describe("computeClosedSignals + summarizeClosedPattern", () => {
       },
     } as FullQuestion;
   }
-  function tfQuestion(): FullQuestion {
-    return { id: "q-tf", position: 1, prompt: "¿El agua hierve a 100°C al nivel del mar?", points: 10, type: "tf", config: { correct: true } } as FullQuestion;
+  function tfQuestion(id: string): FullQuestion {
+    return { id, position: 0, prompt: "¿Verdadero o falso?", points: 10, type: "tf", config: { correct: true } } as FullQuestion;
   }
-  function saQuestion(): FullQuestion {
-    return { id: "q-sa", position: 2, prompt: "¿Capital de Francia?", points: 10, type: "sa", config: { accepted: ["parís", "paris"] } } as FullQuestion;
+  function saQuestion(id: string): FullQuestion {
+    return { id, position: 0, prompt: "¿Respuesta corta?", points: 10, type: "sa", config: { accepted: ["correcta"] } } as FullQuestion;
   }
 
-  // 10 alumnos: p1-p3 responden bien las tres; p4-p8 fallan solo la mc con un
-  // distractor que eligió medio curso (NO debería marcarse como raro); p9-p10
-  // fallan las tres con la misma respuesta, que nadie más escribió (SÍ rara).
-  const mc = mcQuestion();
-  const tf = tfQuestion();
-  const sa = saQuestion();
-  const questions: SimilarityQuestion[] = [mc, tf, sa].map((question) => ({
-    id: question.id,
-    label: questionLabel(question.prompt),
-    type: question.type,
-    prompt: question.prompt,
-    expectedText: expectedTextFor(question),
-  }));
+  function similarityQuestion(question: FullQuestion): SimilarityQuestion {
+    return {
+      id: question.id,
+      label: questionLabel(question.prompt),
+      type: question.type,
+      prompt: question.prompt,
+      expectedText: expectedTextFor(question),
+      wrongOptionCount: question.type === "mc" ? question.config.options.length - 1 : undefined,
+    };
+  }
 
-  function participant(id: string, mcValue: string, tfValue: boolean, saValue: string): ParticipantEntry {
+  function closedParticipant(id: string, questionValues: Array<[FullQuestion, string | boolean | null]>): ParticipantEntry {
     const responses = new Map();
-    const mcResponse = normalizeResponse(mc, mcValue);
-    const tfResponse = normalizeResponse(tf, tfValue);
-    const saResponse = normalizeResponse(sa, saValue);
-    if (mcResponse) responses.set(mc.id, mcResponse);
-    if (tfResponse) responses.set(tf.id, tfResponse);
-    if (saResponse) responses.set(sa.id, saResponse);
+    for (const [question, value] of questionValues) {
+      const response = value === null ? null : normalizeResponse(question, value);
+      if (response) responses.set(question.id, response);
+    }
     return { participantId: id, name: `Alumno ${id}`, responses };
   }
 
-  const participants: ParticipantEntry[] = [
-    participant("p1", "c", true, "parís"),
-    participant("p2", "c", true, "parís"),
-    participant("p3", "c", true, "parís"),
-    participant("p4", "a", true, "parís"),
-    participant("p5", "a", true, "parís"),
-    participant("p6", "a", true, "parís"),
-    participant("p7", "a", true, "parís"),
-    participant("p8", "a", true, "parís"),
-    participant("p9", "b", false, "marsella"),
-    participant("p10", "b", false, "marsella"),
-  ];
+  it("no marca una coincidencia sobre un distractor popular: coincidir con medio curso no es evidencia", () => {
+    // 20 alumnos, 3 mc. Los mismos 14 fallan las tres con la opción "a" (muy
+    // popular); el par evaluado (p13,p14) está entre esos 14. Coincidir con
+    // una opción que casi todo el curso también eligió no dice nada: π por
+    // pregunta queda alto y P(X>=3) no se acerca al umbral corregido.
+    const q1 = mcQuestion("q1");
+    const q2 = mcQuestion("q2");
+    const q3 = mcQuestion("q3");
+    const questions = [q1, q2, q3].map(similarityQuestion);
+    const wrongFourteen = Array.from({ length: 14 }, (_, i) => `p${i + 1}`);
+    const correctSix = Array.from({ length: 6 }, (_, i) => `p${15 + i}`);
+    const participants: ParticipantEntry[] = [
+      ...wrongFourteen.map((id) => closedParticipant(id, [[q1, "a"], [q2, "a"], [q3, "a"]])),
+      ...correctSix.map((id) => closedParticipant(id, [[q1, "c"], [q2, "c"], [q3, "c"]])),
+    ];
+    const input: SimilarityClassInput = { questions, participants };
 
-  const input: SimilarityClassInput = { questions, participants };
-  const findings = computeClosedSignals(input);
-
-  it("no marca como rara la opción incorrecta que eligió medio curso", () => {
-    const finding = (findings.get(pairKey("p4", "p5")) ?? []).find((f) => f.questionId === "q-mc");
-    expect(finding).toBeDefined();
-    expect(finding?.rare).toBe(false);
-    // Sin ninguna coincidencia rara, el par ni siquiera llega a "review".
-    expect(summarizeClosedPattern(findings.get(pairKey("p4", "p5")) ?? []).level).toBeNull();
+    const { patterns } = computeClosedSignals(input);
+    const summary = patterns.get(pairKey("p1", "p2"));
+    expect(summary?.sharedWrong).toBe(3);
+    expect(summary?.level).toBeNull();
   });
 
-  it("marca como rara la respuesta incorrecta que solo compartió el par, en las tres preguntas", () => {
-    const pairFindings = findings.get(pairKey("p9", "p10")) ?? [];
-    expect(pairFindings).toHaveLength(3);
-    for (const finding of pairFindings) {
-      expect(finding.rare).toBe(true);
-      expect(finding.othersWithSame).toBe(0);
-    }
+  it("marca tres respuestas incorrectas idénticas cuando son raras frente al resto de la clase", () => {
+    // 22 alumnos, 3 sa. 20 "otros" fallan cada pregunta con una respuesta
+    // ÚNICA cada uno (espacio de respuestas abierto y disperso -> K grande,
+    // π_q chico); el par comparte una respuesta que ninguno de los otros usó,
+    // en las tres preguntas.
+    const q1 = saQuestion("q1");
+    const q2 = saQuestion("q2");
+    const q3 = saQuestion("q3");
+    const questions = [q1, q2, q3].map(similarityQuestion);
+    const others = Array.from({ length: 20 }, (_, i) =>
+      closedParticipant(`o${i + 1}`, [
+        [q1, `error propio ${i} uno`],
+        [q2, `error propio ${i} dos`],
+        [q3, `error propio ${i} tres`],
+      ]),
+    );
+    const pair = [
+      closedParticipant("p1", [[q1, "mezcla rara compartida"], [q2, "mezcla rara compartida"], [q3, "mezcla rara compartida"]]),
+      closedParticipant("p2", [[q1, "mezcla rara compartida"], [q2, "mezcla rara compartida"], [q3, "mezcla rara compartida"]]),
+    ];
+    const input: SimilarityClassInput = { questions, participants: [...others, ...pair] };
+
+    const { patterns, findings } = computeClosedSignals(input);
+    const summary = patterns.get(pairKey("p1", "p2"));
+    expect(summary?.sharedWrong).toBe(3);
+    expect(summary?.expectedByChance).toBeLessThan(1);
+    expect(summary?.level).not.toBeNull();
+    expect(findings.get(pairKey("p1", "p2"))).toHaveLength(3);
   });
 
-  it("el patrón cerrado del par da 'strong' con tres coincidencias raras", () => {
-    const summary = summarizeClosedPattern(findings.get(pairKey("p9", "p10")) ?? []);
-    expect(summary).toEqual({ sharedWrong: 3, rareShared: 3, level: "strong" });
+  it("las coincidencias en verdadero/falso nunca marcan solas: con una sola opción incorrecta no hay evidencia", () => {
+    // tf solo tiene una forma de estar mal: coincidir ahí no dice nada (π=1
+    // por construcción). Ni multiplicando la cantidad de preguntas alcanza.
+    const tfQuestions = Array.from({ length: 8 }, (_, i) => tfQuestion(`tf${i + 1}`));
+    const questions = tfQuestions.map(similarityQuestion);
+    const values = (wrong: boolean): Array<[FullQuestion, boolean]> => tfQuestions.map((q) => [q, wrong ? false : true]);
+    const participants: ParticipantEntry[] = [
+      closedParticipant("p1", values(true)),
+      closedParticipant("p2", values(true)),
+      ...Array.from({ length: 10 }, (_, i) => closedParticipant(`o${i + 1}`, values(i % 2 === 0))),
+    ];
+    const input: SimilarityClassInput = { questions, participants };
+
+    const { patterns } = computeClosedSignals(input);
+    const summary = patterns.get(pairKey("p1", "p2"));
+    expect(summary?.sharedWrong).toBe(8);
+    expect(summary?.pValue).toBeCloseTo(1, 10);
+    expect(summary?.level).toBeNull();
   });
 
-  it("se salta preguntas con menos de 5 respondentes, aunque compartan una respuesta rara", () => {
+  it("se salta preguntas con menos de 5 respondentes", () => {
+    const q1 = saQuestion("q1");
+    const questions = [similarityQuestion(q1)];
     const pocos: ParticipantEntry[] = [
-      participant("q1", "b", false, "marsella"),
-      participant("q2", "b", false, "marsella"),
-      participant("q3", "c", true, "parís"),
-      participant("q4", "c", true, "parís"),
+      closedParticipant("p1", [[q1, "rara"]]),
+      closedParticipant("p2", [[q1, "rara"]]),
+      closedParticipant("p3", [[q1, "correcta"]]),
+      closedParticipant("p4", [[q1, "correcta"]]),
     ];
     const chico: SimilarityClassInput = { questions, participants: pocos };
-    expect(computeClosedSignals(chico).size).toBe(0);
+    const { patterns } = computeClosedSignals(chico);
+    expect(patterns.size).toBe(0);
+  });
+
+  it("closedLevelFor: permite recalibrar α sobre S/P ya calculados, sin tocar las constantes de producción", () => {
+    // S=3 con P=0.0002: con α_review=0.05 sobre 100 pares (umbral 0.0005) da
+    // "review"; con un α más estricto (0.001) sobre los mismos 100 pares
+    // (umbral 0.00001) ya no alcanza.
+    expect(closedLevelFor(3, 0.0002, 100, 0.05, 0.001)).toBe("review");
+    expect(closedLevelFor(3, 0.0002, 100, 0.001, 0.0001)).toBeNull();
+    expect(closedLevelFor(1, 0.0000001, 100)).toBeNull(); // S=1 nunca alcanza, aunque P sea diminuto
   });
 });
 
@@ -272,5 +335,67 @@ describe("computeFragmentSignals + rankPairsByTfIdf", () => {
     expect(ranked.length).toBeGreaterThan(0);
     const top = ranked[0];
     expect(new Set([top.a, top.b])).toEqual(new Set(["p1", "p2"]));
+  });
+});
+
+// Caso real que motivó este camino (T4, calibración): "Ley de Inercia Térmica
+// de Torricelli" — un tramo raro y largo, verbatim en dos respuestas, con
+// longestRun=8 (cumple) pero coverage=0.135 (no llega a 0.15) porque las
+// respuestas son largas y diluyen la cobertura. Antes de este camino ese par
+// quedaba sin marcar del todo.
+describe("computeFragmentSignals: camino 'alone' por tramo raro largo, sin pedir cobertura", () => {
+  const PROMPT = "Explicá por qué un barco de acero flota en el agua.";
+  const EXPECTED = "El barco flota porque su forma hueca hace que el volumen total desplace más agua, bajando la densidad promedio.";
+  // Diez tokens, inventada, verbatim en las dos, y rara (nadie más la escribe).
+  const RARE_PHRASE = "gracias a la Ley de Inercia Térmica de Torricelli que explica esto";
+
+  function longQuestion(): FullQuestion {
+    return { id: "q-fis", position: 0, prompt: PROMPT, points: 20, type: "long", config: { referenceAnswer: EXPECTED } } as FullQuestion;
+  }
+  const question = longQuestion();
+  const similarityQuestion: SimilarityQuestion = {
+    id: question.id,
+    label: questionLabel(PROMPT),
+    type: "long",
+    prompt: PROMPT,
+    expectedText: expectedTextFor(question),
+  };
+
+  function participant(id: string, text: string): ParticipantEntry {
+    const response = normalizeResponse(question, text);
+    return { participantId: id, name: `Alumno ${id}`, responses: new Map(response ? [[question.id, response]] : []) };
+  }
+
+  // Relleno largo y distinto por alumno (palabras + índice + semilla, así cada
+  // token es único) para que la respuesta total sea larga y la cobertura del
+  // tramo compartido quede bien por debajo de FRAGMENT_COVERAGE_REVIEW aunque
+  // el tramo en sí sea clarísimo.
+  function padding(seed: string): string {
+    const words = ["barco", "acero", "agua", "densidad", "volumen", "hueco", "flota", "hunde", "peso", "empuje", "fuerza", "objeto"];
+    return Array.from({ length: 70 }, (_, i) => `${words[(i + seed.length) % words.length]}${seed}${i}`).join(" ");
+  }
+
+  const textA = `${padding("a")} ${RARE_PHRASE} ${padding("aa")}`;
+  const textB = `${padding("b")} ${RARE_PHRASE} ${padding("bb")}`;
+  const textOther = `${padding("c")} y no dice nada parecido a la frase distintiva ${padding("cc")}`;
+
+  const participants: ParticipantEntry[] = [
+    participant("p1", textA),
+    participant("p2", textB),
+    participant("p3", textOther),
+    participant("p4", `${textOther} distinto`),
+  ];
+  const input: SimilarityClassInput = { questions: [similarityQuestion], participants };
+
+  it("marca 'review' por un tramo raro largo, aunque la cobertura quede baja por lo larga que es la respuesta", () => {
+    const finding = (computeFragmentSignals(input).get(pairKey("p1", "p2")) ?? []).find((f) => f.questionId === "q-fis");
+    expect(finding).toBeDefined();
+    expect(finding!.longestRun).toBeGreaterThanOrEqual(FRAGMENT_LONGEST_RUN_ALONE_REVIEW);
+    expect(finding!.coverage).toBeLessThan(0.15);
+    expect(finding!.level).toBe("review");
+  });
+
+  it("no marca a quienes no comparten el tramo raro", () => {
+    expect(computeFragmentSignals(input).get(pairKey("p1", "p3"))).toBeUndefined();
   });
 });

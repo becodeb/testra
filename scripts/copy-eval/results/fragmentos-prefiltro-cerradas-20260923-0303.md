@@ -2,9 +2,9 @@
 
 
 
-Generado: 2026-09-23T02:31:54.337Z. Dataset: `scripts/copy-eval/dataset.json` (6 preguntas × 24 respuestas, 24 positivos, 24 negativos difíciles).
+Generado: 2026-09-23T03:03:32.872Z. Dataset: `scripts/copy-eval/dataset.json` (6 preguntas × 24 respuestas, 24 positivos, 24 negativos difíciles).
 
-Métodos evaluados en esta corrida: fragmentos, prefiltro, cerradas, jev.
+Métodos evaluados en esta corrida: fragmentos, prefiltro, cerradas.
 
 
 
@@ -103,21 +103,37 @@ Recall de los 24 positivos dentro del presupuesto: **100.0%** (24/24).
 | q6 | q6-s04 ~ q6-s02 | paraphrase | 8 | sí |
 | q6 | q6-s09 ~ q6-s13 | shared_error | 2 | sí |
 
-## 5. Preguntas cerradas, simulación sin IA (calibra `CLOSED_*`)
+## 5. Preguntas cerradas, simulación sin IA (calibra el modelo de azar)
 
-30 alumnos, modelo logístico de habilidad/dificultad (1 parámetro), 2 pares que coluden copiando la respuesta del otro con 70% de probabilidad por pregunta, 200 semillas.
+30 alumnos, modelo logístico de habilidad/dificultad (1 parámetro), 2 pares que coluden copiando la respuesta del otro con 70% de probabilidad por pregunta, 200 semillas por clase y combinación de α.
 
-| clase | instancias colusoras (2×200) | detección strong | detección review+strong | falsos flags/clase (media) | falsos flags/clase (p95) | otros pares/clase |
+| clase | α_review | α_strong | detección strong | detección review+strong | falsos flags/clase (media) | falsos flags/clase (p95) |
 | --- | --- | --- | --- | --- | --- | --- |
-| 15 mc (4 opciones, distractores 60/25/15) | 400 | 7.8% | 55.0% | 19.33 | 32.00 | 433 |
-| 10 tf | 400 | 0.0% | 1.0% | 1.17 | 6.00 | 433 |
+| 15 mc (distractores 60/25/15) | 0.05 | 0.001 | 0.0% | 0.5% | 0.000 | 0.000 |
+| 15 mc (distractores 60/25/15) | 0.05 | 0.01 | 0.5% | 0.5% | 0.000 | 0.000 |
+| 15 mc (distractores 60/25/15) | 0.2 | 0.001 | 0.0% | 4.5% | 0.000 | 0.000 |
+| 15 mc (distractores 60/25/15) | 0.2 | 0.01 | 0.5% | 4.5% | 0.000 | 0.000 |
+| 15 mc (distractores 60/25/15) | 1 | 0.001 | 0.0% | 12.0% | 0.045 | 0.000 |
+| 15 mc (distractores 60/25/15) | 1 | 0.01 | 0.5% | 12.0% | 0.045 | 0.000 |
+| 10 tf | 0.05 | 0.001 | 0.0% | 0.0% | 0.000 | 0.000 |
+| 10 tf | 0.05 | 0.01 | 0.0% | 0.0% | 0.000 | 0.000 |
+| 10 tf | 0.2 | 0.001 | 0.0% | 0.0% | 0.000 | 0.000 |
+| 10 tf | 0.2 | 0.01 | 0.0% | 0.0% | 0.000 | 0.000 |
+| 10 tf | 1 | 0.001 | 0.0% | 0.0% | 0.000 | 0.000 |
+| 10 tf | 1 | 0.01 | 0.0% | 0.0% | 0.000 | 0.000 |
+| 25 mixto (15 mc + 5 tf + 5 sa cola larga) | 0.05 | 0.001 | 8.0% | 27.0% | 0.010 | 0.000 |
+| 25 mixto (15 mc + 5 tf + 5 sa cola larga) | 0.05 | 0.01 | 17.3% | 27.0% | 0.010 | 0.000 |
+| 25 mixto (15 mc + 5 tf + 5 sa cola larga) | 0.2 | 0.001 | 8.0% | 35.8% | 0.010 | 0.000 |
+| 25 mixto (15 mc + 5 tf + 5 sa cola larga) | 0.2 | 0.01 | 17.3% | 35.8% | 0.010 | 0.000 |
+| 25 mixto (15 mc + 5 tf + 5 sa cola larga) | 1 | 0.001 | 8.0% | 50.5% | 0.120 | 1.000 |
+| 25 mixto (15 mc + 5 tf + 5 sa cola larga) | 1 | 0.01 | 17.3% | 50.5% | 0.120 | 1.000 |
 
-## 3. Jev (`EVAL_JEV=1`)
+### Elegido: α_review=0.05, α_strong=0.001
 
-4 llamado(s) reales intentados contra `https://ai-gateway.vercel.sh`. Concurrencia 4, todos los 276 pares de cada pregunta (no solo los preseleccionados).
+Cumple el piso de 0.2 falsos flags/clase (peor caso entre las 3 clases) y, entre las que lo cumplen, tiene la mejor detección peor-caso.
 
-**La tanda se cortó por `billing_required`.**
-
-### Variante `base`
-
-Se cortó de inmediato: de 4 llamado(s) intentado(s), uno devolvió **`billing_required`** (error permanente, no se reintenta). Ningún número fabricado para esta variante — 0 pares sí llegaron a evaluarse antes del corte.
+| clase | detección strong | detección review+strong | falsos flags/clase (media) | falsos flags/clase (p95) |
+| --- | --- | --- | --- | --- |
+| 15 mc (distractores 60/25/15) | 0.0% | 0.5% | 0.000 | 0.000 |
+| 10 tf | 0.0% | 0.0% | 0.000 | 0.000 |
+| 25 mixto (15 mc + 5 tf + 5 sa cola larga) | 8.0% | 27.0% | 0.010 | 0.000 |

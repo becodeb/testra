@@ -8,7 +8,7 @@ import { JevError, evaluateWithJev, jevConfigured, type JevAnswer, type JevError
 import { buildJevRequest, eligibleParticipantIds, orderPairsForQuestion, SEMANTIC_REVIEW_PROBABILITY, SIMILARITY_CONTEXT, SIMILARITY_QUESTIONS } from "@/server/similarity-analysis";
 import { computeFragmentSignals, pairKey, type FragmentFinding, type SimilarityQuestion } from "@/server/similarity-signals";
 
-import { runClosedSimulation, type ClosedSimConfig } from "./lib/closed-sim";
+import { runClosedSimulation, type AlphaCombination, type ClosedSimConfig, type ClosedSimSummary } from "./lib/closed-sim";
 import { allPairs, globalPairKey, loadDataset, questionToClassInput, type Dataset, type DatasetQuestion } from "./lib/dataset";
 import { max, mean, percentile, precisionRecall, rocAuc, seededRng, sleep } from "./lib/metrics";
 import { fmtMs, fmtNum, fmtPct, mdTable } from "./lib/report";
@@ -622,25 +622,116 @@ async function evaluateLlmJudge(dataset: Dataset, jevPerPairBase: Map<string, Je
 
 // --- Medida 5: simulación de preguntas cerradas (sin IA) --------------------
 
-function evaluateClosedSim(): string {
-  const mcConfig: ClosedSimConfig = { studentCount: 30, questionCount: 15, questionType: "mc", distractorWeights: [0.6, 0.25, 0.15], colludingPairs: 2, collusionRate: 0.7 };
-  const tfConfig: ClosedSimConfig = { studentCount: 30, questionCount: 10, questionType: "tf", distractorWeights: [1], colludingPairs: 2, collusionRate: 0.7 };
-  const mc = runClosedSimulation(mcConfig, 200, "closed-sim-mc-v1");
-  const tf = runClosedSimulation(tfConfig, 200, "closed-sim-tf-v1");
+const CLOSED_SIM_ALPHA_COMBINATIONS: AlphaCombination[] = [
+  { alphaReview: 0.05, alphaStrong: 0.001 },
+  { alphaReview: 0.05, alphaStrong: 0.01 },
+  { alphaReview: 0.2, alphaStrong: 0.001 },
+  { alphaReview: 0.2, alphaStrong: 0.01 },
+  { alphaReview: 1.0, alphaStrong: 0.001 },
+  { alphaReview: 1.0, alphaStrong: 0.01 },
+];
+// El criterio pedido: entre las combinaciones cuyo PEOR caso (la clase más
+// ruidosa de las tres) se mantiene <= este piso de falsos flags por clase, se
+// elige la de mejor detección peor-caso.
+const CLOSED_SIM_MAX_MEAN_FALSE_FLAGS = 0.2;
 
-  const rows = [
-    ["15 mc (4 opciones, distractores 60/25/15)", mc.colludingInstances, fmtPct(mc.strongRate), fmtPct(mc.reviewOrStrongRate), fmtNum(mc.otherFalseFlagsMean, 2), fmtNum(mc.otherFalseFlagsP95, 2), mc.totalOtherPairsPerClass],
-    ["10 tf", tf.colludingInstances, fmtPct(tf.strongRate), fmtPct(tf.reviewOrStrongRate), fmtNum(tf.otherFalseFlagsMean, 2), fmtNum(tf.otherFalseFlagsP95, 2), tf.totalOtherPairsPerClass],
+interface ClosedSimComboAggregate extends AlphaCombination {
+  perConfig: Array<{ label: string; summary: ClosedSimSummary }>;
+  worstMeanFalseFlags: number;
+  worstReviewOrStrongRate: number;
+}
+
+function evaluateClosedSim(): string {
+  const mcConfig: ClosedSimConfig = {
+    studentCount: 30,
+    questionGroups: [{ type: "mc", count: 15, distractorWeights: [0.6, 0.25, 0.15] }],
+    colludingPairs: 2,
+    collusionRate: 0.7,
+  };
+  const tfConfig: ClosedSimConfig = {
+    studentCount: 30,
+    questionGroups: [{ type: "tf", count: 10 }],
+    colludingPairs: 2,
+    collusionRate: 0.7,
+  };
+  const mixedConfig: ClosedSimConfig = {
+    studentCount: 30,
+    questionGroups: [
+      { type: "mc", count: 15, distractorWeights: [0.6, 0.25, 0.15] },
+      { type: "tf", count: 5 },
+      { type: "sa", count: 5 },
+    ],
+    colludingPairs: 2,
+    collusionRate: 0.7,
+  };
+  const configs: Array<{ label: string; config: ClosedSimConfig; seedLabel: string }> = [
+    { label: "15 mc (distractores 60/25/15)", config: mcConfig, seedLabel: "closed-sim-mc-v2" },
+    { label: "10 tf", config: tfConfig, seedLabel: "closed-sim-tf-v2" },
+    { label: "25 mixto (15 mc + 5 tf + 5 sa cola larga)", config: mixedConfig, seedLabel: "closed-sim-mixed-v2" },
   ];
 
+  const rows: Array<Array<string | number>> = [];
+  const combosByKey = new Map<string, ClosedSimComboAggregate>();
+  for (const { label, config, seedLabel } of configs) {
+    const summaries = runClosedSimulation(config, 200, seedLabel, CLOSED_SIM_ALPHA_COMBINATIONS);
+    for (const summary of summaries) {
+      rows.push([
+        label,
+        summary.alphaReview,
+        summary.alphaStrong,
+        fmtPct(summary.strongRate),
+        fmtPct(summary.reviewOrStrongRate),
+        fmtNum(summary.otherFalseFlagsMean, 3),
+        fmtNum(summary.otherFalseFlagsP95, 3),
+      ]);
+      const key = `${summary.alphaReview}|${summary.alphaStrong}`;
+      const aggregate = combosByKey.get(key) ?? {
+        alphaReview: summary.alphaReview,
+        alphaStrong: summary.alphaStrong,
+        perConfig: [],
+        worstMeanFalseFlags: 0,
+        worstReviewOrStrongRate: 1,
+      };
+      aggregate.perConfig.push({ label, summary });
+      aggregate.worstMeanFalseFlags = Math.max(aggregate.worstMeanFalseFlags, summary.otherFalseFlagsMean ?? 0);
+      aggregate.worstReviewOrStrongRate = Math.min(aggregate.worstReviewOrStrongRate, summary.reviewOrStrongRate);
+      combosByKey.set(key, aggregate);
+    }
+  }
+
+  const combos = [...combosByKey.values()];
+  const eligible = combos.filter((combo) => combo.worstMeanFalseFlags <= CLOSED_SIM_MAX_MEAN_FALSE_FLAGS);
+  const pool = eligible.length ? eligible : combos;
+  const chosen = [...pool].sort(
+    (a, b) => b.worstReviewOrStrongRate - a.worstReviewOrStrongRate || a.worstMeanFalseFlags - b.worstMeanFalseFlags,
+  )[0];
+  const chosenNote = eligible.length
+    ? `Cumple el piso de ${CLOSED_SIM_MAX_MEAN_FALSE_FLAGS} falsos flags/clase (peor caso entre las 3 clases) y, entre las que lo cumplen, tiene la mejor detección peor-caso.`
+    : `**Ninguna combinación probada baja de ${CLOSED_SIM_MAX_MEAN_FALSE_FLAGS} falsos flags/clase en el peor caso** — se muestra la de mejor detección peor-caso igual, para referencia, pero ninguna cumple el criterio pedido.`;
+
   return [
-    "## 5. Preguntas cerradas, simulación sin IA (calibra `CLOSED_*`)",
+    "## 5. Preguntas cerradas, simulación sin IA (calibra el modelo de azar)",
     "",
-    "30 alumnos, modelo logístico de habilidad/dificultad (1 parámetro), 2 pares que coluden copiando la respuesta del otro con 70% de probabilidad por pregunta, 200 semillas.",
+    "30 alumnos, modelo logístico de habilidad/dificultad (1 parámetro), 2 pares que coluden copiando la respuesta del otro con 70% de probabilidad por pregunta, 200 semillas por clase y combinación de α.",
     "",
     mdTable(
-      ["clase", "instancias colusoras (2×200)", "detección strong", "detección review+strong", "falsos flags/clase (media)", "falsos flags/clase (p95)", "otros pares/clase"],
+      ["clase", "α_review", "α_strong", "detección strong", "detección review+strong", "falsos flags/clase (media)", "falsos flags/clase (p95)"],
       rows,
+    ),
+    "",
+    `### Elegido: α_review=${chosen.alphaReview}, α_strong=${chosen.alphaStrong}`,
+    "",
+    chosenNote,
+    "",
+    mdTable(
+      ["clase", "detección strong", "detección review+strong", "falsos flags/clase (media)", "falsos flags/clase (p95)"],
+      chosen.perConfig.map(({ label, summary }) => [
+        label,
+        fmtPct(summary.strongRate),
+        fmtPct(summary.reviewOrStrongRate),
+        fmtNum(summary.otherFalseFlagsMean, 3),
+        fmtNum(summary.otherFalseFlagsP95, 3),
+      ]),
     ),
   ].join("\n");
 }

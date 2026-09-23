@@ -1,7 +1,7 @@
 import {
+  closedLevelFor,
   computeClosedSignals,
   pairKey,
-  summarizeClosedPattern,
   type ClosedResponse,
   type ParticipantEntry,
   type SimilarityClassInput,
@@ -10,30 +10,43 @@ import {
 
 import { hashStringToInt, mean, mulberry32, nextGaussian, percentile } from "./metrics";
 
-// Simulación de clases cerradas (sin IA) para calibrar los umbrales `CLOSED_*`
-// de `similarity-signals.ts`. No hay red ni dataset acá: alumnos con
-// habilidad propia, preguntas con dificultad propia (modelo logístico
-// 1-parámetro, estilo Rasch: P(acierta) = sigmoid(habilidad - dificultad)),
-// distractores con popularidad desigual entre las opciones incorrectas, y un
+// Simulación de clases cerradas (sin IA) para calibrar el modelo estadístico
+// de `computeClosedSignals` en `similarity-signals.ts`. Alumnos con habilidad
+// propia, preguntas con dificultad propia (modelo logístico 1-parámetro,
+// estilo Rasch: P(acierta) = sigmoid(habilidad - dificultad)), distractores
+// con popularidad desigual (mc) o una larga cola de errores únicos (sa), y un
 // puñado de pares que "coluden" copiando la respuesta del otro con cierta
 // probabilidad por pregunta.
+//
+// Simula UNA vez por semilla y guarda S/P crudos por par: probar distintos α
+// (la calibración que pide T4) es después una cuenta barata sobre esos
+// mismos datos, sin resimular ni tocar las constantes de producción.
+
+export interface ClosedSimQuestionGroup {
+  type: "mc" | "tf" | "sa";
+  count: number;
+  /** Pesos relativos de los distractores incorrectos (solo mc; en tf/sa no aplica). */
+  distractorWeights?: number[];
+}
 
 export interface ClosedSimConfig {
   studentCount: number;
-  questionCount: number;
-  questionType: "mc" | "tf";
-  /** Pesos relativos de los distractores (se ignora en tf: ahí solo hay una opción incorrecta). */
-  distractorWeights: number[];
+  questionGroups: ClosedSimQuestionGroup[];
   colludingPairs: number;
   /** Probabilidad, por pregunta, de que el "copión" adopte la respuesta que ya tenía el "fuente". */
   collusionRate: number;
 }
 
+export interface RawPairOutcome {
+  sharedWrong: number;
+  pValue: number;
+}
+
 export interface SeedOutcome {
-  colludingLevels: Array<"strong" | "review" | null>;
-  /** Entre los pares NO colusores, cuántos quedaron marcados (review o strong): el falso positivo de esta clase. */
-  otherFlaggedCount: number;
-  totalOtherPairs: number;
+  nPairs: number;
+  colluding: RawPairOutcome[];
+  /** Solo los NO colusores con sharedWrong >= 2 (el piso fijo): los únicos que podrían marcarse con cualquier α. */
+  others: RawPairOutcome[];
 }
 
 function sigmoid(x: number): number {
@@ -51,12 +64,44 @@ function pickWeighted(options: string[], weights: number[], rng: () => number): 
   return options[options.length - 1];
 }
 
+// Cola larga de errores en respuesta corta: la mayoría de quienes fallan
+// escriben algo propio y único (su typo, su confusión puntual); una minoría
+// cae en un par de errores comunes (una confusión que sí comparte medio curso).
+const SA_COMMON_WRONGS = ["error-comun-1", "error-comun-2"];
+const SA_COMMON_RATE = 0.3;
+
+function sampleWrongAnswer(
+  type: "mc" | "tf" | "sa",
+  wrongOptions: string[],
+  weights: number[] | undefined,
+  rng: () => number,
+  uniqueTag: string,
+): string {
+  if (type === "tf") return "false";
+  if (type === "mc") return pickWeighted(wrongOptions, weights ?? [], rng);
+  if (rng() < SA_COMMON_RATE) return SA_COMMON_WRONGS[Math.floor(rng() * SA_COMMON_WRONGS.length)];
+  return `unico-${uniqueTag}`;
+}
+
+interface QuestionPlan {
+  id: string;
+  type: "mc" | "tf" | "sa";
+  distractorWeights?: number[];
+  difficulty: number;
+}
+
 /** Una clase simulada, con una semilla numérica ya derivada (determinístico). */
 export function simulateOneClass(config: ClosedSimConfig, seed: number): SeedOutcome {
   const rng = mulberry32(seed);
   const students = Array.from({ length: config.studentCount }, (_, i) => `s${i + 1}`);
   const abilities = new Map(students.map((s) => [s, nextGaussian(rng)]));
-  const difficulties = Array.from({ length: config.questionCount }, () => nextGaussian(rng));
+
+  const plans: QuestionPlan[] = [];
+  for (const group of config.questionGroups) {
+    for (let i = 0; i < group.count; i += 1) {
+      plans.push({ id: `q${plans.length + 1}`, type: group.type, distractorWeights: group.distractorWeights, difficulty: nextGaussian(rng) });
+    }
+  }
 
   const everyPair: Array<[string, string]> = [];
   for (let i = 0; i < students.length; i += 1) {
@@ -71,106 +116,133 @@ export function simulateOneClass(config: ClosedSimConfig, seed: number): SeedOut
   const colludingKeys = new Set(colludingPairs.map(([a, b]) => pairKey(a, b)));
   const roleByPairKey = new Map(colludingPairs.map(([a, b]) => [pairKey(a, b), { source: a, copier: b }]));
 
-  // Opciones: "a"/"b"/"c"/"d" para mc (la correcta es siempre "a": arbitrario
-  // y sin efecto, porque el algoritmo compara por igualdad de valor, nunca
-  // por posición), "true"/"false" para tf.
-  const optionIds = config.questionType === "tf" ? ["true", "false"] : ["a", "b", "c", "d"];
-  const correctId = optionIds[0];
-  const wrongOptions = optionIds.slice(1);
-
+  // "true" (o el equivalente correcto de cada tipo) es el valor por defecto
+  // que después cada pregunta pisa; ningún alumno queda sin respuesta.
   const answersByStudent = new Map<string, string[]>();
-  for (const student of students) answersByStudent.set(student, new Array(config.questionCount).fill(correctId));
+  for (const student of students) answersByStudent.set(student, new Array(plans.length).fill(""));
 
-  for (let q = 0; q < config.questionCount; q += 1) {
-    const difficulty = difficulties[q];
-    for (const student of students) {
-      const pCorrect = sigmoid(abilities.get(student)! - difficulty);
+  plans.forEach((plan, q) => {
+    const correctId = plan.type === "sa" ? "correcta" : plan.type === "tf" ? "true" : "a";
+    const wrongOptions = plan.type === "mc" ? ["b", "c", "d"] : [];
+    students.forEach((student, studentIndex) => {
+      const pCorrect = sigmoid(abilities.get(student)! - plan.difficulty);
       const correct = rng() < pCorrect;
-      const chosen = correct ? correctId : pickWeighted(wrongOptions, config.distractorWeights, rng);
+      const chosen = correct
+        ? correctId
+        : sampleWrongAnswer(plan.type, wrongOptions, plan.distractorWeights, rng, `${q}-${studentIndex}-${Math.floor(rng() * 1e9)}`);
       answersByStudent.get(student)![q] = chosen;
-    }
-  }
+    });
+  });
 
   // La colusión se aplica DESPUÉS de simular las respuestas independientes:
   // en cada pregunta, con probabilidad `collusionRate`, el copión adopta lo
   // que el source ya tenía (sea correcto o no) en vez de su propia respuesta.
   for (const { source, copier } of roleByPairKey.values()) {
-    for (let q = 0; q < config.questionCount; q += 1) {
+    plans.forEach((_, q) => {
       if (rng() < config.collusionRate) answersByStudent.get(copier)![q] = answersByStudent.get(source)![q];
-    }
+    });
   }
 
-  const questions: SimilarityQuestion[] = Array.from({ length: config.questionCount }, (_, q) => ({
-    id: `q${q + 1}`,
-    label: `Pregunta ${q + 1}`,
-    type: config.questionType,
-    prompt: `Pregunta ${q + 1}`,
+  const questions: SimilarityQuestion[] = plans.map((plan) => ({
+    id: plan.id,
+    label: plan.id,
+    type: plan.type,
+    prompt: plan.id,
     expectedText: "",
+    // mc real: 4 opciones, 3 incorrectas. Igual que un adaptador real le
+    // pasaría `options.length - 1` a `similarity-analysis.ts`.
+    wrongOptionCount: plan.type === "mc" ? 3 : undefined,
   }));
   const participants: ParticipantEntry[] = students.map((student) => {
     const responses = new Map<string, ClosedResponse>();
     const chosenByQuestion = answersByStudent.get(student)!;
-    for (let q = 0; q < config.questionCount; q += 1) {
+    plans.forEach((plan, q) => {
       const chosen = chosenByQuestion[q];
-      responses.set(`q${q + 1}`, { kind: "closed", key: chosen, label: chosen, correct: chosen === correctId });
-    }
+      const correctId = plan.type === "sa" ? "correcta" : plan.type === "tf" ? "true" : "a";
+      responses.set(plan.id, { kind: "closed", key: chosen, label: chosen, correct: chosen === correctId });
+    });
     return { participantId: student, name: student, responses };
   });
   const input: SimilarityClassInput = { questions, participants };
 
-  const closedFindings = computeClosedSignals(input);
-  const colludingLevels = colludingPairs.map(([a, b]) => summarizeClosedPattern(closedFindings.get(pairKey(a, b)) ?? []).level);
+  const { patterns } = computeClosedSignals(input);
+  const nPairs = (students.length * (students.length - 1)) / 2;
 
-  let otherFlaggedCount = 0;
-  let totalOtherPairs = 0;
+  const colluding: RawPairOutcome[] = colludingPairs.map(([a, b]) => {
+    const pattern = patterns.get(pairKey(a, b));
+    return { sharedWrong: pattern?.sharedWrong ?? 0, pValue: pattern?.pValue ?? 1 };
+  });
+
+  const others: RawPairOutcome[] = [];
   for (const [a, b] of everyPair) {
     const key = pairKey(a, b);
     if (colludingKeys.has(key)) continue;
-    totalOtherPairs += 1;
-    const level = summarizeClosedPattern(closedFindings.get(key) ?? []).level;
-    if (level) otherFlaggedCount += 1;
+    const pattern = patterns.get(key);
+    if (pattern && pattern.sharedWrong >= 2) others.push({ sharedWrong: pattern.sharedWrong, pValue: pattern.pValue });
   }
 
-  return { colludingLevels, otherFlaggedCount, totalOtherPairs };
+  return { nPairs, colluding, others };
 }
 
-export interface ClosedSimSummary {
+export interface AlphaCombination {
+  alphaReview: number;
+  alphaStrong: number;
+}
+
+export interface ClosedSimSummary extends AlphaCombination {
   seeds: number;
   colludingInstances: number;
   strongRate: number;
   reviewOrStrongRate: number;
   otherFalseFlagsMean: number | null;
   otherFalseFlagsP95: number | null;
-  totalOtherPairsPerClass: number;
 }
 
-export function runClosedSimulation(config: ClosedSimConfig, seeds: number, seedLabel: string): ClosedSimSummary {
-  let strongCount = 0;
-  let reviewOrStrongCount = 0;
-  let colludingInstances = 0;
-  const falseFlagsPerSeed: number[] = [];
-  let totalOtherPairsPerClass = 0;
-
+/**
+ * Simula `seeds` clases UNA vez y, para cada combinación de α pedida,
+ * recalcula el nivel de cada par (con `closedLevelFor`, sin resimular) para
+ * medir detección y falsos positivos bajo ese α.
+ */
+export function runClosedSimulation(
+  config: ClosedSimConfig,
+  seeds: number,
+  seedLabel: string,
+  alphaCombinations: AlphaCombination[],
+): ClosedSimSummary[] {
+  const seedOutcomes: SeedOutcome[] = [];
   for (let s = 0; s < seeds; s += 1) {
-    // Semilla determinística derivada del label + índice: reproducible sin
-    // depender de `Date.now()` ni de ningún estado externo.
-    const outcome = simulateOneClass(config, hashStringToInt(`${seedLabel}:${s}`));
-    for (const level of outcome.colludingLevels) {
-      colludingInstances += 1;
-      if (level === "strong") strongCount += 1;
-      if (level === "strong" || level === "review") reviewOrStrongCount += 1;
-    }
-    falseFlagsPerSeed.push(outcome.otherFlaggedCount);
-    totalOtherPairsPerClass = outcome.totalOtherPairs;
+    seedOutcomes.push(simulateOneClass(config, hashStringToInt(`${seedLabel}:${s}`)));
   }
 
-  return {
-    seeds,
-    colludingInstances,
-    strongRate: colludingInstances ? strongCount / colludingInstances : 0,
-    reviewOrStrongRate: colludingInstances ? reviewOrStrongCount / colludingInstances : 0,
-    otherFalseFlagsMean: mean(falseFlagsPerSeed),
-    otherFalseFlagsP95: percentile(falseFlagsPerSeed, 95),
-    totalOtherPairsPerClass,
-  };
+  return alphaCombinations.map(({ alphaReview, alphaStrong }) => {
+    let strongCount = 0;
+    let reviewOrStrongCount = 0;
+    let colludingInstances = 0;
+    const falseFlagsPerSeed: number[] = [];
+
+    for (const outcome of seedOutcomes) {
+      for (const { sharedWrong, pValue } of outcome.colluding) {
+        colludingInstances += 1;
+        const level = closedLevelFor(sharedWrong, pValue, outcome.nPairs, alphaReview, alphaStrong);
+        if (level === "strong") strongCount += 1;
+        if (level === "strong" || level === "review") reviewOrStrongCount += 1;
+      }
+      let flagged = 0;
+      for (const { sharedWrong, pValue } of outcome.others) {
+        if (closedLevelFor(sharedWrong, pValue, outcome.nPairs, alphaReview, alphaStrong)) flagged += 1;
+      }
+      falseFlagsPerSeed.push(flagged);
+    }
+
+    return {
+      alphaReview,
+      alphaStrong,
+      seeds,
+      colludingInstances,
+      strongRate: colludingInstances ? strongCount / colludingInstances : 0,
+      reviewOrStrongRate: colludingInstances ? reviewOrStrongCount / colludingInstances : 0,
+      otherFalseFlagsMean: mean(falseFlagsPerSeed),
+      otherFalseFlagsP95: percentile(falseFlagsPerSeed, 95),
+    };
+  });
 }

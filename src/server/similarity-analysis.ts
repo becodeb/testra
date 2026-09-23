@@ -22,8 +22,8 @@ import {
   pairKey,
   questionLabel,
   rankPairsByTfIdf,
-  summarizeClosedPattern,
   tokenize,
+  type ClosedPatternSummary,
   type FragmentFinding,
   type FragmentSpan,
   type ParticipantEntry,
@@ -84,7 +84,7 @@ export interface SimilarityPair {
   a: SimilarityPairSide;
   b: SimilarityPairSide;
   level: SignalLevel;
-  closedPattern?: { sharedWrong: number; rareShared: number };
+  closedPattern?: { sharedWrong: number; expectedByChance: number; pValue: number };
   questions: PairQuestionFinding[];
 }
 
@@ -380,7 +380,7 @@ export async function analyzeSimilarity(input: SimilarityClassInput, options: An
   const maxCalls = options.maxCalls ?? DEFAULT_MAX_CALLS;
 
   // Señales de código: siempre se calculan, corra o no Jev.
-  const closedFindings = computeClosedSignals(input);
+  const { patterns: closedPatterns, findings: closedFindings } = computeClosedSignals(input);
   const fragmentFindings = computeFragmentSignals(input);
 
   const { perQuestionCandidates, notSelectedPairs } = selectCandidates(input, fragmentFindings);
@@ -464,7 +464,7 @@ export async function analyzeSimilarity(input: SimilarityClassInput, options: An
     }
   }
 
-  const pairs = combinePairs(input, closedFindings, fragmentFindings, semanticOutcomes);
+  const pairs = combinePairs(input, closedPatterns, closedFindings, fragmentFindings, semanticOutcomes);
 
   return {
     version: 1,
@@ -508,6 +508,7 @@ interface PairDraft {
 
 function combinePairs(
   input: SimilarityClassInput,
+  closedPatterns: Map<string, ClosedPatternSummary>,
   closedFindings: Map<string, SharedWrongAnswerFinding[]>,
   fragmentFindings: Map<string, FragmentFinding[]>,
   semanticOutcomes: Map<string, { semantic: SemanticFindingReport; level: SignalLevel | null }>,
@@ -527,17 +528,16 @@ function combinePairs(
     return draft;
   }
 
-  // Solo las coincidencias raras se muestran como hallazgo individual: la
-  // escalada a "strong" de una coincidencia cerrada es trabajo exclusivo del
-  // agregado `closedPattern` (rareShared >= 3), no de un único par. Si una
-  // coincidencia no rara también contara acá, alcanzaría con 2 preguntas
-  // compartidas mal para saltar a "strong" sin pasar por ese umbral.
+  // `closedFindings` ya solo trae pares marcados (el nivel se decidió en
+  // `computeClosedSignals` con el modelo estadístico completo): cada pregunta
+  // que coincidió se muestra como evidencia, siempre en "review" acá — la
+  // escalada a "strong" es trabajo exclusivo del agregado `closedPattern`
+  // (P(X≥S) bajo el α correspondiente), no de una pregunta individual.
   for (const [key, findings] of closedFindings) {
-    const rareFindings = findings.filter((finding) => finding.rare);
-    if (!rareFindings.length) continue;
+    if (!findings.length) continue;
     const [a, b] = key.split("|");
     const draft = ensure(a, b);
-    for (const finding of rareFindings) {
+    for (const finding of findings) {
       const question = questionById.get(finding.questionId);
       if (!question) continue;
       draft.questions.set(finding.questionId, {
@@ -595,18 +595,18 @@ function combinePairs(
 
   const pairs: SimilarityPair[] = [];
   for (const [key, draft] of drafts) {
-    const closedSummary = summarizeClosedPattern(closedFindings.get(key) ?? []);
+    const closedSummary = closedPatterns.get(key) ?? null;
     const questions = [...draft.questions.values()];
     // El "strong"/"review" genérico por cantidad de preguntas es de desarrollo
     // (fragmentos/semántica): lo cerrado escala solo por `closedPattern`, para
-    // no duplicar su propio umbral de rareShared.
+    // no duplicar su propio P(X≥S) ya corregido por comparaciones múltiples.
     const longQuestions = questions.filter((question) => question.type === "long");
     const strongQuestion = longQuestions.some((question) => question.level === "strong");
     const reviewCount = longQuestions.filter((question) => question.level === "review").length;
 
     let level: SignalLevel | null = null;
-    if (strongQuestion || closedSummary.level === "strong" || reviewCount >= 2) level = "strong";
-    else if (reviewCount >= 1 || closedSummary.level === "review") level = "review";
+    if (strongQuestion || closedSummary?.level === "strong" || reviewCount >= 2) level = "strong";
+    else if (reviewCount >= 1 || closedSummary?.level === "review") level = "review";
     if (!level) continue;
 
     const participantA = byId.get(draft.a);
@@ -617,7 +617,10 @@ function combinePairs(
       a: { participantId: participantA.participantId, name: participantA.name },
       b: { participantId: participantB.participantId, name: participantB.name },
       level,
-      closedPattern: closedSummary.sharedWrong > 0 ? { sharedWrong: closedSummary.sharedWrong, rareShared: closedSummary.rareShared } : undefined,
+      closedPattern:
+        closedSummary && closedSummary.sharedWrong > 0
+          ? { sharedWrong: closedSummary.sharedWrong, expectedByChance: closedSummary.expectedByChance, pValue: closedSummary.pValue }
+          : undefined,
       questions,
     });
   }
@@ -679,6 +682,7 @@ export async function buildSimilarityClassInput(runId: string, actor: Actor): Pr
             type: question.type,
             prompt: question.prompt,
             expectedText: expectedTextFor(question),
+            wrongOptionCount: question.type === "mc" ? question.config.options.length - 1 : undefined,
           });
         }
         const normalized = normalizeResponse(question, answerByQuestion.get(question.id) ?? null);

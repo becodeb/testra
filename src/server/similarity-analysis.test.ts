@@ -274,30 +274,34 @@ describe("analyzeSimilarity", () => {
   });
 
   it("evaluator null da 'not_configured', y las señales de código siguen presentes", async () => {
-    const mc: SimilarityQuestion = { id: "q-mc", label: "MC", type: "mc", prompt: "¿?", expectedText: "" };
-    const tf: SimilarityQuestion = { id: "q-tf", label: "TF", type: "tf", prompt: "¿?", expectedText: "" };
     const long = longQuestion("q-long");
+    const saQuestions: SimilarityQuestion[] = [1, 2, 3].map((i) => ({
+      id: `q-sa${i}`,
+      label: `Pregunta ${i}`,
+      type: "sa",
+      prompt: "¿?",
+      expectedText: "",
+    }));
 
-    function participant(id: string, sharesRare: boolean): ParticipantEntry {
+    // 20 "otros" fallan cada pregunta con una respuesta ÚNICA cada uno (así
+    // hay con qué comparar: el modelo nuevo necesita ver qué es "normal" para
+    // poder decir que algo es raro). El par comparte una respuesta que
+    // ninguno de los otros usó, en las tres preguntas.
+    function saParticipant(id: string, wrongByQuestion: string[]): ParticipantEntry {
       const responses = new Map<string, ParticipantResponse>();
-      responses.set(mc.id, sharesRare
-        ? { kind: "closed", key: "rara", label: "Opción rara", correct: false }
-        : { kind: "closed", key: "correcta", label: "Opción correcta", correct: true });
-      responses.set(tf.id, sharesRare
-        ? { kind: "closed", key: "false", label: "Falso", correct: false }
-        : { kind: "closed", key: "true", label: "Verdadero", correct: true });
+      wrongByQuestion.forEach((text, index) => {
+        responses.set(saQuestions[index].id, { kind: "sa", normalized: text, label: text, correct: false });
+      });
       responses.set(long.id, { kind: "long", text: longText(id) });
       return { participantId: id, name: `Alumno ${id}`, responses };
     }
 
-    const participants = [
-      participant("p1", true),
-      participant("p2", true),
-      participant("p3", false),
-      participant("p4", false),
-      participant("p5", false),
+    const others = Array.from({ length: 20 }, (_, i) => saParticipant(`o${i + 1}`, [`error propio ${i} uno`, `error propio ${i} dos`, `error propio ${i} tres`]));
+    const pair = [
+      saParticipant("p1", ["mezcla rara compartida", "mezcla rara compartida", "mezcla rara compartida"]),
+      saParticipant("p2", ["mezcla rara compartida", "mezcla rara compartida", "mezcla rara compartida"]),
     ];
-    const input: SimilarityClassInput = { questions: [mc, tf, long], participants };
+    const input: SimilarityClassInput = { questions: [...saQuestions, long], participants: [...others, ...pair] };
 
     const report = await analyzeSimilarity(input, { evaluator: null });
 
@@ -309,8 +313,9 @@ describe("analyzeSimilarity", () => {
       return ids.has("p1") && ids.has("p2");
     });
     expect(flagged).toBeDefined();
-    expect(flagged?.closedPattern).toEqual({ sharedWrong: 2, rareShared: 2 });
-    expect(flagged?.level).toBe("review");
+    expect(flagged?.closedPattern?.sharedWrong).toBe(3);
+    expect(flagged?.closedPattern?.expectedByChance).toBeLessThan(1);
+    expect(flagged?.level).not.toBeNull();
   });
 
   it("sin preguntas de desarrollo elegibles, el estado es 'not_needed' y no se llama a Jev", async () => {

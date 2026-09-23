@@ -22,6 +22,12 @@ export interface SimilarityQuestion {
   prompt: string;
   /** Lo que se espera: la clave correcta, o para "long" la referencia + rúbrica. */
   expectedText: string;
+  /**
+   * Solo mc: cantidad de opciones incorrectas (`options.length - 1`). Alimenta
+   * el modelo de azar de coincidencias cerradas (ver `computeClosedSignals`);
+   * si falta, se estima empíricamente a partir de lo observado.
+   */
+  wrongOptionCount?: number;
 }
 
 export interface ClosedResponse {
@@ -174,84 +180,226 @@ export function isLongEligible(tokens: Token[]): boolean {
   return tokens.length >= LONG_MIN_TOKENS;
 }
 
-// --- mc/ms/tf/sa: opciones o respuestas cortas compartidas y raras ----------
+// --- mc/ms/tf/sa: coincidencias cerradas frente al azar ---------------------
+//
+// En vez de "¿esto es raro?" con un umbral fijo, se estima cuán probable era
+// PURO AZAR que dos alumnos que fallaron la misma pregunta hayan elegido la
+// MISMA respuesta mala, a partir de lo que el resto de la clase realmente
+// eligió (sin el par). Sumando esa probabilidad pregunta por pregunta se arma
+// una binomial de Poisson: la evidencia real es P(coincidir tantas veces o
+// más por azar), no un conteo contra un umbral arbitrario. Así el docente
+// puede leer "coinciden en 4 respuestas incorrectas; por azar lo esperable
+// era 1,2" en vez de un semáforo sin explicación.
 
 export const CLOSED_MIN_RESPONDENTS = 5;
-export const CLOSED_RARITY_RATIO = 0.1;
-export const CLOSED_RARE_STRONG_COUNT = 3;
-export const CLOSED_RARE_REVIEW_COUNT = 2;
-export const CLOSED_SHARED_WRONG_REVIEW_COUNT = 4;
+/**
+ * Calibrados en T4 contra tres simulaciones de 200 semillas (15 mc, 10 tf, y
+ * un examen mixto de 25 con sa de cola larga): de las combinaciones
+ * probadas (α_review ∈ {0.05, 0.2, 1}, α_strong ∈ {0.001, 0.01}), estos dos
+ * valores son los únicos que mantienen los falsos flags por clase en 0 (mc,
+ * tf) o prácticamente 0 (~0.01, mixto) en el peor caso de las tres, al costo
+ * de una detección baja en exámenes solo-mc o solo-tf (con pocas opciones
+ * incorrectas, K chico, no hay margen estadístico salvo que casi todas las
+ * preguntas coincidan). Con sa en la mezcla (espacio de respuestas más
+ * abierto, K más grande) la detección sube bastante. Ver
+ * `scripts/copy-eval/results/` para la tabla completa.
+ */
+export const CLOSED_ALPHA_REVIEW = 0.05;
+export const CLOSED_ALPHA_STRONG = 0.001;
+export const CLOSED_MIN_SHARED_REVIEW = 2;
+export const CLOSED_MIN_SHARED_STRONG = 3;
 
 export interface SharedWrongAnswerFinding {
   questionId: string;
   label: string;
   /** Cuántos otros alumnos (sin contar al par) escribieron exactamente lo mismo. */
   othersWithSame: number;
-  rare: boolean;
-}
-
-/**
- * Para cada pregunta cerrada o de respuesta corta, agrupa a quienes
- * respondieron MAL lo mismo y arma, por cada par que coincide, el hallazgo con
- * su rareza. Se salta preguntas con menos de `CLOSED_MIN_RESPONDENTS`
- * respondentes: con una clase chica cualquier coincidencia parece rara.
- */
-export function computeClosedSignals(input: SimilarityClassInput): Map<string, SharedWrongAnswerFinding[]> {
-  const result = new Map<string, SharedWrongAnswerFinding[]>();
-
-  for (const question of input.questions) {
-    if (question.type === "long") continue;
-
-    const responders: Array<{ participantId: string; response: ClosedResponse | ShortAnswerResponse }> = [];
-    for (const participant of input.participants) {
-      const response = participant.responses.get(question.id);
-      if (response && response.kind !== "long") responders.push({ participantId: participant.participantId, response });
-    }
-    const respondents = responders.length;
-    if (respondents < CLOSED_MIN_RESPONDENTS) continue;
-
-    const wrongByKey = new Map<string, { label: string; participantIds: string[] }>();
-    for (const { participantId, response } of responders) {
-      if (response.correct) continue;
-      const key = response.kind === "closed" ? `mc:${response.key}` : `sa:${response.normalized}`;
-      const bucket = wrongByKey.get(key) ?? { label: response.label, participantIds: [] };
-      bucket.participantIds.push(participantId);
-      wrongByKey.set(key, bucket);
-    }
-
-    for (const { label, participantIds } of wrongByKey.values()) {
-      if (participantIds.length < 2) continue;
-      const othersWithSame = participantIds.length - 2;
-      const threshold = Math.floor(CLOSED_RARITY_RATIO * (respondents - 2));
-      const rare = othersWithSame <= threshold;
-      for (let i = 0; i < participantIds.length; i += 1) {
-        for (let j = i + 1; j < participantIds.length; j += 1) {
-          const key = pairKey(participantIds[i], participantIds[j]);
-          const findings = result.get(key) ?? [];
-          findings.push({ questionId: question.id, label, othersWithSame, rare });
-          result.set(key, findings);
-        }
-      }
-    }
-  }
-
-  return result;
 }
 
 export interface ClosedPatternSummary {
+  /** S: preguntas donde el par falló exactamente igual. */
   sharedWrong: number;
-  rareShared: number;
+  /** E: cuántas coincidencias así se esperaban por puro azar (redondeado a 1 decimal, para mostrarlo). */
+  expectedByChance: number;
+  /** P(X ≥ S) bajo el modelo de azar (binomial de Poisson sobre las preguntas donde ambos fallaron). */
+  pValue: number;
   level: SignalLevel | null;
 }
 
-/** Tally por par sobre TODAS sus preguntas cerradas/sa compartidas mal. */
-export function summarizeClosedPattern(findings: SharedWrongAnswerFinding[]): ClosedPatternSummary {
-  const sharedWrong = findings.length;
-  const rareShared = findings.filter((finding) => finding.rare).length;
-  let level: SignalLevel | null = null;
-  if (rareShared >= CLOSED_RARE_STRONG_COUNT) level = "strong";
-  else if (rareShared === CLOSED_RARE_REVIEW_COUNT || (rareShared >= 1 && sharedWrong >= CLOSED_SHARED_WRONG_REVIEW_COUNT)) level = "review";
-  return { sharedWrong, rareShared, level };
+export interface ClosedAnalysis {
+  /** Un resumen por cada par con al menos una pregunta donde ambos fallaron, esté o no marcado. */
+  patterns: Map<string, ClosedPatternSummary>;
+  /** Solo para los pares que terminan marcados: el detalle de qué preguntas coincidieron. */
+  findings: Map<string, SharedWrongAnswerFinding[]>;
+}
+
+/**
+ * P(X ≥ s) para X = suma de variables Bernoulli independientes (no
+ * necesariamente idénticas) con las probabilidades dadas: la cola de una
+ * binomial de Poisson, exacta, vía programación dinámica O(n²) con n =
+ * cantidad de preguntas. `dp[k]` es la probabilidad de exactamente k éxitos
+ * tras procesar las probabilidades ya vistas.
+ */
+export function poissonBinomialTailProbability(probabilities: number[], s: number): number {
+  if (s <= 0) return 1;
+  if (s > probabilities.length) return 0;
+  let dp = [1];
+  for (const p of probabilities) {
+    const next = new Array(dp.length + 1).fill(0);
+    for (let k = 0; k < dp.length; k += 1) {
+      next[k] += dp[k] * (1 - p);
+      next[k + 1] += dp[k] * p;
+    }
+    dp = next;
+  }
+  let tail = 0;
+  for (let k = s; k < dp.length; k += 1) tail += dp[k];
+  return tail;
+}
+
+/**
+ * Decide el nivel a partir de S y P ya calculados, con corrección por
+ * comparaciones múltiples sobre los pares de la clase (`nPairs`). Separado de
+ * `computeClosedSignals` para que quien calibre (el harness de evaluación)
+ * pueda probar otros α sobre los mismos S/P ya calculados sin recalcular nada
+ * ni tocar las constantes de producción.
+ */
+export function closedLevelFor(
+  sharedWrong: number,
+  pValue: number,
+  nPairs: number,
+  alphaReview = CLOSED_ALPHA_REVIEW,
+  alphaStrong = CLOSED_ALPHA_STRONG,
+): SignalLevel | null {
+  if (nPairs <= 0) return null;
+  if (sharedWrong >= CLOSED_MIN_SHARED_STRONG && pValue <= alphaStrong / nPairs) return "strong";
+  if (sharedWrong >= CLOSED_MIN_SHARED_REVIEW && pValue <= alphaReview / nPairs) return "review";
+  return null;
+}
+
+interface WrongEntry {
+  participantId: string;
+  key: string;
+  label: string;
+}
+
+/**
+ * π_q = P(dos alumnos que fallaron esta pregunta, elegidos al azar de la
+ * distribución observada en el RESTO de la clase, eligen la misma opción
+ * mala), con suavizado de Laplace: `p_o = (count_o + 0.5) / (total + 0.5·K)`.
+ * K es la cantidad de opciones incorrectas posibles: fija para mc (si se
+ * conoce) y para tf (siempre 1, lo que da π = 1: con una sola forma posible
+ * de estar mal, coincidir no es evidencia de nada); empírica con +1
+ * (Good-Turing) para ms/sa y para mc sin metadata, porque su espacio de
+ * respuestas incorrectas no está acotado de antemano.
+ */
+function estimateCollisionProbability(
+  type: SimilarityQuestionType,
+  wrongOptionCount: number | undefined,
+  countByOption: Map<string, number>,
+  totalOthers: number,
+): number {
+  const k = type === "tf" ? 1 : type === "mc" && wrongOptionCount !== undefined ? wrongOptionCount : countByOption.size + 1;
+  const denom = totalOthers + 0.5 * k;
+  let sumSquares = 0;
+  for (const count of countByOption.values()) {
+    const p = (count + 0.5) / denom;
+    sumSquares += p * p;
+  }
+  const unseen = Math.max(0, k - countByOption.size);
+  if (unseen > 0) {
+    const pUnseen = 0.5 / denom;
+    sumSquares += unseen * pUnseen * pUnseen;
+  }
+  return sumSquares;
+}
+
+/**
+ * Por cada par, junta las preguntas cerradas o de respuesta corta donde AMBOS
+ * fallaron, estima qué tan probable era por azar que coincidieran tantas
+ * veces como coincidieron, y decide el nivel con corrección por comparaciones
+ * múltiples. Se salta preguntas con menos de `CLOSED_MIN_RESPONDENTS`
+ * respondentes: con una clase chica cualquier estimación es inestable.
+ */
+export function computeClosedSignals(input: SimilarityClassInput): ClosedAnalysis {
+  const patterns = new Map<string, ClosedPatternSummary>();
+  const findings = new Map<string, SharedWrongAnswerFinding[]>();
+
+  const participantCount = input.participants.length;
+  const nPairs = (participantCount * (participantCount - 1)) / 2;
+  if (nPairs === 0) return { patterns, findings };
+
+  interface QuestionWrongData {
+    type: SimilarityQuestionType;
+    wrongOptionCount: number | undefined;
+    entries: WrongEntry[];
+    byParticipant: Map<string, WrongEntry>;
+  }
+  const wrongByQuestion = new Map<string, QuestionWrongData>();
+
+  for (const question of input.questions) {
+    if (question.type === "long") continue;
+    let respondents = 0;
+    const entries: WrongEntry[] = [];
+    for (const participant of input.participants) {
+      const response = participant.responses.get(question.id);
+      if (!response || response.kind === "long") continue;
+      respondents += 1;
+      if (response.correct) continue;
+      const key = response.kind === "closed" ? response.key : `sa:${response.normalized}`;
+      entries.push({ participantId: participant.participantId, key, label: response.label });
+    }
+    if (respondents < CLOSED_MIN_RESPONDENTS) continue;
+    wrongByQuestion.set(question.id, {
+      type: question.type,
+      wrongOptionCount: question.wrongOptionCount,
+      entries,
+      byParticipant: new Map(entries.map((entry) => [entry.participantId, entry])),
+    });
+  }
+
+  const ids = input.participants.map((participant) => participant.participantId);
+  for (let i = 0; i < ids.length; i += 1) {
+    for (let j = i + 1; j < ids.length; j += 1) {
+      const a = ids[i];
+      const b = ids[j];
+      const probabilities: number[] = [];
+      const matches: SharedWrongAnswerFinding[] = [];
+
+      for (const [questionId, data] of wrongByQuestion) {
+        const wrongA = data.byParticipant.get(a);
+        const wrongB = data.byParticipant.get(b);
+        if (!wrongA || !wrongB) continue;
+
+        const countByOption = new Map<string, number>();
+        let totalOthers = 0;
+        for (const entry of data.entries) {
+          if (entry.participantId === a || entry.participantId === b) continue;
+          countByOption.set(entry.key, (countByOption.get(entry.key) ?? 0) + 1);
+          totalOthers += 1;
+        }
+
+        probabilities.push(estimateCollisionProbability(data.type, data.wrongOptionCount, countByOption, totalOthers));
+
+        if (wrongA.key === wrongB.key) {
+          matches.push({ questionId, label: wrongA.label, othersWithSame: countByOption.get(wrongA.key) ?? 0 });
+        }
+      }
+
+      if (!probabilities.length) continue;
+
+      const sharedWrong = matches.length;
+      const expected = probabilities.reduce((sum, p) => sum + p, 0);
+      const pValue = poissonBinomialTailProbability(probabilities, sharedWrong);
+      const level = closedLevelFor(sharedWrong, pValue, nPairs);
+
+      const key = pairKey(a, b);
+      patterns.set(key, { sharedWrong, expectedByChance: Math.round(expected * 10) / 10, pValue, level });
+      if (level) findings.set(key, matches);
+    }
+  }
+
+  return { patterns, findings };
 }
 
 // --- Desarrollo: fragmentos compartidos y raros ------------------------------
@@ -263,6 +411,23 @@ export const FRAGMENT_COVERAGE_STRONG = 0.4;
 export const FRAGMENT_LONGEST_RUN_STRONG = 12;
 export const FRAGMENT_COVERAGE_REVIEW = 0.15;
 export const FRAGMENT_LONGEST_RUN_REVIEW = 8;
+/**
+ * Segundo camino a "review", independiente de la cobertura: una respuesta
+ * larga diluye la cobertura de un tramo compartido aunque ese tramo sea
+ * clarísimo. Motivado por el caso real "Ley de Inercia Térmica de
+ * Torricelli" (T4): longestRun 8, coverage 0.135 (por debajo de 0.15).
+ *
+ * Calibrado contra el dataset de T4 empezando en 8: en 8-10 agrega falsos
+ * positivos nuevos (memorizers que reprodujeron la misma definición de
+ * clase palabra por palabra — `expectedText` solo excluye la respuesta de
+ * referencia, no esa definición, a propósito: un docente real rara vez la
+ * carga). 11 es el valor más chico que no agrega ninguno; en ese punto,
+ * sobre este dataset, el camino queda como red de seguridad sin aportar
+ * recall extra (el propio caso Torricelli tiene longestRun=8 y no llega).
+ * Documentado así para que se pueda recalibrar con más datos, no porque el
+ * número sea definitivo.
+ */
+export const FRAGMENT_LONGEST_RUN_ALONE_REVIEW = 11;
 
 export interface Shingle {
   /** Los `SHINGLE_SIZE` tokens normalizados, unidos por un espacio. */
@@ -388,6 +553,9 @@ export function computeFragmentSignals(input: SimilarityClassInput): Map<string,
         let level: SignalLevel | null = null;
         if (coverage >= FRAGMENT_COVERAGE_STRONG && longestRun >= FRAGMENT_LONGEST_RUN_STRONG) level = "strong";
         else if (coverage >= FRAGMENT_COVERAGE_REVIEW && longestRun >= FRAGMENT_LONGEST_RUN_REVIEW) level = "review";
+        // Camino aparte, sin pedir cobertura: un tramo raro y largo alcanza
+        // solo, aunque el resto de la respuesta sea largo y lo diluya.
+        else if (longestRun >= FRAGMENT_LONGEST_RUN_ALONE_REVIEW) level = "review";
         if (!level) continue;
 
         const key = pairKey(a.participantId, b.participantId);
