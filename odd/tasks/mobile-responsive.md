@@ -63,7 +63,7 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
 
 ## Tasks
 
-- [ ] T1 — Exam editor toolbar wraps on phones; question navigator panel
+- [x] T1 — Exam editor toolbar wraps on phones; question navigator panel
   re-checked at 390 px. Route: delegated writer (2+ files overall).
 - [ ] T2 — Wide tables: a visible scroll affordance and no three-line dates on
   phones, in one shared way across the five tables and the results sub-tabs.
@@ -75,7 +75,14 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
 ## Progress
 
 - 2026-09-23: audit done; document created.
+- 2026-09-23: T1 done, commit `a41ede6`. `/evaluaciones/exam-biology-demo`:
+  header toolbar wraps below `lg`, `scrollWidth` 617→390 at 390px (also
+  clean at 360px). Sticky question-navigator panel compacted on phones
+  (legend + drag hint hidden below `sm`, tighter padding): 23%→12.6% of the
+  844px viewport. Desktop 1280×800 screenshot pixel-identical to baseline
+  (only the live Correcciones badge count differs, unrelated data drift).
+  `npm test`: 267 passed.
 
 ## Next step
 
-T1.
+T2.
