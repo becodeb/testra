@@ -117,18 +117,18 @@ existing LLM report.
     negatives, prefilter recall, latency and cost, for code signals, Jev, and an LLM pairwise
     judge through the ai-router as the comparison.
   - Checks: the runner's report, recorded below.
-- [ ] T5 — Persistence and API. Route: delegated writer (phase B).
+- [x] T5 — Persistence and API. Route: delegated writer (phase B).
   - Table `similarity_reports` (one per run, input hash, JSON report) + migration, a route
     mirroring `/api/ai/reports` (GET cached, POST run) with the run capability check.
   - Checks: unit tests for hashing/staleness; local call against the dev server.
-- [ ] T6 — Teacher UI. Route: same writer.
+- [x] T6 — Teacher UI. Route: same writer.
   - "Coincidencias entre alumnos" card in the results "Análisis" tab: what is expected,
     run/refresh, ranked pairs with level and one-line evidence, side-by-side answers with the
     shared fragments highlighted, Jev status; the pairs of a student in their detail dialog.
     Teacher-facing text in `src/lib/similarity-copy.ts` with the `{title, what, normal,
     review}` shape of `incident-copy.ts`.
   - Checks: `astro check`, local run on seeded data, screenshot.
-- [ ] T7 — Docs. Route: same writer.
+- [x] T7 — Docs. Route: same writer.
   - `docs/vigilancia.md` (what is compared, what is sent to Jev, ZDR, limits, non-goals),
     README env var.
 - [ ] T8 — Measure Jev for real and calibrate `SEMANTIC_*`. Route: parent runs the harness.
@@ -224,6 +224,38 @@ at the end. RDD is off globally (owner decision 2026-09-23): no review ceremony.
     made up. Moved to T8.
   Checks: `npx vitest run` 259/259, `npx astro check` 0/0/3 hints, `npm run eval:copias` OK.
 
+- 2026-09-23: T5–T7 done by a fresh phase B writer. Commits: T5 `36c845e` (table
+  `similarity_reports` + migration `0008`, `src/server/similarity-reports.ts` with a
+  name-independent input hash and in-process dedupe, `/api/ai/similarity` GET/POST), T6
+  `99f55e8` (card "Coincidencias entre alumnos" first in the Análisis tab, student dialog
+  section, `src/lib/similarity-copy.ts`, demo seed `npm run db:seed:coincidencias`), T7
+  `eb90e90` (`docs/vigilancia.md`, `docs/coincidencias-evaluacion.md`, README).
+  Parent review of the screenshots found a real bug: fragment highlights landed on the other
+  student's answer (spans computed in name order, stored under the id-sorted pair key), cutting
+  words ("p|ara", "cu|ando"). Fixed in `0316838` with a regression test with ids out of array
+  order; same commit lists the shared wrong answers of every flagged pair, significant or not
+  (`closedPattern.questions`). `95f654e`: each answer labeled with its student, "Coincidencia
+  fuerte" in the warning tone and "Para revisar" neutral (the hierarchy was inverted).
+  Parent: `684008d` singular "la eligió 1 compañero más"; `debe308` the evaluation doc no
+  longer implies Jev beats the LLM judge before measuring it.
+  Migration note: `drizzle-kit generate` re-emits already-applied DDL here because 0005–0007
+  were hand-written without snapshots; `0008` was trimmed to the new table and checked with
+  `npm run db:migrate` on the local DB.
+  Checks: `npx vitest run` 35 files, 267/267 (parent re-ran); `npx astro check` 0/0/3 hints;
+  `npx astro build && npm run build:ws` OK. Local end to end on `node server.mjs` :4391 with
+  the demo seed: POST → `semantic.status unavailable`, `reason billing_required`, 4 pairs from
+  code signals, the planted pair strong on both long questions plus 4 shared wrong answers
+  (by chance 1.9), none of the 3 memorizers flagged; GET after POST cached (`stale:false`);
+  one answer edited in SQL → `stale:true`; POST again regenerates. Hero pair highlights
+  after the fix are identical whole-word strings on both sides. Screenshots desktop 1280 and
+  mobile 390 in `/tmp/testra-jev-shots/`. `gentle-ai review assess` over bf46477..95f654e:
+  risk `medium` (`executable_change`); RDD off → writer self-verification plus parent spot
+  check.
+  Re-probe of the gateway at the end: still 403.
+
 ## Next step
 
-Phase B (T5–T7) with a fresh writer; T8 when the owner enables billing.
+Owner: add a card to the Vercel team (AI Gateway) — Jev is free until 2026-09-25 — then run T8
+and decide push/merge/deploy. Until T8, Jev's thresholds (0.9/0.7) are unmeasured starting
+values, and the key already on Coolify would switch Jev on in production as soon as billing
+works.
