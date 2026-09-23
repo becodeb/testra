@@ -69,7 +69,7 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
   phones, in one shared way across the five tables and the results sub-tabs.
 - [x] T3 — Teacher section nav: scroll hint on phones (same treatment as T2).
 - [x] T4 — 404 responses render with a viewport-aware minimal page.
-- [ ] T5 — Preview pager label fits on phones.
+- [x] T5 — Preview pager label fits on phones.
 - [ ] T6 — Full mobile + desktop sweep of touched routes; record evidence.
 
 ## Progress
@@ -131,6 +131,16 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
   `npx astro check`: 0 errors, 0 warnings, 3 pre-existing hints. `npm test`:
   267 passed.
 
+- 2026-09-23: T5 done, commit `2f27add`. `src/components/exam-preview.tsx`
+  pager nav: label gets `order-last w-full text-center` (own centered row
+  below the two buttons) below `sm`, `sm:order-none sm:w-auto` restores the
+  exact single-row layout at `sm`+; parent gets `flex-wrap` below `sm`,
+  `sm:flex-nowrap` above. `/evaluaciones/exam-biology-demo/vista-previa` at
+  390 and 360px: one line, centered, no squeeze; `scrollWidth ===
+  clientWidth` both widths. Desktop 1280×800 screenshot pixel-identical to
+  `/tmp/testra-audit/desktop/evaluaciones-vista-previa.png` (only the
+  Correcciones badge count differs). `npm test`: 267 passed.
+
 ## Next step
 
-T5.
+T6.
