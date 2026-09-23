@@ -70,7 +70,7 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
 - [x] T3 — Teacher section nav: scroll hint on phones (same treatment as T2).
 - [x] T4 — 404 responses render with a viewport-aware minimal page.
 - [x] T5 — Preview pager label fits on phones.
-- [ ] T6 — Full mobile + desktop sweep of touched routes; record evidence.
+- [x] T6 — Full mobile + desktop sweep of touched routes; record evidence.
 
 ## Progress
 
@@ -141,6 +141,33 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
   `/tmp/testra-audit/desktop/evaluaciones-vista-previa.png` (only the
   Correcciones badge count differs). `npm test`: 267 passed.
 
+- 2026-09-23: T6 done (doc evidence only, no code change). Swept
+  `/evaluaciones`, `/evaluaciones/exam-biology-demo`,
+  `/evaluaciones/exam-biology-demo/vista-previa`, `/sesiones`,
+  `/sesiones/run-biology-demo`, `/sesiones/run-biology-ended`,
+  `/resultados?run=run-biology-ended`, `/admin`, `/correcciones`,
+  `/rendir/ZZZZZZ` (404) at 390 and 360px: `scrollWidth === clientWidth`
+  on all ten. Desktop 1280×800 for `/evaluaciones` and `/correcciones`
+  matched their `/tmp/testra-audit/desktop/` baselines pixel-for-pixel
+  (only live demo-data counters differ — Correcciones badge, `Por
+  corregir` list — from interacting with the demo dataset while testing,
+  not a layout change). Ran a full console/page-error sweep across all ten
+  routes with Playwright: the only `pageerror`s are React hydration
+  mismatches on `/sesiones/run-biology-demo`, `/sesiones/run-biology-ended`,
+  `/resultados`, `/admin`, and **`/correcciones`** (a page this branch never
+  touched) — same Intl date-formatting mismatch the audit already flagged
+  as out of scope and not fixed here; seeing it on the untouched
+  `/correcciones` route confirms it's pre-existing and systemic, not
+  something this branch introduced. The one console error on
+  `/rendir/ZZZZZZ` is the browser logging the page's own intended 404
+  status, not a bug. Final `npx astro check`: 0 errors, 0 warnings, 3
+  pre-existing hints. Final `npm test`: 267 passed. Dev server stopped
+  after this check.
+
 ## Next step
 
-T6.
+None — T1 through T6 are all done. Possible follow-ups (not decided,
+reported back): apply the same `scroll-fade-x` treatment to
+`analytics-panel.tsx`'s table (same `overflow-x-auto min-w-[680px]`
+pattern, not in the original audit/scope); fix the pre-existing
+hydration-mismatch warnings (explicitly out of scope per this doc).
