@@ -47,9 +47,9 @@ export function ExamPreview({ exam }: { exam: ExamDraft }) {
         <RichContent text={active.prompt} assets={active.assets} className="text-lg font-semibold leading-relaxed text-ink" />
         <div className="mt-7"><PreviewAnswer question={active} value={answers[active.id]} onChange={(value) => setAnswers((current) => ({ ...current, [active.id]: value }))} /></div>
       </section>
-      <nav className="flex items-center justify-between rounded-lg border bg-paper p-4 shadow-card" aria-label="Navegación de vista previa">
+      <nav className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-paper p-4 shadow-card sm:flex-nowrap" aria-label="Navegación de vista previa">
         <Button type="button" variant="outline" disabled={activeIndex === 0 || !exam.allowBackwards} onClick={() => setActiveIndex((index) => index - 1)}><ArrowLeft data-icon="inline-start" />Anterior</Button>
-        <span className="text-xs text-muted">Variante local · sin guardar</span>
+        <span className="order-last w-full text-center text-xs text-muted sm:order-none sm:w-auto">Variante local · sin guardar</span>
         <Button type="button" disabled={activeIndex === questions.length - 1} onClick={() => setActiveIndex((index) => index + 1)}>Siguiente<ArrowRight data-icon="inline-end" /></Button>
       </nav>
     </div>
