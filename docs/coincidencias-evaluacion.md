@@ -16,18 +16,18 @@ una (144 respuestas en total), en español, sobre distintos temas escolares.
 
 Por pregunta, 24 respuestas se arman así:
 - 14 independientes (cada alumno responde por su cuenta, sin relación con las demás).
-- 3 "memorizadores": recitan la definición de clase (la misma que ve el pizarrón, no la
-  respuesta de referencia que carga el docente) más un agregado propio.
+- 3 "memorizadores": recitan la definición dictada en clase (que no es la respuesta de
+  referencia que carga el docente) más un agregado propio.
 - 2 que comparten una confusión común del tema, sin relación entre sí.
 - 1 con un error propio y distintivo (no una confusión típica).
 - 4 copias, de cuatro tipos: **verbatim** (casi textual, con retoques), **partial** (copia
   parcial más desarrollo propio), **paraphrase** (la misma idea con otras palabras) y
   **shared_error** (comparte el error distintivo de otro compañero sin copiar el texto).
 
-Total: 24 positivos (las 4 copias × 6 preguntas) y 24 negativos difíciles (los 3 memorizadores
-+ el que aporta la confusión distintiva, × 6 preguntas — los que más se parecen a una copia sin
-serlo). El resto son negativos comunes. Todo verificado con chequeos léxicos de sanidad antes de
-usarse.
+Total: 24 positivos (las 4 copias × 6 preguntas) y 24 negativos difíciles (por pregunta, los 3
+pares que se forman entre los memorizadores más el par que comparte la confusión común — los que
+más se parecen a una copia sin serlo). El resto son negativos comunes. Todo verificado con
+chequeos léxicos de sanidad antes de usarse.
 
 ## Resultados
 
@@ -98,14 +98,16 @@ sobre una muestra de 120 pares:
 | --- | --- | --- | --- | --- |
 | 58,3 % | 87,5 % | 21 de 120 (17,5 %) | 629 ms | 2522 ms |
 
-**Lo que no funcionó**: el juez LLM marca copia en el **72,2 % de los alumnos que solo
-recitaron la definición de clase** (13 de 18) — el error exacto que este feature necesita
-evitar, porque es indistinguible de una coincidencia esperada para un modelo sin la disciplina
-de "qué es normal" que sí tienen las señales de código y las tres preguntas atómicas de Jev.
-Ese recall más alto (87,5 % contra el 62,5 % de fragmentos) no compensa una precisión de 58,3 %
-con ese patrón de falsos positivos: es la razón concreta por la que el juicio semántico de este
-feature queda en manos de Jev con preguntas atómicas y contexto de qué es esperable, no de un
-LLM de propósito general juzgando el par entero de una.
+**Lo que no funcionó**: el juez LLM marca copia en **13 de los 18 pares de alumnos que solo
+recitaron la definición de clase** (72,2 %), aun con el mismo contexto de qué es esperable. Es
+el error exacto que este feature necesita evitar. Las señales de código no marcaron ninguno de
+esos 18. Ese recall más alto (87,5 % contra el 62,5 % de fragmentos) no compensa una precisión
+de 58,3 % con ese patrón de falsos positivos.
+
+Por eso el juicio semántico se diseñó distinto: preguntas atómicas por par (misma redacción poco
+común, mismo error, reescritura) con el contexto de qué es esperable dentro del estado. Si Jev
+lo hace mejor que el juez LLM **todavía no está medido**: es justamente lo que falta (ver abajo).
+La variante `no_context` del harness mide además cuánto aporta ese contexto.
 
 ### Jev: todavía no medido
 
@@ -125,6 +127,7 @@ juez LLM sobre los mismos 120 pares, para calibrar `SEMANTIC_STRONG_PROBABILITY`
 - El modelo de azar para preguntas cerradas evita el falso positivo masivo de un umbral fijo,
   a costa de que verdadero/falso y opción múltiple de pocas opciones aporten poco por sí solos.
 - Un juez LLM genérico sería más simple de implementar, pero falla exactamente donde más
-  importa no fallar: los alumnos que estudiaron y repitieron la definición de clase.
+  importa no fallar: los alumnos que estudiaron y repitieron la definición de clase. Que Jev
+  no caiga en lo mismo es una hipótesis hasta medirlo.
 - Jev es la pieza que falta medir. Hasta entonces, el panel se lo dice al docente con
   honestidad ("no disponible ahora") en vez de mostrar un número inventado.
