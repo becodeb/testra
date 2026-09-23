@@ -120,11 +120,18 @@ branch and the owner asked for a direct push).
   the 8 sitemap URLs and the key location, exit 0.
   `node scripts/indexnow.mjs http://127.0.0.1:1 --dry-run` failed fast with a
   clear connection-error message, exit 1. Never ran it without `--dry-run`.
+- 2026-09-23: parent readback of the diff; comment wording polished and folded
+  into its commits. Commits: T1 `b8205c4`, T2 `8b02bcd`, T3 `12f5b5f`.
+  Parent spot check: `npm test` 226/226; rendered `/` shows the new title, the
+  `SoftwareApplication`, `WebSite` and `FAQPage` blocks and
+  `fetchpriority="high"`; `/favicon.ico` 200 `image/vnd.microsoft.icon`.
+- 2026-09-23: RDD assess over `7e19e82..12f5b5f` (`--committed-only`): risk
+  `medium` (reason `executable_change` on the key file), 344 changed lines,
+  `review_due: false`, `review_due_reason: under_budget` — stays pending in
+  the slice; no review started.
 
 ## Next step
 
-T1–T3 done, one commit each, on `seo/ranking`. T4 remains, owned by the
-parent: rebase on the latest `origin/feat/postgres-coolify`, push, confirm
-the Coolify deploy, check the live tags, and only then ping IndexNow for
-real (never with `--dry-run` dropped by anyone but the parent, after
-deploying).
+T4: rebase on the latest `origin/feat/postgres-coolify`, push, confirm the
+Coolify deploy, check the live tags, then run `node scripts/indexnow.mjs`
+for real.
