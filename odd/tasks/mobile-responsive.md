@@ -67,7 +67,7 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
   re-checked at 390 px. Route: delegated writer (2+ files overall).
 - [x] T2 — Wide tables: a visible scroll affordance and no three-line dates on
   phones, in one shared way across the five tables and the results sub-tabs.
-- [ ] T3 — Teacher section nav: scroll hint on phones (same treatment as T2).
+- [x] T3 — Teacher section nav: scroll hint on phones (same treatment as T2).
 - [ ] T4 — 404 responses render with a viewport-aware minimal page.
 - [ ] T5 — Preview pager label fits on phones.
 - [ ] T6 — Full mobile + desktop sweep of touched routes; record evidence.
@@ -105,6 +105,14 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
   data, so it was verified by code inspection/consistency with the other
   five instances rather than a live screenshot. `npm test`: 267 passed.
 
+- 2026-09-23: T3 done, commit `acee8b7`. `src/layouts/AppLayout.astro`
+  `.nav-secciones` (~line 72) gets `scroll-fade-x`. `/evaluaciones` at
+  390px: right fade visible at scroll start (Resultados/Consola tapados),
+  left fade appears once scrolled, none at either edge once fully
+  scrolled to the end. `scrollWidth === clientWidth`. The nav is
+  `md:hidden`, so desktop 1280×800 is untouched by construction. `npm
+  test`: 267 passed.
+
 ## Next step
 
-T3.
+T4.
