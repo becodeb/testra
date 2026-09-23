@@ -18,6 +18,7 @@ import {
 } from "@/components/correction-queue";
 import { IncidentList } from "@/components/incident-list";
 import { PublishResults } from "@/components/publish-results";
+import { SimilarityCard, StudentSimilarityMatches } from "@/components/similarity-card";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -608,6 +609,7 @@ export function ResultsWorkspace({
                 hidden={tab !== "analisis"}
                 className={tab === "analisis" ? "grid gap-6" : "hidden"}
               >
+                <SimilarityCard runId={liveSnapshot.run.id} />
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-paper p-4 shadow-card">
                   <p className="text-sm text-muted">
                     La IA ordena las señales de la toma para leerlas rápido. No
@@ -715,6 +717,7 @@ export function ResultsWorkspace({
               {personReport ? (
                 <AiReportCard report={personReport} kind="person" />
               ) : null}
+              <StudentSimilarityMatches runId={detail.run.id} participantId={detail.participant.id} />
               <section>
                 <h3 className="font-semibold text-ink">Línea de tiempo</h3>
                 <ol className="mt-3 grid gap-2 rounded-md border p-4">
