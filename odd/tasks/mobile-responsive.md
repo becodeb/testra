@@ -68,7 +68,7 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
 - [x] T2 — Wide tables: a visible scroll affordance and no three-line dates on
   phones, in one shared way across the five tables and the results sub-tabs.
 - [x] T3 — Teacher section nav: scroll hint on phones (same treatment as T2).
-- [ ] T4 — 404 responses render with a viewport-aware minimal page.
+- [x] T4 — 404 responses render with a viewport-aware minimal page.
 - [ ] T5 — Preview pager label fits on phones.
 - [ ] T6 — Full mobile + desktop sweep of touched routes; record evidence.
 
@@ -113,6 +113,24 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
   `md:hidden`, so desktop 1280×800 is untouched by construction. `npm
   test`: 267 passed.
 
+- 2026-09-23: T4 done, commit `369d0b9`. New shared `src/pages/404.astro`
+  (sets `Astro.response.status = 404` itself, reads `?msg=` for the exact
+  original message, branded/centered, uses `Seo.astro` so viewport meta and
+  the noindex fail-closed both come for free — the page never joined
+  `PUBLIC_ROUTES`). The five call sites now
+  `return Astro.rewrite(\`/404?msg=${encodeURIComponent(mensaje)}\`)` instead
+  of a bare `new Response`. Verified with `curl -o /dev/null -w '%{http_code}'`
+  → 404 on all five (`/sesiones/nope-does-not-exist`,
+  `/evaluaciones/nope-does-not-exist`,
+  `/evaluaciones/nope-does-not-exist/vista-previa`, `/rendir/ZZZZZZ`, and
+  `/admin` — this last one required briefly restarting the dev server
+  *without* `SUPERADMIN_EMAILS` since the demo teacher is superadmin
+  otherwise; restarted with it again right after), and by `curl` grep that
+  each response carries the viewport meta tag and its own original message
+  text unchanged. Screenshot at 390px confirms no zoomed-out rendering.
+  `npx astro check`: 0 errors, 0 warnings, 3 pre-existing hints. `npm test`:
+  267 passed.
+
 ## Next step
 
-T4.
+T5.
