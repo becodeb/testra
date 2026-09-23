@@ -35,10 +35,13 @@ const ERROR_RUN = "No se pudo comparar a los alumnos.";
 
 function LevelBadge({ level }: { level: SignalLevel }) {
   const label = level === "strong" ? "Coincidencia fuerte" : "Para revisar";
+  // "Fuerte" es el tono de atención (el mismo ámbar que usa el resto de la
+  // app para lo que conviene mirar, p. ej. la cola de corrección pendiente);
+  // "para revisar" queda neutro, para no leerse más alarmante que lo fuerte.
   const className =
     level === "strong"
-      ? "border-brand/30 bg-brand-soft text-brand-deep"
-      : "border-warn/25 bg-warn/5 text-warn";
+      ? "border-warn/30 bg-warn/10 text-warn"
+      : "border bg-inset text-ink-2";
   return <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${className}`}>{label}</span>;
 }
 
@@ -84,14 +87,20 @@ function ClosedPatternDetail({ pair }: { pair: SimilarityPair }) {
   );
 }
 
-function LongQuestionDetail({ finding }: { finding: PairQuestionFinding }) {
+function LongQuestionDetail({ finding, nameA, nameB }: { finding: PairQuestionFinding; nameA: string; nameB: string }) {
   const semanticFindings = finding.semantic ? relevantSemanticFindings(finding.semantic) : [];
   return (
     <section>
       <h5 className="text-sm font-semibold text-ink">{finding.label}</h5>
       <div className="mt-2 grid gap-3 md:grid-cols-2">
-        <p className="rounded-md border bg-paper p-3 text-sm leading-6 text-ink-2">{renderHighlighted(finding.answerA, finding.fragments?.spansA ?? [])}</p>
-        <p className="rounded-md border bg-paper p-3 text-sm leading-6 text-ink-2">{renderHighlighted(finding.answerB, finding.fragments?.spansB ?? [])}</p>
+        <div>
+          <p className="text-xs font-semibold text-ink-2">{nameA}</p>
+          <p className="mt-1 rounded-md border bg-paper p-3 text-sm leading-6 text-ink-2">{renderHighlighted(finding.answerA, finding.fragments?.spansA ?? [])}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-ink-2">{nameB}</p>
+          <p className="mt-1 rounded-md border bg-paper p-3 text-sm leading-6 text-ink-2">{renderHighlighted(finding.answerB, finding.fragments?.spansB ?? [])}</p>
+        </div>
       </div>
       {finding.fragments ? <p className="mt-2 text-sm text-ink-2">{fragmentCoverageLine(finding.fragments.coverage)}</p> : null}
       {semanticFindings.length ? (
@@ -140,7 +149,7 @@ function PairRow({ pair, expanded, onToggle }: { pair: SimilarityPair; expanded:
       {expanded ? (
         <div id={detailId} className="space-y-4 border-t p-4">
           <ClosedPatternDetail pair={pair} />
-          {longFindings.map((finding) => <LongQuestionDetail key={finding.questionId} finding={finding} />)}
+          {longFindings.map((finding) => <LongQuestionDetail key={finding.questionId} finding={finding} nameA={pair.a.name} nameB={pair.b.name} />)}
         </div>
       ) : null}
     </li>
