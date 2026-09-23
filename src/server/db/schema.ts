@@ -428,6 +428,29 @@ export const aiReports = pgTable(
   (table) => [uniqueIndex("ai_reports_scope_uq").on(table.scopeType, table.scopeId), index("ai_reports_run_idx").on(table.runId)],
 );
 
+// Un reporte por toma (no por par): compara a todos los alumnos entre sí de
+// una sola vez, así que no tiene sentido escoparlo como `ai_reports`
+// (`scope_type` + `scope_id`). Mismas convenciones que `ai_reports`: id de
+// texto, JSON como `text`, FK en cascada a `runs`. A diferencia de
+// `ai_reports` —que reusa un solo `generated_at` como marca de alta y de
+// regeneración— acá se separan `created_at`/`updated_at` (como en
+// `quick_comments`/`exam_collaborators`) para poder mostrarle al docente
+// desde cuándo existe el reporte sin perder cuándo se refrescó por última vez.
+export const similarityReports = pgTable(
+  "similarity_reports",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    report: text("report").notNull(),
+    inputHash: text("input_hash").notNull(),
+    createdAt: createdAtMs("created_at"),
+    updatedAt: createdAtMs("updated_at"),
+  },
+  (table) => [uniqueIndex("similarity_reports_run_uq").on(table.runId)],
+);
+
 export const expectedRunStudents = pgTable(
   "expected_run_students",
   {
