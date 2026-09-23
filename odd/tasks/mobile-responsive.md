@@ -65,7 +65,7 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
 
 - [x] T1 — Exam editor toolbar wraps on phones; question navigator panel
   re-checked at 390 px. Route: delegated writer (2+ files overall).
-- [ ] T2 — Wide tables: a visible scroll affordance and no three-line dates on
+- [x] T2 — Wide tables: a visible scroll affordance and no three-line dates on
   phones, in one shared way across the five tables and the results sub-tabs.
 - [ ] T3 — Teacher section nav: scroll hint on phones (same treatment as T2).
 - [ ] T4 — 404 responses render with a viewport-aware minimal page.
@@ -83,6 +83,28 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
   (only the live Correcciones badge count differs, unrelated data drift).
   `npm test`: 267 passed.
 
+- 2026-09-23: T2 done, commit `b78bb57`. New shared `.scroll-fade-x` utility
+  in `src/styles/global.css` (background-attachment local/scroll edge-fade;
+  gotcha found and fixed: `background-image` layers can't carry a position
+  suffix, that has to be a separate `background-position` with matching
+  layer count, and `@theme inline` tokens like `--color-paper` don't exist
+  as runtime CSS vars, so the fallback had to be a literal hex, not
+  `var(--color-paper)`). Applied to `sesiones/index.astro`,
+  `live-run-monitor.tsx`, `results-workspace.tsx` (table + sub-tab bar, with
+  a `--scroll-fade-bg` override for its `bg-inset` background),
+  `admin-console.tsx` (both tables), `classroom-panel.tsx`; `whitespace-nowrap`
+  added on every date/time cell found in those files. Verified at 390 and
+  360px on `/sesiones`, `/sesiones/run-biology-demo`, `/admin`,
+  `/resultados?run=run-biology-ended` (`scrollWidth === clientWidth` on all);
+  scrolled each table start/mid/end and confirmed by screenshot the fade
+  only shows on the side with hidden content, gone at 1280×800 (compared
+  against `/tmp/testra-audit/desktop/sesiones-index.png`,
+  `admin-index.png`, `resultados-ended.png`, `sesiones-running.png` — same
+  layout, only live demo data differs). `classroom-panel.tsx`'s grades
+  table needs a Classroom-linked ended run, not present in the seeded demo
+  data, so it was verified by code inspection/consistency with the other
+  five instances rather than a live screenshot. `npm test`: 267 passed.
+
 ## Next step
 
-T2.
+T3.
