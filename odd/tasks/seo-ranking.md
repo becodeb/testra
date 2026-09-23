@@ -64,7 +64,7 @@ content pages. Needs the owner: Search Console (their Google account).
 - [x] T3 — IndexNow. Route: same writer.
   - `public/4b0e775e82ef465fd0811f776583d73b.txt`, `scripts/indexnow.mjs` (reads the live sitemap, checks the key file, POSTs to api.indexnow.org, has `--dry-run`), README section on SEO and indexing.
   - Checks: a dry run against the local server lists the 8 sitemap URLs and validates the key file.
-- [ ] T4 — Deliver. Route: parent, inline.
+- [x] T4 — Deliver. Route: parent, inline.
   - Rebase on the latest `origin/feat/postgres-coolify`, push, confirm the Coolify deploy (`last_online_at` after the push and `running:healthy`), check the live tags, ping IndexNow.
 
 ## Acceptance criteria
@@ -125,13 +125,32 @@ branch and the owner asked for a direct push).
   Parent spot check: `npm test` 226/226; rendered `/` shows the new title, the
   `SoftwareApplication`, `WebSite` and `FAQPage` blocks and
   `fetchpriority="high"`; `/favicon.ico` 200 `image/vnd.microsoft.icon`.
-- 2026-09-23: RDD assess over `7e19e82..12f5b5f` (`--committed-only`): risk
+- 2026-09-23: assess over `7e19e82..12f5b5f` (`--committed-only`): risk
   `medium` (reason `executable_change` on the key file), 344 changed lines,
-  `review_due: false`, `review_due_reason: under_budget` — stays pending in
-  the slice; no review started.
+  `review_due: false`, `review_due_reason: under_budget`. RDD itself was
+  switched off globally by the owner during this session (`review mode
+  status`: `off (decided by global)`), so no review applies; the assess only
+  set the verification depth: medium with a default-profile writer means writer
+  self-verification plus the parent spot check.
+
+- 2026-09-23: T4 done. Pushed `7e19e82..205b955` to `feat/postgres-coolify`
+  at 00:01:21 UTC. The push did not deploy: the repo has no webhook and every
+  `testra-app` deployment is `is_api: true`. Triggered it with
+  `POST /api/v1/deploy?uuid=lmdqoujklt2lfswzwcsnudlt` at 00:03:27 UTC;
+  `last_online_at` 00:13:01, `running:healthy`, `/api/health` ok.
+  Live checks: `/` title "Exámenes y evaluaciones en línea para docentes ·
+  Testra", new description, JSON-LD `SoftwareApplication` + `WebSite`
+  (`url` https://testra.becode.com.ar/) + `FAQPage`, hero
+  `fetchpriority="high"`, "Armá un examen" present; `/acerca` and `/rendir`
+  carry no `WebSite`; `/favicon.ico` 200 `image/vnd.microsoft.icon` with
+  16/32/48; key file 200 with the exact key. `node scripts/indexnow.mjs`:
+  dry run listed the 8 sitemap URLs, the real call answered 202.
 
 ## Next step
 
-T4: rebase on the latest `origin/feat/postgres-coolify`, push, confirm the
-Coolify deploy, check the live tags, then run `node scripts/indexnow.mjs`
-for real.
+Code work is done. What moves the ranking now is off-page and owner-only:
+Search Console (domain property for `becode.com.ar` via DNS, submit the
+sitemap), a link from becode.com.ar (its portfolio in
+`~/projects/becode/src/content/projects/` lists other products, not Testra) and
+the GitHub repo homepage field. Content pages for generic queries
+("exámenes online") are a separate, owner-approved piece of work.
