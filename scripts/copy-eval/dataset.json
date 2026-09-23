@@ -1,0 +1,1660 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-23T01:44:46.571Z",
+  "generator": {
+    "router": "https://ai-router.becode.com.ar/chat",
+    "notes": "Synthetic dataset for evaluating copy-detection between students' open-ended exam answers, generated via a free multi-provider LLM router (custom SSE protocol, no API key). Includes hard negatives (shared class definition, shared common misconceptions -- expected coincidences) and positives (verbatim/partial/paraphrase/shared_error copies -- real copying) with automated Jaccard-based sanity checks and bounded regeneration (max 2 per offending part). In each 'positives' / 'hardNegatives' pair, 'a' is the earlier/source answer and 'b' the derived one, except hardNegatives pairs which are symmetric (both independently produced). Answers are in Rioplatense Spanish for Argentine secondary students aged 13-16."
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "subject": "Biología",
+      "prompt": "Explicá qué es la fotosíntesis y por qué es importante para los seres vivos.",
+      "referenceAnswer": "La fotosíntesis es el proceso mediante el cual las plantas, algas y algunas bacterias transforman la luz solar, el agua y el dióxido de carbono en glucosa y oxígeno. Es fundamental para la vida terrestre porque produce el oxígeno que respiramos y forma la base de la cadena alimenticia, ya que los productores primarios son la fuente de energía para todos los demás organismos.",
+      "classDefinition": "La fotosíntesis es el proceso bioquímico donde organismos autótrofos sintetizan glucosa a partir de luz, agua y CO2, liberando oxígeno como subproducto.",
+      "answers": [
+        {
+          "id": "q1-s01",
+          "role": "independent",
+          "profile": "insegura, usa 'creo que'",
+          "text": "Creo que la fotosíntesis es cuando las plantas usan la luz para hacer algo. No me acuerdo bien si usan nitrógeno o fósforo, pero seguro es agua y dióxido de carbono. Y creo que producen glucosa y oxígeno. Es importante porque nos da oxígeno para respirar, aunque no estoy seguro de si es la única fuente. Pero sin plantas no habría comida, creo."
+        },
+        {
+          "id": "q1-s02",
+          "role": "independent",
+          "profile": "alumno promedio, correcta pero simple",
+          "text": "Es cuando las plantas toman la luz del sol, el agua y el aire para hacer su comida. En ese proceso sacan oxígeno, que es el que nosotros necesitamos para respirar. Es importante porque sin las plantas no tendríamos oxígeno y tampoco comida, ya que ellas son la base de la cadena alimenticia."
+        },
+        {
+          "id": "q1-s03",
+          "role": "independent",
+          "profile": "usa comparación o metáfora propia",
+          "text": "Imaginen que la planta es una fábrica de energía. La luz del sol es la electricidad, el agua y el CO2 son las materias primas. La planta procesa todo y produce 'pan' (glucosa) para sí misma y 'aire fresco' (oxígeno) para el mundo. Es importante porque es la primera fábrica de la cadena, sin ella no habría energía ni oxígeno para nadie."
+        },
+        {
+          "id": "q1-s04",
+          "role": "memorizer",
+          "profile": "memorizó la definición + comentario propio",
+          "text": "La fotosíntesis es el proceso bioquímico donde organismos autótrofos sintetizan glucosa a partir de luz, agua y CO2, liberando oxígeno como subproducto, y es importante para que los seres vivos tengamos qué respirar. Lo que más me costó entender fue la parte de cómo hacían para armar la glucosa con gas, pero al final lo entendí."
+        },
+        {
+          "id": "q1-s05",
+          "role": "independent",
+          "profile": "ideas correctas pero desordenadas",
+          "text": "Oxígeno sale de la planta. Glucosa se hace con luz. Agua y CO2 entran. Clorofila absorbe la luz. La planta es productor. Sin plantas no hay oxígeno. La energía viene del sol. La glucosa da energía a la planta. Los animales comen plantas. Entonces la fotosíntesis es importante para todos. Porque da aire y comida. Básicamente mantiene el equilibrio."
+        },
+        {
+          "id": "q1-s06",
+          "role": "independent",
+          "profile": "muy informal, tipo mensaje a un amigo",
+          "text": "o sea, la fotosintesis es cuando la planta se hace la rica y usa la luz del sol para hacer su comida. toma agua y co2 y hace glucosa. y te tira el oxigeno que vos necesitás. es re importante porque sin las plantas no tendríamos aire y tampoco de qué comer. es la base de todo, tipo el server de la internet de la vida."
+        },
+        {
+          "id": "q1-s07",
+          "role": "memorizer",
+          "profile": "memorizó la definición + razón propia",
+          "text": "La fotosíntesis es el proceso bioquímico donde organismos autótrofos sintetizan glucosa a partir de luz, agua y CO2, liberando oxígeno como subproducto. Esto es re importante para los seres vivos porque sin oxígeno nos moriríamos todos, posta me acuerdo de esto porque el año pasado lo vi en la planta de gomero que tengo en mi pieza."
+        },
+        {
+          "id": "q1-s08",
+          "role": "memorizer",
+          "profile": "memorizó la definición + ejemplo propio",
+          "text": "La fotosíntesis es el proceso bioquímico en el cual organismos autótrofos sintetizan glucosa a partir de luz, agua y CO2, liberando oxígeno como subproducto. Es re importante para la vida en la Tierra, por ejemplo para que los árboles grandes del fondo de casa puedan crecer y dar sombra."
+        },
+        {
+          "id": "q1-s09",
+          "role": "independent",
+          "profile": "fría y telegráfica, tipo resumen",
+          "text": "Fotosíntesis: conversión de energía luminosa en química. Reactivos: luz, H2O, CO2. Productos: glucosa, O2. Ubicación: cloroplastos. Importancia: fuente primaria de energía y oxígeno atmosférico. Base trófica."
+        },
+        {
+          "id": "q1-s10",
+          "role": "common_misconception",
+          "profile": "cree que la planta come tierra y usa la luz para digerirla",
+          "text": "La fotosíntesis es el proceso que hacen las plantas para alimentarse. Ellas chupan los nutrientes y la comida de la tierra con las raíces, y después usan la luz del sol para digerirlo bien y crecer verdes. Es re importante para nosotros porque gracias a eso las plantas limpian el aire y nos dan oxígeno para respirar, si no nos ahogaríamos todos."
+        },
+        {
+          "id": "q1-s11",
+          "role": "independent",
+          "profile": "se explaya de más, da vueltas",
+          "text": "Bueno, la fotosíntesis básicamente es... cómo decir... el proceso donde la planta usa la luz. No sé si es luz artificial o natural pero creo que es solar. Y toma agua por las raíces y dióxido de carbono por los estomas. Y lo mezcla todo en los cloroplastos. Y hace glucosa. Y la glucosa es azúcar. Y el azúcar da energía. Y también sale oxígeno. Y el oxígeno es importante. Muy importante. Porque si no no respiramos. Y además las plantas son la base de todo. O sea, sin fotosíntesis no hay nada. Es decir, es vital para el ecosistema entero."
+        },
+        {
+          "id": "q1-s12",
+          "role": "copy",
+          "profile": "copia parcial + desarrollo propio",
+          "text": "La luz solar + agua + CO2 son fundamentales para que las plantas fabriquen su propio alimento. Ocurre en los cloroplastos. Yo entiendo que este proceso es clave porque nos da el aire que respiramos todos los días y mantiene vivos a todos los animales del planeta.",
+          "copyOf": "q1-s21",
+          "copyKind": "partial"
+        },
+        {
+          "id": "q1-s13",
+          "role": "independent",
+          "profile": "prolija pero oraciones largas y enredadas",
+          "text": "Si bien la fotosíntesis es un proceso metabólico anabólico, que ocurre fundamentalmente en los organismos autótrofos fotosintéticos, el cual implica la captación de fotones por parte de la clorofila para la reducción del dióxido de carbono a carbohidratos, es de suma relevancia considerar que este mecanismo no solo sustenta la producción primaria, sino que también regula el ciclo del carbono y genera el oxígeno libre atmosférico, indispensable para la respiración aeróbica de la mayoría de la biota terrestre."
+        },
+        {
+          "id": "q1-s14",
+          "role": "copy",
+          "profile": "comparte el error distintivo de otro compañero",
+          "text": "Las plantas hacen la fotosíntesis para alimentarse solas con sol, agua y dióxido de carbono. Para hacer esto usan el ácido clorhídrico vegetal, que es el pigmento verde que atrapa la energía. Esto es clave para la vida porque largan el oxígeno que respiramos y arman la base de la cadena alimentaria.",
+          "copyOf": "q1-s22",
+          "copyKind": "shared_error"
+        },
+        {
+          "id": "q1-s15",
+          "role": "independent",
+          "profile": "se va del tema hacia algo relacionado",
+          "text": "La fotosíntesis es la base de todo, pero me hace pensar en cómo los océanos también hacen fotosíntesis con el fitoplancton. Es increíble que el 50% del oxígeno venga de ahí, no solo de los bosques. Las plantas terrestres usan luz, agua y CO2 para hacer glucosa y liberar O2. Es crucial para la cadena alimenticia y para regular el clima, ya que absorben CO2."
+        },
+        {
+          "id": "q1-s16",
+          "role": "independent",
+          "profile": "usa ejemplo personal o familiar",
+          "text": "Mi abuela tiene un huerto y siempre dice que las lechugas necesitan sol para crecer fuerte. Eso es fotosíntesis. Las plantas toman la luz, agua y CO2 para hacer su comida, que es glucosa. Y lo que sobra, que es oxígeno, lo tiran al aire. Es clave porque si no hubiera plantas como las de mi abuela, no tendríamos oxígeno para respirar y tampoco la base de la cadena alimenticia."
+        },
+        {
+          "id": "q1-s17",
+          "role": "independent",
+          "profile": "alumno destacado, clara y completa",
+          "text": "La fotosíntesis es el mecanismo por el cual los seres autótrofos captan energía lumínica para sintetizar materia orgánica. Utilizan dióxido de carbono y agua para generar glucosa, que almacena energía química, y liberan oxígeno a la atmósfera. Su importancia radica en que sostiene la red trófica, ya que proporciona la base energética para los consumidores y regula la composición gaseosa del planeta."
+        },
+        {
+          "id": "q1-s18",
+          "role": "independent",
+          "profile": "mezcla idea correcta con error propio",
+          "text": "La fotosíntesis es cuando las plantas absorben luz para hacer glucosa. Usan agua y dióxido de carbono. Lo interesante es que la planta 'come' la luz directamente y la convierte en músculo para crecer. Además libera oxígeno, que es vital para nosotros. Es importante porque es la fuente de energía primaria y nos da aire. Aunque creo que la luz se almacena como grasa en las hojas."
+        },
+        {
+          "id": "q1-s19",
+          "role": "copy",
+          "profile": "copia casi textual con retoques",
+          "text": "Es cuando las plantas toman la luz del sol, agua y aire para hacer su comida. En ese proceso sacan oxigeno, que es el que nosotros necesitamos para respirar. Es importante porque sin las plantas no tendríamos oxigeno y tampoco comida, ya que ellas son la base de la cadena alimenticia.",
+          "copyOf": "q1-s02",
+          "copyKind": "verbatim"
+        },
+        {
+          "id": "q1-s20",
+          "role": "copy",
+          "profile": "parafraseo disfrazado",
+          "text": "La fotosíntesis es fundamental, aunque te hace pensar en cómo el fitoplancton en el mar también hace lo mismo. Es zarpado que la mitad del oxígeno salga de ahí y no solo de los árboles. Los vegetales usan luz, agua y dióxido de carbono para armar glucosa y tirar O2. Re sirve para la cadena alimentaria y para bajar el CO2 del clima.",
+          "copyOf": "q1-s15",
+          "copyKind": "paraphrase"
+        },
+        {
+          "id": "q1-s21",
+          "role": "independent",
+          "profile": "lista de ideas sueltas",
+          "text": "- Luz solar + agua + CO2.\n- Ocurre en los cloroplastos.\n- Produce glucosa y oxígeno.\n- Las plantas son productores.\n- Base de la cadena alimenticia.\n- Genera el oxígeno que respiramos.\n- Sin esto no habría vida aeróbica."
+        },
+        {
+          "id": "q1-s22",
+          "role": "distinctive_error_source",
+          "profile": "Confunde la clorofila con el 'ácido clorhídrico vegetal' que según él es el que capta la luz del sol.",
+          "text": "La fotosíntesis es el proceso que hacen las plantas para fabricar su propio alimento usando la luz del sol, agua y dióxido de carbono. Para lograr esto usan el ácido clorhídrico vegetal, que es el pigmento verde que absorbe la energía solar. Es súper importante para los seres vivos porque gracias a esto liberan el oxígeno que respiramos todos los animales y nosotros, además de ser la base de la cadena alimentaria."
+        },
+        {
+          "id": "q1-s23",
+          "role": "independent",
+          "profile": "alumno con dificultades, corta y básica",
+          "text": "Es lo que hacen las plantas para crecer. Usan la luz y el agua. Sacan oxígeno. Es importante porque nos da aire para respirar y sin plantas no habría vida."
+        },
+        {
+          "id": "q1-s24",
+          "role": "common_misconception",
+          "profile": "cree que la tierra es el alimento principal y la luz es solo un adorno",
+          "text": "Para mí la fotosíntesis es como se alimentan las plantas. Se nutren de la tierra que tiene todos los alimentos y vitaminas que necesitan, y con la luz del sol hacen la digestión. Es fundamental para los seres vivos porque sin las plantas que hacen esto no habría oxígeno en la atmósfera y los animales herbívoros no tendrían qué comer."
+        }
+      ],
+      "positives": [
+        {
+          "a": "q1-s02",
+          "b": "q1-s19",
+          "kind": "verbatim"
+        },
+        {
+          "a": "q1-s21",
+          "b": "q1-s12",
+          "kind": "partial"
+        },
+        {
+          "a": "q1-s15",
+          "b": "q1-s20",
+          "kind": "paraphrase"
+        },
+        {
+          "a": "q1-s22",
+          "b": "q1-s14",
+          "kind": "shared_error"
+        }
+      ],
+      "hardNegatives": [
+        {
+          "a": "q1-s07",
+          "b": "q1-s08",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q1-s07",
+          "b": "q1-s04",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q1-s08",
+          "b": "q1-s04",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q1-s10",
+          "b": "q1-s24",
+          "kind": "common_misconception"
+        }
+      ],
+      "checks": {
+        "independents": {
+          "metric": "max_pairwise_jaccard_among_independents",
+          "value": 0.4262,
+          "threshold": "< 0.5",
+          "pass": true,
+          "regenerations": 0,
+          "worstPair": [
+            "ind2",
+            "ind9"
+          ]
+        },
+        "memorizers": [
+          {
+            "id": "q1-s07",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q1-s08",
+            "metric": "definition_containment",
+            "value": 0.9545,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q1-s04",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          }
+        ],
+        "copies": {
+          "verbatim": {
+            "metric": "jaccard_vs_source",
+            "value": 1,
+            "threshold": ">= 0.75",
+            "pass": true,
+            "regenerations": 0
+          },
+          "partial": {
+            "metric": "jaccard_vs_source",
+            "value": 0.2909,
+            "threshold": "0.25-0.75",
+            "pass": true,
+            "regenerations": 0
+          },
+          "paraphrase": {
+            "metric": "jaccard_vs_source",
+            "value": 0.4118,
+            "threshold": "<= 0.55",
+            "pass": true,
+            "regenerations": 0
+          },
+          "shared_error": {
+            "metric": "shared_error_marker_present_heuristic",
+            "value": true,
+            "threshold": "informational (word-overlap heuristic, not a mandated Jaccard check)",
+            "pass": true,
+            "regenerations": 0
+          }
+        },
+        "allMandatoryChecksPass": true
+      }
+    },
+    {
+      "id": "q2",
+      "subject": "Historia",
+      "prompt": "¿Cuáles fueron las causas de la Revolución de Mayo de 1810?",
+      "referenceAnswer": "Las causas de la Revolución de Mayo incluyeron factores externos como la crisis de la monarquía española tras la invasión napoleónica y las ideas de la Ilustración, junto con factores internos como el monopolio comercial que perjudicaba a los criollos, el deseo de estos de participar en el poder político y la formación de milicias criollas durante las Invasiones Inglesas.",
+      "classDefinition": "Las causas de la Revolución de Mayo se dividen en externas, como la caída del rey Fernando VII ante Napoleón y las ideas ilustradas, e internas, como el descontento criollo por el monopolio comercial español.",
+      "answers": [
+        {
+          "id": "q2-s01",
+          "role": "memorizer",
+          "profile": "memorizó la definición + ejemplo propio",
+          "text": "Las causas de la Revolución de Mayo se dividen en externas, como la caída del rey Fernando VII ante Napoleón y las ideas ilustradas, e internas, como el descontento criollo por el monopolio comercial español. Un ejemplo claro de esto es cuando los comerciantes de acá no podían venderle sus cueros a los ingleses y se querían morir de la bronca."
+        },
+        {
+          "id": "q2-s02",
+          "role": "independent",
+          "profile": "escribe casi en forma de lista de ideas sueltas",
+          "text": "- Invasión de Napoleón a España.\n- Rey Fernando VII tomado prisionero.\n- Descontento con el monopolio comercial.\n- Influencia de las ideas de la Ilustración.\n- Creación de milicias criollas tras las invasiones inglesas."
+        },
+        {
+          "id": "q2-s03",
+          "role": "common_misconception",
+          "profile": "confunde el 25 de mayo con la declaracion de la independencia de 1816",
+          "text": "Las causas de la revolucion fueron que los criollos estaban hartos de que España nos mande y nos saque todo. Entonces el 25 de mayo de 1810 nos independizamos y armamos la Primera Junta con Saavedra y Moreno. Ademas influyo que Napoleon preso al rey de españa y aca aprovecharon para sacarlo del poder y ser libres por fin."
+        },
+        {
+          "id": "q2-s04",
+          "role": "independent",
+          "profile": "ideas correctas pero desordenadas",
+          "text": "los criollos querian comercio libre y poder politico. napoleon invadio españa y eso fue clave. fernando septimo preso. los ingleses habian atacado antes y las milicias se armaron. el monopolio español no iba mas en el virreinato."
+        },
+        {
+          "id": "q2-s05",
+          "role": "memorizer",
+          "profile": "memorizó la definición + comentario propio",
+          "text": "Las causas de la Revolución de Mayo se dividen en externas, como la caída del rey Fernando VII ante Napoleón y las ideas ilustradas, e internas, como el descontento criollo por el monopolio comercial español. Lo que más me costó entender fue lo de las ideas ilustradas porque no cazaba una con los filósofos esos que nombraban en el texto."
+        },
+        {
+          "id": "q2-s06",
+          "role": "independent",
+          "profile": "correcta pero fría y telegráfica, tipo resumen",
+          "text": "Causas externas: crisis monárquica española, cautiverio de Fernando VII, ideología ilustrada. Causas internas: monopolio comercial restrictivo, aspiraciones políticas criollas, antecedentes militares de las Invasiones Inglesas."
+        },
+        {
+          "id": "q2-s07",
+          "role": "independent",
+          "profile": "mezcla una idea correcta con un error propio (no común)",
+          "text": "Una de las causas principales fue la caída de la monarquía española por culpa de Napoleón, lo que generó un vacío de poder tremendo. Además, los criollos estaban indignados porque el virrey Cisneros había decretado la prohibición total del cultivo de mandioca en todo el territorio para favorecer a los comerciantes de Cádiz."
+        },
+        {
+          "id": "q2-s08",
+          "role": "independent",
+          "profile": "alumno destacado, respuesta clara y completa",
+          "text": "Las causas fueron varias. Por un lado, las externas: la invasión de Napoleón a España, la caída del rey Fernando VII y la difusión de las ideas de libertad de la Revolución Francesa. Por el otro, las internas: el monopolio comercial que imponía España que no dejaba comerciar libremente, y las ganas de los criollos de tener un gobierno propio tras demostrar su fuerza en las Invasiones Inglesas."
+        },
+        {
+          "id": "q2-s09",
+          "role": "independent",
+          "profile": "usa un ejemplo personal o familiar",
+          "text": "Para mí pasó algo parecido a lo que pasa en los grupos de WhatsApp cuando el administrador se borra y nadie sabe qué hacer; en 1810 los franceses lo rajaron al rey Fernando y los criollos, que ya estaban podrídos de pagar carísimo las cosas por el monopolio como nos pasa hoy con la inflación, dijeron 'listo, nos armamos nuestro propio gobierno'."
+        },
+        {
+          "id": "q2-s10",
+          "role": "copy",
+          "profile": "copia parcial + desarrollo propio",
+          "text": "Una de las causas principales fue la caída de la monarquía española por culpa de Napoleón, lo que generó un vacío de poder tremendo. A todo esto se le suma que los criollos querían sacarse de encima a los españoles porque estaban hartos de pagar tantos impuestos y de que no los dejaran comercializar con otros países.",
+          "copyOf": "q2-s07",
+          "copyKind": "partial"
+        },
+        {
+          "id": "q2-s11",
+          "role": "independent",
+          "profile": "alumno promedio, correcta pero simple",
+          "text": "Básicamente pasó que Napoleón apresó al rey de España y eso armó un descalabro allá. Acá en el virreinato los criollos aprovecharon que España estaba débil para sacarse de encima el monopolio y armar su propio gobierno porque ya no querían depender de los españoles."
+        },
+        {
+          "id": "q2-s12",
+          "role": "independent",
+          "profile": "prolija pero con oraciones largas y enredadas",
+          "text": "Las causas que propiciaron el estallido revolucionario de mayo de mil ochocientos diez se fundamentan principalmente en la conjunción de los sucesos europeos derivados de la expansión napoleónica que descabezaron la corona española, con el consecuente descontento acumulado por los sectores criollos locales respecto a las restricciones comerciales impuestas por el sistema colonial."
+        },
+        {
+          "id": "q2-s13",
+          "role": "memorizer",
+          "profile": "memorizó la definición + razón propia",
+          "text": "Las causas de la Revolución de Mayo se dividen en externas, como la caída del rey Fernando VII ante Napoleón y las ideas ilustradas, e internas, como el descontento criollo por el monopolio comercial español. Me acuerdo re bien de esto último porque el otro día mi viejo me explicó que antes no se podía comprar nada de afuera sin pagar una banda de impuestos."
+        },
+        {
+          "id": "q2-s14",
+          "role": "independent",
+          "profile": "alumno que se explaya de más, da vueltas",
+          "text": "En realidad hay que tener en cuenta un montón de antecedentes que arrancan mucho antes, porque la situación venía picada desde los tiempos coloniales donde el virrey hacía lo que quería, pero bueno, el detonante principal posta fue cuando los franceses invadieron la península ibérica y lo metieron preso a Fernando séptimo, lo cual generó un vacío de poder terrible que los criollos locales supieron aprovechar muy bien organizándose en el cabildo abierto."
+        },
+        {
+          "id": "q2-s15",
+          "role": "common_misconception",
+          "profile": "cree que en 1810 nos independizamos y menciona las Invasiones Inglesas como causa",
+          "text": "Para mi las causas principales fueron las Invasiones Inglesas porque la gente vio que se podia defender sola sin ayuda de los españoles. Por eso el 25 de mayo de 1810 logramos la independencia y sacamos al virrey Cisneros. Aunque despues tuvimos que pelear banda contra los realistas para que no nos invadan de nuevo."
+        },
+        {
+          "id": "q2-s16",
+          "role": "copy",
+          "profile": "copia casi textual con retoques",
+          "text": "fue porque napoleon agarro al rey español y aca los criollos se cansaron del monopolio y kisieron gobernar ellos solos sin españa.",
+          "copyOf": "q2-s23",
+          "copyKind": "verbatim"
+        },
+        {
+          "id": "q2-s17",
+          "role": "independent",
+          "profile": "insegura, usa 'creo que' / 'no me acuerdo bien'",
+          "text": "Mmm creo que fue porque napoleón invadió España, la verdad no me acuerdo bien el nombre del rey pero lo metieron preso. Y acá en Buenos Aires los criollos estaban enojados con el comercio y con los españoles, entonces creo que por eso armaron la revolución, o algo así."
+        },
+        {
+          "id": "q2-s18",
+          "role": "independent",
+          "profile": "se va un poco del tema hacia algo relacionado",
+          "text": "Todo arranca con la crisis en Europa y la debilidad de España, lo que demuestra cómo los imperios caen cuando menos te lo esperás, igual que pasó después con la caída del muro de Berlín o los romanos, pero focalizándonos en Mayo, los criollos querían comercio libre porque las mercaderías llegaban carísimas al puerto de Buenos Aires."
+        },
+        {
+          "id": "q2-s19",
+          "role": "distinctive_error_source",
+          "profile": "Confunde a Cornelio Saavedra con el coronel Pedro Picapiedra, inventando que este último era el jefe de los patricios.",
+          "text": "Las causas de la Revolución de Mayo fueron varias. Por un lado las invasiones inglesas demostraron que España no nos podía defender. Por otro lado la caída de Fernando VII en España dejó un vacío de poder. Acá en Buenos Aires se armó todo el lío en el Cabildo Abierto y los criollos querían formar un gobierno propio. El jefe de los patricios en ese momento era el coronel Pedro Picapiedra, que organizó a la gente para deponer al virrey Cisneros."
+        },
+        {
+          "id": "q2-s20",
+          "role": "copy",
+          "profile": "parafraseo disfrazado",
+          "text": "Los motivos son varios. Primero están los factores de afuera, como cuando Napoleón invadió España y sacó al rey Fernando VII, sumado a las ideas de la Revolución Francesa. Y segundo están los temas de acá adentro, tipo el monopolio que no nos dejaba vender a otros y las ganas de los criollos de mandar después de las Invasiones Inglesas.",
+          "copyOf": "q2-s08",
+          "copyKind": "paraphrase"
+        },
+        {
+          "id": "q2-s21",
+          "role": "independent",
+          "profile": "muy informal, tipo mensaje a un amigo",
+          "text": "che profe, en resumen fue porque los franceses se metieron en españa y lo re secuestraron al rey. aca los criollos avivados dijeron ya fue, no le vamos a rendir cuentas a esta gente si no hay rey, y armaron todo el re bondi para sacarse al virrey de encima."
+        },
+        {
+          "id": "q2-s22",
+          "role": "copy",
+          "profile": "comparte el error distintivo de otro compañero",
+          "text": "Básicamente pasó por varios motivos, como que España estaba re débil y las invasiones inglesas nos dejaron ver que no nos podían cuidar. Encima cayó Fernando VII y se armó un vacío terrible. En ese momento clave, el coronel Pedro Picapiedra juntó a los milicianos y organizó todo para rajar al virrey Cisneros en el Cabildo.",
+          "copyOf": "q2-s19",
+          "copyKind": "shared_error"
+        },
+        {
+          "id": "q2-s23",
+          "role": "independent",
+          "profile": "alumno con dificultades, respuesta corta y básica",
+          "text": "fue porque napoleon agarro al rey español y aca los criollos se cansaron del monopolio y quisieron gobernar ellos solos sin los españoles."
+        },
+        {
+          "id": "q2-s24",
+          "role": "independent",
+          "profile": "usa una comparación o metáfora propia inventada",
+          "text": "España era como un ancla pesada que no dejaba flotar al barco criollo, y cuando Napoleón cortó esa soga al atrapar al rey, los porteños vieron la oportunidad perfecta para cambiar de capitán y empezar a remar por su propia cuenta."
+        }
+      ],
+      "positives": [
+        {
+          "a": "q2-s23",
+          "b": "q2-s16",
+          "kind": "verbatim"
+        },
+        {
+          "a": "q2-s07",
+          "b": "q2-s10",
+          "kind": "partial"
+        },
+        {
+          "a": "q2-s08",
+          "b": "q2-s20",
+          "kind": "paraphrase"
+        },
+        {
+          "a": "q2-s19",
+          "b": "q2-s22",
+          "kind": "shared_error"
+        }
+      ],
+      "hardNegatives": [
+        {
+          "a": "q2-s13",
+          "b": "q2-s01",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q2-s13",
+          "b": "q2-s05",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q2-s01",
+          "b": "q2-s05",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q2-s03",
+          "b": "q2-s15",
+          "kind": "common_misconception"
+        }
+      ],
+      "checks": {
+        "independents": {
+          "metric": "max_pairwise_jaccard_among_independents",
+          "value": 0.2931,
+          "threshold": "< 0.5",
+          "pass": true,
+          "regenerations": 0,
+          "worstPair": [
+            "ind1",
+            "ind7"
+          ]
+        },
+        "memorizers": [
+          {
+            "id": "q2-s13",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q2-s01",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q2-s05",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          }
+        ],
+        "copies": {
+          "verbatim": {
+            "metric": "jaccard_vs_source",
+            "value": 0.8261,
+            "threshold": ">= 0.75",
+            "pass": true,
+            "regenerations": 0
+          },
+          "partial": {
+            "metric": "jaccard_vs_source",
+            "value": 0.4127,
+            "threshold": "0.25-0.75",
+            "pass": true,
+            "regenerations": 0
+          },
+          "paraphrase": {
+            "metric": "jaccard_vs_source",
+            "value": 0.3194,
+            "threshold": "<= 0.55",
+            "pass": true,
+            "regenerations": 0
+          },
+          "shared_error": {
+            "metric": "shared_error_marker_present_heuristic",
+            "value": true,
+            "threshold": "informational (word-overlap heuristic, not a mandated Jaccard check)",
+            "pass": true,
+            "regenerations": 0
+          }
+        },
+        "allMandatoryChecksPass": true
+      }
+    },
+    {
+      "id": "q3",
+      "subject": "Lengua",
+      "prompt": "¿Qué es una metáfora? Explicalo y da un ejemplo propio.",
+      "referenceAnswer": "Una metáfora es una figura retórica que consiste en trasladar el sentido de una palabra a otra basándose en una relación de semejanza o parecido, sin usar nexos comparativos como 'como'. Por ejemplo, decir 'sus cabellos de oro' en lugar de decir que son rubios.",
+      "classDefinition": "La metáfora es una figura literaria que establece una identificación directa entre dos elementos reales e imaginarios debido a una similitud compartida, omitiendo cualquier palabra de comparación.",
+      "answers": [
+        {
+          "id": "q3-s01",
+          "role": "copy",
+          "profile": "copia parcial + desarrollo propio",
+          "text": "Se comparan dos cosas, o sea, se dice que una cosa es la otra pero sin poner la palabra 'como', creo. Lo estuve pensando y a mí se me ocurre que un ejemplo propio podría ser cuando le decimos a alguien que tiene cabello de oro en vez de decir rubio, me parece que es eso.",
+          "copyOf": "q3-s21",
+          "copyKind": "partial"
+        },
+        {
+          "id": "q3-s02",
+          "role": "memorizer",
+          "profile": "memorizó la definición + comentario propio",
+          "text": "La metáfora es una figura literaria que establece una identificación directa entre dos elementos reales e imaginarios debido a una similitud compartida, omitiendo cualquier palabra de comparación. Al principio me costaba un montón no confundirla con el símil, pero ahora ya entendí que no usa el como."
+        },
+        {
+          "id": "q3-s03",
+          "role": "independent",
+          "profile": "alumno destacado, respuesta clara y completa",
+          "text": "La metáfora es una figura retórica que sirve para comparar dos cosas de manera directa, sin usar la palabra 'como'. En vez de decir que algo se parece a otra cosa, se dice directamente que lo es. Un ejemplo sería 'sus ojos son dos luceros', donde se comparan los ojos con las estrellas por el brillo."
+        },
+        {
+          "id": "q3-s04",
+          "role": "memorizer",
+          "profile": "memorizó la definición + razón propia",
+          "text": "La metáfora es una figura literaria que establece una identificación directa entre dos elementos reales e imaginarios debido a una similitud compartida, omitiendo cualquier palabra de comparación. Me acuerdo bien de esto porque mi viejo el otro día me dijo que tenía la cabeza dura como un ladrillo y me hizo acordar a la clase."
+        },
+        {
+          "id": "q3-s05",
+          "role": "independent",
+          "profile": "mezcla una idea correcta con un error propio (no común)",
+          "text": "La metáfora es una figura que sirve para decir algo embellecido cambiando el sujeto por un adverbio de modo que se parezca, sin usar la palabra 'como'. Por ejemplo, decir 'el viento soplaba furioso' porque le da características humanas a la naturaleza."
+        },
+        {
+          "id": "q3-s06",
+          "role": "independent",
+          "profile": "ideas correctas pero desordenadas",
+          "text": "Se usa para comparar pero sin decir 'como'. Es una figura literaria. Cambias una palabra por otra si se parecen. Ejemplo: 'sus labios de coral', ahí comparas los labios rojos con el coral pero sin usar nexos."
+        },
+        {
+          "id": "q3-s07",
+          "role": "common_misconception",
+          "profile": "Confunde la comparación con la metáfora y piensa que cualquier frase que relacione dos elementos entra en esta categoría.",
+          "text": "Para mí la metáfora es una figura literaria re usada en Lengua que sirve para hacer comparaciones figurativas entre dos objetos o personas. O sea, decís una cosa refiriéndote a otra. Por ejemplo: 'El auto viejo rugía como un león hambriento en la ruta'. Esa es re metáfora porque le da una característica de animal a un auto usando el como."
+        },
+        {
+          "id": "q3-s08",
+          "role": "memorizer",
+          "profile": "memorizó la definición + ejemplo propio",
+          "text": "La metáfora es una figura literaria que establece una identificación directa entre dos elementos reales e imaginarios debido a una similitud compartida, omitiendo cualquier palabra de comparación. Un ejemplo sería decir «sus ojos eran dos luceros»."
+        },
+        {
+          "id": "q3-s09",
+          "role": "independent",
+          "profile": "prolija pero con oraciones largas y enredadas",
+          "text": "La metáfora se define como aquella herramienta fundamental dentro de las figuras retóricas que nos permite establecer una vinculación profunda entre dos conceptos distintos que comparten alguna cualidad intrínseca, logrando así que la expresión poética prescinda por completo de los nexos comparativos tradicionales que solemne y habitualmente utilizaríamos en el lenguaje cotidiano, tal como se puede apreciar cuando decimos que 'la noche es un manto negro' para referirnos a la oscuridad."
+        },
+        {
+          "id": "q3-s10",
+          "role": "independent",
+          "profile": "escribe casi en forma de lista de ideas sueltas",
+          "text": "- Figura literaria.\n- Compara dos elementos.\n- No usa la palabra 'como'.\n- Ejemplo propio: 'su sonrisa es un rayo de sol'."
+        },
+        {
+          "id": "q3-s11",
+          "role": "distinctive_error_source",
+          "profile": "Confunde la metáfora con una comparación pero usando la palabra 'parecido a' y aclara que es un tecnicismo que vio en internet",
+          "text": "Una metáfora es cuando se cambia el sentido literal de una palabra para decir otra cosa por parecido, para que sea más poético. Por ejemplo, mi perro es un cometa veloz cuando corre por el patio parecido a un rayo láser que cruza la pieza."
+        },
+        {
+          "id": "q3-s12",
+          "role": "copy",
+          "profile": "parafraseo disfrazado",
+          "text": "Es una herramienta de la literatura en la cual se vinculan dos objetos sin emplear el nexo 'como'. Mi abuela siempre me repite que tengo un motorcito en la cabeza porque jamás me puedo quedar quieto sentado haciendo los deberes, esa es una metáfora súper clara que me dice ella siempre.",
+          "copyOf": "q3-s14",
+          "copyKind": "paraphrase"
+        },
+        {
+          "id": "q3-s13",
+          "role": "common_misconception",
+          "profile": "Confunde metáfora con símil creyendo que usar la palabra 'como' es una metáfora.",
+          "text": "La metáfora es cuando comparás dos cosas que no son iguales para dar a entender algo con más onda. Se usa banda en los poemas y canciones para hacerlo más poético. Un ejemplo propio sería: 'Tu sonrisa brilla como el sol a la mañana'. Ahí estás comparando la sonrisa con el sol usando el como, así que es una metáfora re clara."
+        },
+        {
+          "id": "q3-s14",
+          "role": "independent",
+          "profile": "usa un ejemplo personal o familiar",
+          "text": "Una metáfora es una figura literaria donde se relacionan dos elementos sin usar el 'como'. Mi abuelo siempre me dice que tengo un motorcito en la cabeza porque no me puedo quedar quieto nunca sentado haciendo la tarea, eso es una metáfora muy clara que usa él."
+        },
+        {
+          "id": "q3-s15",
+          "role": "copy",
+          "profile": "copia casi textual con retoques",
+          "text": "Figura retórica. Cambio de significado por analogía. Ausencia de nexo comparativo. Ejemplo: perlas por dientes.",
+          "copyOf": "q3-s19",
+          "copyKind": "verbatim"
+        },
+        {
+          "id": "q3-s16",
+          "role": "copy",
+          "profile": "comparte el error distintivo de otro compañero",
+          "text": "Básicamente la metáfora modifica el significado literal de un término para referirse a otra cosa por similitud, dándole un toque más literario. Por ejemplo, mi perro es un bólido veloz cuando corre por el jardín parecido a un rayo láser que cruza la pieza.",
+          "copyOf": "q3-s11",
+          "copyKind": "shared_error"
+        },
+        {
+          "id": "q3-s17",
+          "role": "independent",
+          "profile": "alumno con dificultades, respuesta corta y básica",
+          "text": "es una figura que compara sin usar como. ejemplo: el sol es una bola de fuego."
+        },
+        {
+          "id": "q3-s18",
+          "role": "independent",
+          "profile": "usa una comparación o metáfora propia inventada",
+          "text": "Una metáfora es cuando cambiamos un término por otro que tiene un parecido figurado, sin usar la palabra 'como'. Un ejemplo que se me ocurre recién es decir 'mi perro es una esponja de mimos' para indicar que le gusta recibir mucho afecto y absorbe toda la atención."
+        },
+        {
+          "id": "q3-s19",
+          "role": "independent",
+          "profile": "correcta pero fría y telegráfica, tipo resumen",
+          "text": "Figura retórica. Traslado de significado por analogía. Ausencia de nexo comparativo. Ejemplo: 'perlas' por dientes."
+        },
+        {
+          "id": "q3-s20",
+          "role": "independent",
+          "profile": "muy informal, tipo mensaje a un amigo",
+          "text": "che, la metáfora es cuando decís una cosa por otra pero porque se re parecen, tipo sin meter el 'como' en el medio. ponele cuando decís 'tengo el corazón en la boca' por los nervios, alta metáfora esa."
+        },
+        {
+          "id": "q3-s21",
+          "role": "independent",
+          "profile": "insegura, usa 'creo que' / 'no me acuerdo bien'",
+          "text": "Ay, creo que la metáfora es esa figura donde se comparan dos cosas, o sea, se dice que una cosa es la otra pero sin poner la palabra 'como', creo. No me acuerdo bien si era así, pero pongo el ejemplo de 'tus dientes de porcelana' para los dientes blancos."
+        },
+        {
+          "id": "q3-s22",
+          "role": "independent",
+          "profile": "alumno que se explaya de más, da vueltas",
+          "text": "Bueno, la metáfora es una cosa que usamos en lengua, viste, que es como cuando el profe te explica que no tenés que tomar las cosas tan literal. O sea, vos querés decir una característica de algo pero en vez de usar las palabras comunes, buscás otro objeto que tenga más o menos la misma forma o el mismo significado y lo ponés en el medio. Por ejemplo, si mi mamá me reta y me dice que tengo la pieza hecha un desastre, ponele que te dicen 'tu habitación es un chiquero', ahí hay una metáfora."
+        },
+        {
+          "id": "q3-s23",
+          "role": "independent",
+          "profile": "alumno promedio, correcta pero simple",
+          "text": "Una metáfora es cuando nombramos una cosa usando el nombre de otra porque se parecen en algo. No lleva la palabra 'como'. Por ejemplo, decir 'el tiempo es oro'. Significa que el tiempo es muy valioso como el oro pero se dice directo."
+        },
+        {
+          "id": "q3-s24",
+          "role": "independent",
+          "profile": "se va un poco del tema hacia algo relacionado",
+          "text": "Una metáfora es una figura retórica muy usada en los poemas y en las canciones de rock nacional para que no sea todo tan aburrido y literal. A mi profesor de literatura le gusta mucho cuando analizamos los textos y encontramos estas cosas que nos hacen pensar más allá de lo que dice el texto escrito en la hoja."
+        }
+      ],
+      "positives": [
+        {
+          "a": "q3-s19",
+          "b": "q3-s15",
+          "kind": "verbatim"
+        },
+        {
+          "a": "q3-s21",
+          "b": "q3-s01",
+          "kind": "partial"
+        },
+        {
+          "a": "q3-s14",
+          "b": "q3-s12",
+          "kind": "paraphrase"
+        },
+        {
+          "a": "q3-s11",
+          "b": "q3-s16",
+          "kind": "shared_error"
+        }
+      ],
+      "hardNegatives": [
+        {
+          "a": "q3-s04",
+          "b": "q3-s08",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q3-s04",
+          "b": "q3-s02",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q3-s08",
+          "b": "q3-s02",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q3-s13",
+          "b": "q3-s07",
+          "kind": "common_misconception"
+        }
+      ],
+      "checks": {
+        "independents": {
+          "metric": "max_pairwise_jaccard_among_independents",
+          "value": 0.3387,
+          "threshold": "< 0.5",
+          "pass": true,
+          "regenerations": 0,
+          "worstPair": [
+            "ind1",
+            "ind8"
+          ]
+        },
+        "memorizers": [
+          {
+            "id": "q3-s04",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q3-s08",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q3-s02",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          }
+        ],
+        "copies": {
+          "verbatim": {
+            "metric": "jaccard_vs_source",
+            "value": 0.8571,
+            "threshold": ">= 0.75",
+            "pass": true,
+            "regenerations": 0
+          },
+          "partial": {
+            "metric": "jaccard_vs_source",
+            "value": 0.3385,
+            "threshold": "0.25-0.75",
+            "pass": true,
+            "regenerations": 0
+          },
+          "paraphrase": {
+            "metric": "jaccard_vs_source",
+            "value": 0.4727,
+            "threshold": "<= 0.55",
+            "pass": true,
+            "regenerations": 0
+          },
+          "shared_error": {
+            "metric": "shared_error_marker_present_heuristic",
+            "value": true,
+            "threshold": "informational (word-overlap heuristic, not a mandated Jaccard check)",
+            "pass": true,
+            "regenerations": 0
+          }
+        },
+        "allMandatoryChecksPass": true
+      }
+    },
+    {
+      "id": "q4",
+      "subject": "Geografía",
+      "prompt": "Explicá la diferencia entre el clima y el tiempo atmosférico.",
+      "referenceAnswer": "El tiempo atmosférico es el estado de la atmósfera en un lugar y momento específico, por lo que puede cambiar rápidamente de un día para otro. En cambio, el clima se refiere al patrón general de las condiciones atmosféricas registrado en una región durante un período prolongado, generalmente de al menos treinta años.",
+      "classDefinition": "El tiempo es el estado de la atmósfera en un momento dado, mientras que el clima es el promedio de esas condiciones medido a lo largo de muchos años.",
+      "answers": [
+        {
+          "id": "q4-s01",
+          "role": "copy",
+          "profile": "copia casi textual con retoques",
+          "text": "Mientras que el tiempo atmosférico representa aquella condición pasajera y re cambiante que experimentamos en la atmósfera de manera cotidiana, el clima constituye un registro estadístico sostenido a lo largo de décadas que define las características meteorológicas de un territorio.",
+          "copyOf": "q4-s10",
+          "copyKind": "verbatim"
+        },
+        {
+          "id": "q4-s02",
+          "role": "independent",
+          "profile": "muy informal, tipo mensaje a un amigo",
+          "text": "El tiempo es literal lo q pasa hoy con el tiempo, si vas a usar campera o short. El clima es el promedio de todo eso pero medido x los meteorólogos durante años enteros, tipo Córdoba que siempre es seco ponele."
+        },
+        {
+          "id": "q4-s03",
+          "role": "memorizer",
+          "profile": "memorizó la definición + razón propia",
+          "text": "El tiempo es el estado de la atmósfera en un momento dado, mientras que el clima es el promedio de esas condiciones medido a lo largo de muchos años. Me acuerdo de esto porque mi abuelo siempre mira el noticiero a la mañana para ver si lleva paraguas o no."
+        },
+        {
+          "id": "q4-s04",
+          "role": "independent",
+          "profile": "insegura, usa 'creo que' / 'no me acuerdo bien'",
+          "text": "Creo que el tiempo atmosférico es el que cambia todos los dias, tipo si llueve o hay sol. Y el clima no me acuerdo bien pero creo que era lo mismo pero estudiado por los cientificos durante muchos años para ver como es la zona."
+        },
+        {
+          "id": "q4-s05",
+          "role": "independent",
+          "profile": "escribe casi en forma de lista de ideas sueltas",
+          "text": "- Tiempo atmosférico: estado actual, cambia rápido, es lo que pasa hoy.\n- Clima: estudia muchos años, es el patrón fijo de una región, no cambia de un día para el otro."
+        },
+        {
+          "id": "q4-s06",
+          "role": "independent",
+          "profile": "alumno destacado, respuesta clara y completa",
+          "text": "La diferencia fundamental radica en la escala temporal. El tiempo atmosférico describe cómo está el día hoy, si llueve o hay sol, y cambia constantemente. Por el contrario, el clima analiza los datos meteorológicos a lo largo de décadas para definir el comportamiento habitual de una zona geográfica."
+        },
+        {
+          "id": "q4-s07",
+          "role": "copy",
+          "profile": "parafraseo disfrazado",
+          "text": "Por un lado, el tiempo atmosférico es cómo se encuentra la atmósfera en un momento exacto y suele cambiar bastante. Por el otro, el clima es el comportamiento medio del tiempo que se saca contando un período mínimo de tres décadas, y resulta mucho más estable.",
+          "copyOf": "q4-s13",
+          "copyKind": "paraphrase"
+        },
+        {
+          "id": "q4-s08",
+          "role": "independent",
+          "profile": "usa un ejemplo personal o familiar",
+          "text": "El otro día mi tío que vive en misiones me decia que allá el clima es re húmedo siempre. Eso es el clima. En cambio el tiempo fue cuando fuimos y nos tocó una tormenta horrible justo el martes pero despues paro, eso es el tiempo porque pasa en el momento nomas."
+        },
+        {
+          "id": "q4-s09",
+          "role": "independent",
+          "profile": "usa una comparación o metáfora propia inventada",
+          "text": "El tiempo atmosférico es como el humor de una persona, que te cambia de un segundo para el otro por cualquier cosa. En cambio, el clima es como la personalidad de alguien, que se forma a lo largo de toda su vida y es mucho más estable y predecible."
+        },
+        {
+          "id": "q4-s10",
+          "role": "independent",
+          "profile": "prolija pero con oraciones largas y enredadas",
+          "text": "Mientras que el tiempo atmosférico representa aquella condición pasajera y sumamente cambiante que experimentamos en la atmósfera de manera cotidiana, el clima constituye un registro estadístico sostenido a lo largo de décadas que define las características meteorológicas predominantes de un territorio."
+        },
+        {
+          "id": "q4-s11",
+          "role": "common_misconception",
+          "profile": "usa clima y tiempo indistintamente creyendo que el clima cambia todos los días según la estación",
+          "text": "El tiempo y el clima son casi lo mismo porque los dos hablan de cómo está la atmósfera. La diferencia es que el tiempo es más corto ponele de un ratito y el clima es lo que dura el día entero. Por ejemplo, en verano el clima es caluroso y en invierno es frío. Si hoy hace 30 grados, el clima de hoy es de calor. Pero en realidad la gente los usa igual todo el tiempo, no te vas a poner a pensar tanto cuando hablas con alguien."
+        },
+        {
+          "id": "q4-s12",
+          "role": "memorizer",
+          "profile": "memorizó la definición + ejemplo propio",
+          "text": "El tiempo es el estado de la atmósfera en un momento dado, en cambio el clima es el promedio de esas condiciones medido a lo largo de muchos años. Por ejemplo, si hoy llueve es tiempo, pero decir que en Misiones llueve un montón todo el año es el clima."
+        },
+        {
+          "id": "q4-s13",
+          "role": "independent",
+          "profile": "correcta pero fría y telegráfica, tipo resumen",
+          "text": "Tiempo atmosférico: Estado de la atmósfera en instante preciso. Variable. Clima: Comportamiento atmosférico promedio calculado en período mínimo de treinta años. Estable."
+        },
+        {
+          "id": "q4-s14",
+          "role": "copy",
+          "profile": "copia parcial + desarrollo propio",
+          "text": "El tiempo atmosférico varía cada rato, te levantás y está lindo y a la tarde llueve. Por otro lado, el clima es algo que no cambia de un día para el otro, sino que se fija mirando cómo estuvo el tiempo durante muchísimos años, tipo treinta o más, para saber qué onda la zona.",
+          "copyOf": "q4-s23",
+          "copyKind": "partial"
+        },
+        {
+          "id": "q4-s15",
+          "role": "independent",
+          "profile": "alumno promedio, correcta pero simple",
+          "text": "El tiempo es lo que pasa ahora mismo, por ejemplo si hoy hace frío o calor. El clima en cambio es como es el tiempo siempre en ese lugar, estudiado durante muchos años para saber si es una zona fría o calurosa."
+        },
+        {
+          "id": "q4-s16",
+          "role": "common_misconception",
+          "profile": "confunde clima y tiempo como sinónimos usando ambos para hablar de la temperatura del día",
+          "text": "Para mí es más o menos lo mismo, o sea, el tiempo atmosférico y el clima son las condiciones de afuera, tipo si hace calor, frío, si llueve o hay sol. Por ejemplo, si salgo de casa y está nublado, digo que el clima está feo. Lo único que cambia es que el clima suena como más científico y el tiempo es lo que ves en el celu cuando te fijás si tenés que llevar paraguas o campera para ir a la escuela."
+        },
+        {
+          "id": "q4-s17",
+          "role": "independent",
+          "profile": "alumno con dificultades, respuesta corta y básica",
+          "text": "El tiempo atmosférico cambia todos los dias y el clima es como es el lugar siempre, tipo si es tropical o seco."
+        },
+        {
+          "id": "q4-s18",
+          "role": "distinctive_error_source",
+          "profile": "Alumno que confunde el barómetro con el sismógrafo de humedad y cree que mide la presión del vapor acuoso.",
+          "text": "El tiempo atmosférico es el estado de la atmósfera en un momento y lugar dado, que puede cambiar rápido. En cambio, el clima es el promedio de ese tiempo medido en muchos años, por lo general treinta. Para estudiar esto los meteorólogos usan instrumentos como el sismógrafo de humedad, que sirve para calcular la presión exacta del vapor acuoso en las nubes."
+        },
+        {
+          "id": "q4-s19",
+          "role": "independent",
+          "profile": "se va un poco del tema hacia algo relacionado",
+          "text": "El tiempo atmosférico es lo que medimos con el termómetro y el barómetro cada día en el noticiero. El clima es parecido pero abarca regiones enteras del planeta y gracias a eso podemos saber qué biomas y animales van a vivir en cada lugar según la temperatura."
+        },
+        {
+          "id": "q4-s20",
+          "role": "memorizer",
+          "profile": "memorizó la definición + comentario propio",
+          "text": "El tiempo es el estado de la atmósfera en un momento dado, mientras que el clima es el promedio de esas condiciones medido a lo largo de muchos años. Al principio me costaba entender cuántos años tenías que medir para que sea clima, pero ya entendí que son décadas."
+        },
+        {
+          "id": "q4-s21",
+          "role": "independent",
+          "profile": "alumno que se explaya de más, da vueltas",
+          "text": "Bueno, yo estuve pensando en esto y la verdad es que la diferencia es bastante clara pero a la vez te hace dudar si no prestás atención. El tiempo atmosférico es lo que vemos cuando nos asomamos por la ventana y decimos uy qué calor hace hoy, pero eso mañana puede cambiar completamente porque llueve. En cambio el clima es distinto porque abarca muchos años de estudio y no cambia de la noche a la mañana."
+        },
+        {
+          "id": "q4-s22",
+          "role": "independent",
+          "profile": "mezcla una idea correcta con un error propio (no común)",
+          "text": "El tiempo atmosférico es el estado de la atmósfera en un momento exacto y cambia rápido. El clima en cambio es el promedio de las temperaturas pero solo se mide durante la estación de invierno en los polos."
+        },
+        {
+          "id": "q4-s23",
+          "role": "independent",
+          "profile": "ideas correctas pero desordenadas",
+          "text": "El clima se estudia por treinta años y es permanente por asi decirlo. El tiempo atmosférico varía cada rato, te levantás y está lindo y a la tarde llueve. Las dos cosas hablan de la atmósfera pero el tiempo es el momento y el clima es el promedio general."
+        },
+        {
+          "id": "q4-s24",
+          "role": "copy",
+          "profile": "comparte el error distintivo de otro compañero",
+          "text": "El tiempo es cómo está la atmósfera ahora y cambia un montón. El clima, en cambio, es el promedio de eso calculado en muchos años. Para medir esto, los que estudian el tema usan un sismógrafo de humedad que sirve para calcular la presión exacta del vapor en las nubes.",
+          "copyOf": "q4-s18",
+          "copyKind": "shared_error"
+        }
+      ],
+      "positives": [
+        {
+          "a": "q4-s10",
+          "b": "q4-s01",
+          "kind": "verbatim"
+        },
+        {
+          "a": "q4-s23",
+          "b": "q4-s14",
+          "kind": "partial"
+        },
+        {
+          "a": "q4-s13",
+          "b": "q4-s07",
+          "kind": "paraphrase"
+        },
+        {
+          "a": "q4-s18",
+          "b": "q4-s24",
+          "kind": "shared_error"
+        }
+      ],
+      "hardNegatives": [
+        {
+          "a": "q4-s03",
+          "b": "q4-s12",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q4-s03",
+          "b": "q4-s20",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q4-s12",
+          "b": "q4-s20",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q4-s16",
+          "b": "q4-s11",
+          "kind": "common_misconception"
+        }
+      ],
+      "checks": {
+        "independents": {
+          "metric": "max_pairwise_jaccard_among_independents",
+          "value": 0.3415,
+          "threshold": "< 0.5",
+          "pass": true,
+          "regenerations": 0,
+          "worstPair": [
+            "ind3",
+            "ind11"
+          ]
+        },
+        "memorizers": [
+          {
+            "id": "q4-s03",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q4-s12",
+            "metric": "definition_containment",
+            "value": 0.9565,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q4-s20",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          }
+        ],
+        "copies": {
+          "verbatim": {
+            "metric": "jaccard_vs_source",
+            "value": 0.9167,
+            "threshold": ">= 0.75",
+            "pass": true,
+            "regenerations": 0
+          },
+          "partial": {
+            "metric": "jaccard_vs_source",
+            "value": 0.386,
+            "threshold": "0.25-0.75",
+            "pass": true,
+            "regenerations": 0
+          },
+          "paraphrase": {
+            "metric": "jaccard_vs_source",
+            "value": 0.25,
+            "threshold": "<= 0.55",
+            "pass": true,
+            "regenerations": 0
+          },
+          "shared_error": {
+            "metric": "shared_error_marker_present_heuristic",
+            "value": true,
+            "threshold": "informational (word-overlap heuristic, not a mandated Jaccard check)",
+            "pass": true,
+            "regenerations": 0
+          }
+        },
+        "allMandatoryChecksPass": true
+      }
+    },
+    {
+      "id": "q5",
+      "subject": "Física",
+      "prompt": "¿Por qué un barco de acero flota en el agua si el acero es más denso que el agua?",
+      "referenceAnswer": "Un barco de acero flota porque, aunque el material es más denso que el agua, su diseño incluye un gran volumen de aire en su interior. Esto hace que la densidad promedio del barco (considerando acero y aire) sea menor que la del agua. Por lo tanto, el empuje hacia arriba que ejerce el agua, según el principio de Arquímedes, es igual al peso del volumen de agua desalojada, logrando que el barco flote.",
+      "classDefinition": "Un objeto flota cuando su densidad promedio es menor que la del fluido debido al volumen de aire que encierra, generando un empuje que equilibra su peso.",
+      "answers": [
+        {
+          "id": "q5-s01",
+          "role": "memorizer",
+          "profile": "memorizó la definición + razón propia",
+          "text": "Un objeto flota cuando su densidad promedio es menor que la del fluido debido al volumen de aire que encierra, generando un empuje que equilibra su peso. Me acuerdo bien de esto porque lo pensé el otro día mirando una olla vacía flotando en la bacha cuando lavaba los platos."
+        },
+        {
+          "id": "q5-s02",
+          "role": "copy",
+          "profile": "copia parcial + desarrollo propio",
+          "text": "Densidad promedio del barco menor a la del agua. Presencia de cavidades de aire internas. Además, como tiene tanto espacio vacío adentro, el volumen es gigante y el empuje del agua lo sostiene para que no se vaya al fondo.",
+          "copyOf": "q5-s11",
+          "copyKind": "partial"
+        },
+        {
+          "id": "q5-s03",
+          "role": "independent",
+          "profile": "mezcla una idea correcta con un error propio (no común)",
+          "text": "El barco flota porque el volumen de aire que tiene adentro le da flotabilidad y el agua lo empuja para arriba. Pero además influye mucho la temperatura del metal, porque el acero caliente es magnético y rechaza las moléculas de agua fría haciendo que flote mejor."
+        },
+        {
+          "id": "q5-s04",
+          "role": "independent",
+          "profile": "alumno destacado, respuesta clara y completa",
+          "text": "El barco flota porque no es una barra maciza de acero, sino que tiene una estructura hueca llena de aire. Al calcular la densidad total del barco con el aire adentro, da menor que la del agua. Entonces, el empuje del agua es mayor que el peso total y por eso se mantiene en la superficie."
+        },
+        {
+          "id": "q5-s05",
+          "role": "independent",
+          "profile": "alumno que se explaya de más, da vueltas",
+          "text": "Bueno, esto pasa porque cuando uno piensa en el acero dice 'uh, es re pesado, se va al fondo de una', pero claro, los barcos son gigantes y adentro tienen habitaciones, pasillos y pura cortina de aire. Entonces todo ese aire que está encerrado adentro hace que pese menos en promedio que si fuera una sola masa de metal macizo, logrando así que el agua lo sostenga sin problemas."
+        },
+        {
+          "id": "q5-s06",
+          "role": "common_misconception",
+          "profile": "cree que si un objeto es de acero puro se hunde y no comprende el concepto de densidad promedio",
+          "text": "Para mí es una trampa esta pregunta jajaj. El acero es hiper denso, o sea, mucho más que el agua, asi que por lógica se tendría que hundir de cabeza. Si el barco flota es porque abajo le ponen telgopor o algún coso que flota, o porque es hueco y el aire lo empuja para arriba. Pero si fuese una barra maciza de acero de verdad, se va al fondo de una por la densidad."
+        },
+        {
+          "id": "q5-s07",
+          "role": "independent",
+          "profile": "insegura, usa 'creo que' / 'no me acuerdo bien'",
+          "text": "Creo que era porque... o sea, el acero es pesado, sí, pero como el barco es re hueco y tiene aire adentro, me parece que eso cambia la densidad total. No me acuerdo bien cómo era la fórmula pero el agua lo empuja para arriba."
+        },
+        {
+          "id": "q5-s08",
+          "role": "independent",
+          "profile": "muy informal, tipo mensaje a un amigo",
+          "text": "olvidate, es una pavada esto. el tema es que el barco es gigante y esta lleno de aire por dentro. obvio que si tiras una plancha de acero se va al fondo al toque, pero con la forma que tiene el agua lo empuja para arriba mal y queda flotando"
+        },
+        {
+          "id": "q5-s09",
+          "role": "memorizer",
+          "profile": "memorizó la definición + ejemplo propio",
+          "text": "Un objeto flota cuando su densidad promedio es menor que la del fluido debido al volumen de aire que encierra, generando un empuje que equilibra su peso. Pasa lo mismo que cuando tirás una pelota de fútbol inflada a la pileta y te cuesta un montón hundirla."
+        },
+        {
+          "id": "q5-s10",
+          "role": "copy",
+          "profile": "comparte el error distintivo de otro compañero",
+          "text": "El barco se mantiene a flote porque tiene una estructura hueca con aire adentro, lo que agranda el volumen total y hace que baje su densidad. Todo esto ocurre gracias a la Ley de Inercia Térmica de Torricelli, que explica que los objetos con aire desplazan su propio peso y por eso no se van al fondo.",
+          "copyOf": "q5-s14",
+          "copyKind": "shared_error"
+        },
+        {
+          "id": "q5-s11",
+          "role": "independent",
+          "profile": "correcta pero fría y telegráfica, tipo resumen",
+          "text": "Densidad promedio del barco menor a la del agua. Presencia de cavidades de aire internas. El empuje hidrostático equilibra el peso total de la estructura."
+        },
+        {
+          "id": "q5-s12",
+          "role": "copy",
+          "profile": "copia casi textual con retoques",
+          "text": "A pesar de que el material con el cual está construido el casco es mucho más pesado que el líquido en el que navega, la arquitectura naval aprovecha el espacio adentro para acumular grandes volúmenes de aire que modifican el peso específico global de la embarcación provocando que el empuje sea suficiente.",
+          "copyOf": "q5-s22",
+          "copyKind": "verbatim"
+        },
+        {
+          "id": "q5-s13",
+          "role": "independent",
+          "profile": "se va un poco del tema hacia algo relacionado",
+          "text": "El barco flota porque tiene forma de batea y mucho aire adentro que genera un empuje. Igualmente, esto me hace acordar a los submarinos que tienen tanques de lastre para llenarse de agua y hundirse cuando quieren, lo cual me parece re loco de cómo funciona la presión."
+        },
+        {
+          "id": "q5-s14",
+          "role": "distinctive_error_source",
+          "profile": "Atribuye erróneamente la flotación a la 'Ley de Inercia Térmica de Torricelli'.",
+          "text": "El barco flota porque tiene forma hueca y adentro hay mucho aire, entonces el volumen total es grande y hace que la densidad baje. Esto pasa por la Ley de Inercia Térmica de Torricelli, que dice que los cuerpos con aire atrapado desplazan su propio peso y por eso se quedan arriba del agua sin hundirse."
+        },
+        {
+          "id": "q5-s15",
+          "role": "independent",
+          "profile": "ideas correctas pero desordenadas",
+          "text": "El agua hace un empuje para arriba. Y el barco tiene forma de caja llena de aire. Aunque el acero se hunda solo, al meterle aire adentro cambia el peso total y el volumen. Por eso el agua lo aguanta y no se hunde."
+        },
+        {
+          "id": "q5-s16",
+          "role": "independent",
+          "profile": "usa una comparación o metáfora propia inventada",
+          "text": "Es como un globo terráqueo inflado que aunque tenga una estructura dura afuera, adentro es todo gas. El barco es un gigante de metal pero que funciona como un panqueque inflado de aire que flota arriba del agua porque no la deja entrar."
+        },
+        {
+          "id": "q5-s17",
+          "role": "independent",
+          "profile": "usa un ejemplo personal o familiar",
+          "text": "El año pasado fuimos a Tigre en lancha y el tío de mi amigo que sabe de esto nos explicó. Es como cuando hacés una bola con plastilina y se va al fondo, pero si la ahuecas y le das forma de botecito se queda flotando en la pileta. Con el barco pasa lo mismo pero a lo grande."
+        },
+        {
+          "id": "q5-s18",
+          "role": "independent",
+          "profile": "escribe casi en forma de lista de ideas sueltas",
+          "text": "- El acero es denso y se hundiría solo.\n- Pero el barco tiene forma hueca.\n- Hay mucho aire adentro.\n- El volumen grande hace que el empuje del agua le gane al peso.\n- Por eso flota."
+        },
+        {
+          "id": "q5-s19",
+          "role": "independent",
+          "profile": "alumno con dificultades, respuesta corta y básica",
+          "text": "flota por el aire q tiene adentro y por la forma que le hacen que hace que el agua lo levante y no se vaya al fondo"
+        },
+        {
+          "id": "q5-s20",
+          "role": "common_misconception",
+          "profile": "cree que la densidad del material determina la flotación ignorando el volumen de aire",
+          "text": "El barco flota porque el acero es refuerte y aguanta banda de peso, pero posta el acero se hunde porque tiene mas densidad que el agua, tipo, si tiras una chapita de acero al agua se va al fondo de una. Para mi flota porque el capitan lo mueve con las turbinas para que no caiga y porque tiene forma alargada que lo ayuda a zafar, pero igual el material en si se deberia hundir."
+        },
+        {
+          "id": "q5-s21",
+          "role": "memorizer",
+          "profile": "memorizó la definición + comentario propio",
+          "text": "Un objeto flota cuando su densidad promedio es menor que la del fluido debido al volumen de aire que encierra, generando un empuje que equilibra su peso. Al principio no entendía cómo algo tan pesado como el metal no se iba al fondo, pero después le tomé la mano."
+        },
+        {
+          "id": "q5-s22",
+          "role": "independent",
+          "profile": "prolija pero con oraciones largas y enredadas",
+          "text": "A pesar de que el material con el cual está construido el casco es considerablemente más pesado que el líquido en el que navega, la arquitectura naval aprovecha el espacio interior para acumular grandes volúmenes de aire que modifican sustancialmente el peso específico global de la embarcación provocando que el empuje sea suficiente."
+        },
+        {
+          "id": "q5-s23",
+          "role": "independent",
+          "profile": "alumno promedio, correcta pero simple",
+          "text": "Flota porque adentro tiene mucho aire y eso hace que sea menos pesado en relación a lo que ocupa. O sea, el volumen total hace que el agua lo empuje para arriba y no se hunda, aunque el acero solo sea pesado."
+        },
+        {
+          "id": "q5-s24",
+          "role": "copy",
+          "profile": "parafraseo disfrazado",
+          "text": "Flota porque tiene una estructura con forma de batea y guarda un montón de aire en su interior que produce una fuerza hacia arriba. De todos modos, esto me hace acordar a los submarinos, que usan tanques especiales para cargarse de agua y sumergirse a voluntad, algo que posta me parece re loco cómo actúa la presión.",
+          "copyOf": "q5-s13",
+          "copyKind": "paraphrase"
+        }
+      ],
+      "positives": [
+        {
+          "a": "q5-s22",
+          "b": "q5-s12",
+          "kind": "verbatim"
+        },
+        {
+          "a": "q5-s11",
+          "b": "q5-s02",
+          "kind": "partial"
+        },
+        {
+          "a": "q5-s13",
+          "b": "q5-s24",
+          "kind": "paraphrase"
+        },
+        {
+          "a": "q5-s14",
+          "b": "q5-s10",
+          "kind": "shared_error"
+        }
+      ],
+      "hardNegatives": [
+        {
+          "a": "q5-s01",
+          "b": "q5-s09",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q5-s01",
+          "b": "q5-s21",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q5-s09",
+          "b": "q5-s21",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q5-s20",
+          "b": "q5-s06",
+          "kind": "common_misconception"
+        }
+      ],
+      "checks": {
+        "independents": {
+          "metric": "max_pairwise_jaccard_among_independents",
+          "value": 0.4444,
+          "threshold": "< 0.5",
+          "pass": true,
+          "regenerations": 0,
+          "worstPair": [
+            "ind2",
+            "ind6"
+          ]
+        },
+        "memorizers": [
+          {
+            "id": "q5-s01",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q5-s09",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q5-s21",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          }
+        ],
+        "copies": {
+          "verbatim": {
+            "metric": "jaccard_vs_source",
+            "value": 0.878,
+            "threshold": ">= 0.75",
+            "pass": true,
+            "regenerations": 0
+          },
+          "partial": {
+            "metric": "jaccard_vs_source",
+            "value": 0.375,
+            "threshold": "0.25-0.75",
+            "pass": true,
+            "regenerations": 1
+          },
+          "paraphrase": {
+            "metric": "jaccard_vs_source",
+            "value": 0.4063,
+            "threshold": "<= 0.55",
+            "pass": true,
+            "regenerations": 0
+          },
+          "shared_error": {
+            "metric": "shared_error_marker_present_heuristic",
+            "value": true,
+            "threshold": "informational (word-overlap heuristic, not a mandated Jaccard check)",
+            "pass": true,
+            "regenerations": 0
+          }
+        },
+        "allMandatoryChecksPass": true
+      }
+    },
+    {
+      "id": "q6",
+      "subject": "Educación cívica",
+      "prompt": "¿Por qué es importante la división de poderes en una democracia?",
+      "referenceAnswer": "La división de poderes es fundamental en una democracia porque evita la concentración de poder en una sola persona o institución. Al separar las funciones legislativa, ejecutiva y judicial, se garantiza un sistema de frenos y contrapesos (checks and balances) que protege los derechos de los ciudadanos, asegura el cumplimiento de la ley y previene abusos de autoridad, manteniendo así el equilibrio institucional.",
+      "classDefinition": "La división de poderes es el principio fundamental de la democracia que separa las funciones del Estado en legislativo, ejecutivo y judicial para evitar la tiranía y garantizar el equilibrio institucional.",
+      "answers": [
+        {
+          "id": "q6-s01",
+          "role": "independent",
+          "profile": "correcta pero fría y telegráfica, tipo resumen",
+          "text": "Evita concentración de poder. Establece sistema de frenos y contrapesos. Distribución funcional entre Ejecutivo, Legislativo y Judicial. Garantiza Estado de derecho."
+        },
+        {
+          "id": "q6-s02",
+          "role": "copy",
+          "profile": "parafraseo disfrazado",
+          "text": "Posta que es re necesario porque sino el presi hace lo que se le canta con todo. Separarlo en tres partes te garantiza que cada uno cumpla su rol y se vigilen entre ellos, de lo contrario sería tremendo descontrol o una dictadura.",
+          "copyOf": "q6-s04",
+          "copyKind": "paraphrase"
+        },
+        {
+          "id": "q6-s03",
+          "role": "independent",
+          "profile": "escribe casi en forma de lista de ideas sueltas",
+          "text": "- Evita la tirania y el abuso de autoridad.\n- Separa el gobierno en tres funciones distintas.\n- Permite que los poderes se controlen mutuamente.\n- Protege los derechos constitucionales de la gente."
+        },
+        {
+          "id": "q6-s04",
+          "role": "independent",
+          "profile": "muy informal, tipo mensaje a un amigo",
+          "text": "posta q es re importante pq si no el presidente hace lo q se le canta con todo. dividiendolo en tres te aseguras q cada uno haga su laburo y se cruzen controles entre ellos, sino seria alta anarquia o dictadura mal."
+        },
+        {
+          "id": "q6-s05",
+          "role": "independent",
+          "profile": "mezcla una idea correcta con un error propio (no común)",
+          "text": "La división de poderes es necesaria para que el presidente no abuse de su autoridad y tenga un límite legal, lo cual se logra gracias a que el Banco Central interviene directamente sobre los fallos de la Suprema Corte para mantener el orden fiscal de los tres poderes."
+        },
+        {
+          "id": "q6-s06",
+          "role": "independent",
+          "profile": "alumno destacado, respuesta clara y completa",
+          "text": "Es clave porque evita que una sola persona o grupo tenga todo el control del Estado. Al dividir las funciones en tres poderes (ejecutivo, legislativo y judicial) se genera un sistema de frenos y contrapesos donde cada uno controla al otro, lo cual garantiza que se respeten las leyes y los derechos de los ciudadanos."
+        },
+        {
+          "id": "q6-s07",
+          "role": "independent",
+          "profile": "se va un poco del tema hacia algo relacionado",
+          "text": "Es re importante para la democracia y para que la gente pueda ir a votar en paz cada cuatro años sin miedo a que el gobierno de turno cierre el Congreso, que es lo que pasa en los paises autoritarios donde no respetan la constitucion ni los derechos humanos."
+        },
+        {
+          "id": "q6-s08",
+          "role": "independent",
+          "profile": "prolija pero con oraciones largas y enredadas",
+          "text": "La importancia de la división de los poderes radica fundamentalmente en el hecho de que, mediante la separación de las responsabilidades estatales entre diferentes órganos que actúan de manera independiente, se logra prevenir eficazmente la consolidación de cualquier tipo de régimen autoritario que pueda amenazar la estabilidad democrática."
+        },
+        {
+          "id": "q6-s09",
+          "role": "distinctive_error_source",
+          "profile": "Alumno confunde el Poder Judicial con la 'Corte Suprema de Arbitraje Popular', inventando un organismo que no existe.",
+          "text": "La división de poderes es re importante porque así nadie hace lo que quiere y se arman controles entre ellos. Tenés el Poder Ejecutivo que gobierna, el Legislativo que hace las leyes, y la Corte Suprema de Arbitraje Popular que se encarga de juzgar a los chorros y revisar si las leyes están bien. Si estuviera todo junto, un solo tipo podría mandar en todo y no habría democracia."
+        },
+        {
+          "id": "q6-s10",
+          "role": "memorizer",
+          "profile": "memorizó la definición + razón propia",
+          "text": "La división de poderes es el principio fundamental de la democracia que separa las funciones del Estado en legislativo, ejecutivo y judicial para evitar la tiranía y garantizar el equilibrio institucional. Me acuerdo bien de esto porque mi papá siempre lo repite cuando ve las noticias en la tele y discute sobre política."
+        },
+        {
+          "id": "q6-s11",
+          "role": "independent",
+          "profile": "ideas correctas pero desordenadas",
+          "text": "Porque asi nadie se cree dueño de todo. Los jueces juzgan, los diputados votan leyes y el presidente gobierna. Si se juntara todo seria cualquiera y no habria democracia ademas se controlan entre ellos para que nadie robe o haga cosas ilegales."
+        },
+        {
+          "id": "q6-s12",
+          "role": "independent",
+          "profile": "usa una comparación o metáfora propia inventada",
+          "text": "Es como un equipo de futbol donde nadie puede jugar en todas las posiciones al mismo tiempo porque seria un caos; el arquero ataja, los defensores paran y los delanteros meten goles. Aca es igual, el ejecutivo gobierna, el legislativo hace las leyes y el judicial aplica las reglas para que el partido de la democracia salga bien."
+        },
+        {
+          "id": "q6-s13",
+          "role": "copy",
+          "profile": "comparte el error distintivo de otro compañero",
+          "text": "La separación de poderes sirve para que nadie haga lo que se le cante y se controlen entre ellos. Tenés el Ejecutivo que gobierna, el Legislativo que hace las leyes, y la Corte Suprema de Arbitraje Popular que juzga a los chorros y revisa las normas. Si estuviera todo junto, un solo tipo mandaría en todo.",
+          "copyOf": "q6-s09",
+          "copyKind": "shared_error"
+        },
+        {
+          "id": "q6-s14",
+          "role": "independent",
+          "profile": "alumno con dificultades, respuesta corta y básica",
+          "text": "Para que no haya dictadura y se reparta el poder entre varios asi nadie hace lo que quiere."
+        },
+        {
+          "id": "q6-s15",
+          "role": "independent",
+          "profile": "usa un ejemplo personal o familiar",
+          "text": "Es importante por la misma razón que en mi casa no puede decidir todo una sola persona. Si mi papá fuera el que hace las reglas, el que las ejecuta y el que castiga, nos pondría castigos injustos. En el pais pasa lo mismo, si esta todo junto, el poder corrompe y por eso se divide en tres."
+        },
+        {
+          "id": "q6-s16",
+          "role": "independent",
+          "profile": "insegura, usa 'creo que' / 'no me acuerdo bien'",
+          "text": "Y... creo que es importante porque si todo el poder lo tuviera una sola persona seria peligroso. No me acuerdo bien los nombres de todos los poderes, pero se que estan separados justamente para que se controlen entre ellos y no pase cualquiera."
+        },
+        {
+          "id": "q6-s17",
+          "role": "copy",
+          "profile": "copia casi textual con retoques",
+          "text": "Es importante por la misma razón que en mi casa no puede decidir todo una sola persona. Si mi papá fuera el que hace las reglas, el que las ejecuta y el que castiga, nos pondría castigos injustos. En el país pasa lo mismo, si está todo junto, el poder corrompe y por eso se divide.",
+          "copyOf": "q6-s15",
+          "copyKind": "verbatim"
+        },
+        {
+          "id": "q6-s18",
+          "role": "independent",
+          "profile": "alumno que se explaya de más, da vueltas",
+          "text": "Bueno, la verdad es re importante porque imaginate que si una sola persona hiciera todo, o sea, si el presidente pudiera hacer las leyes, juzgar y gobernar al mismo tiempo, seria un desastre total y nadie tendria libertad. Por eso los tipos que inventaron esto hace mil años dijeron 'che, vamos a separar las cosas' y armaron los tres poderes para que se vigilen entre ellos y no se pasen de la raya."
+        },
+        {
+          "id": "q6-s19",
+          "role": "memorizer",
+          "profile": "memorizó la definición + comentario propio",
+          "text": "La división de poderes es el principio fundamental de la democracia que separa las funciones del Estado en legislativo, ejecutivo y judicial para evitar la tiranía y garantizar el equilibrio institucional. Al principio me costó un poco entender qué hace exactamente cada poder, pero después me pareció re lógico para que nadie tenga todo el poder."
+        },
+        {
+          "id": "q6-s20",
+          "role": "copy",
+          "profile": "copia parcial + desarrollo propio",
+          "text": "Es clave porque evita que una sola persona o grupo tenga todo el control del Estado. Si no fuera así, cualquiera haría lo que quisiera sin importarle los demás. Dividir las funciones ayuda a que el país sea más justo y organizado para todos.",
+          "copyOf": "q6-s06",
+          "copyKind": "partial"
+        },
+        {
+          "id": "q6-s21",
+          "role": "common_misconception",
+          "profile": "cree que el presidente manda sobre los otros dos poderes",
+          "text": "La división de poderes está buena para que no sea un quilombo el país. Cada uno hace lo suyo, ponele el Congreso hace las leyes y la justicia juzga, pero igual al final el que manda es el presidente porque es la máxima autoridad y está por encima de todos. Si los jueces hacen cualquiera o los diputados no se ponen de acuerdo, el presidente los puede parar o mandar a cambiar las cosas, por eso tiene el poder ejecutivo."
+        },
+        {
+          "id": "q6-s22",
+          "role": "memorizer",
+          "profile": "memorizó la definición + ejemplo propio",
+          "text": "La división de poderes es el principio fundamental de la democracia que separa las funciones del Estado en legislativo, ejecutivo y judicial para evitar la tiranía y garantizar el equilibrio institucional. Por ejemplo, sirve para que el presidente no pueda hacer lo que quiera y tenga que respetar lo que votan los diputados."
+        },
+        {
+          "id": "q6-s23",
+          "role": "independent",
+          "profile": "alumno promedio, correcta pero simple",
+          "text": "La división de poderes sirve para que no mande uno solo. Si el presidente tuviera todo el poder seria una dictadura. Entonces se divide en tres para que uno haga las leyes, otro las cumpla y otro juzgue si alguien las rompe."
+        },
+        {
+          "id": "q6-s24",
+          "role": "common_misconception",
+          "profile": "cree que el presidente controla a los demás porque tiene más jerarquía",
+          "text": "Para mí es re importante porque así se organizan mejor. Tenemos el poder ejecutivo que lo encabeza el presidente, el legislativo que vota las leyes y el judicial que se encarga de los juicios. Pero obvio que el presidente tiene más jerarquía que los otros dos, o sea, los controla y les dice lo que se puede hacer o no porque él es la cara del país. Si no fuera así, cada uno haría lo que quisiera sin que nadie los supervise."
+        }
+      ],
+      "positives": [
+        {
+          "a": "q6-s15",
+          "b": "q6-s17",
+          "kind": "verbatim"
+        },
+        {
+          "a": "q6-s06",
+          "b": "q6-s20",
+          "kind": "partial"
+        },
+        {
+          "a": "q6-s04",
+          "b": "q6-s02",
+          "kind": "paraphrase"
+        },
+        {
+          "a": "q6-s09",
+          "b": "q6-s13",
+          "kind": "shared_error"
+        }
+      ],
+      "hardNegatives": [
+        {
+          "a": "q6-s10",
+          "b": "q6-s22",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q6-s10",
+          "b": "q6-s19",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q6-s22",
+          "b": "q6-s19",
+          "kind": "class_definition"
+        },
+        {
+          "a": "q6-s21",
+          "b": "q6-s24",
+          "kind": "common_misconception"
+        }
+      ],
+      "checks": {
+        "independents": {
+          "metric": "max_pairwise_jaccard_among_independents",
+          "value": 0.2586,
+          "threshold": "< 0.5",
+          "pass": true,
+          "regenerations": 0,
+          "worstPair": [
+            "ind6",
+            "ind11"
+          ]
+        },
+        "memorizers": [
+          {
+            "id": "q6-s10",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q6-s22",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          },
+          {
+            "id": "q6-s19",
+            "metric": "definition_containment",
+            "value": 1,
+            "threshold": ">= 0.7",
+            "pass": true,
+            "regenerations": 0
+          }
+        ],
+        "copies": {
+          "verbatim": {
+            "metric": "jaccard_vs_source",
+            "value": 0.9767,
+            "threshold": ">= 0.75",
+            "pass": true,
+            "regenerations": 0
+          },
+          "partial": {
+            "metric": "jaccard_vs_source",
+            "value": 0.3333,
+            "threshold": "0.25-0.75",
+            "pass": true,
+            "regenerations": 0
+          },
+          "paraphrase": {
+            "metric": "jaccard_vs_source",
+            "value": 0.4364,
+            "threshold": "<= 0.55",
+            "pass": true,
+            "regenerations": 0
+          },
+          "shared_error": {
+            "metric": "shared_error_marker_present_heuristic",
+            "value": true,
+            "threshold": "informational (word-overlap heuristic, not a mandated Jaccard check)",
+            "pass": true,
+            "regenerations": 0
+          }
+        },
+        "allMandatoryChecksPass": true
+      }
+    }
+  ]
+}

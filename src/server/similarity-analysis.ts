@@ -150,7 +150,8 @@ export const SIMILARITY_QUESTIONS: Record<string, JevQuestionSpec> = {
 export const SEMANTIC_STRONG_PROBABILITY = 0.9;
 export const SEMANTIC_REVIEW_PROBABILITY = 0.7;
 
-function buildJevRequest(question: SimilarityQuestion, textA: string, textB: string): JevEvaluateRequest {
+/** Exportado para que el harness de evaluación (`scripts/copy-eval`) arme el mismo pedido que producción, en vez de duplicar el armado. */
+export function buildJevRequest(question: SimilarityQuestion, textA: string, textB: string): JevEvaluateRequest {
   return {
     state: {
       contexto: SIMILARITY_CONTEXT,
@@ -207,6 +208,51 @@ interface PairCandidate {
  * quien arme la tanda final pueda repartir el presupuesto global entre
  * preguntas en vez de dejar que la primera pregunta se lo coma entero.
  */
+/** Alumnos con una respuesta elegible (≥12 tokens normalizados) a esta pregunta de desarrollo. Exportado para que el harness de evaluación (T4) reproduzca el mismo filtro que producción. */
+export function eligibleParticipantIds(input: SimilarityClassInput, questionId: string): Set<string> {
+  return new Set(
+    input.participants
+      .filter((participant) => {
+        const response = participant.responses.get(questionId);
+        return response?.kind === "long" && isLongEligible(tokenize(response.text));
+      })
+      .map((participant) => participant.participantId),
+  );
+}
+
+/**
+ * Orden de prioridad para UNA pregunta, sin aplicar todavía el presupuesto:
+ * primero los pares con una señal de fragmento (código), después el ranking
+ * TF-IDF, sin duplicados. Exportado para que el harness de evaluación (T4)
+ * mida el prefiltro con este mismo código en vez de reimplementarlo aparte.
+ */
+export function orderPairsForQuestion(
+  input: SimilarityClassInput,
+  questionId: string,
+  fragmentFindings: Map<string, FragmentFinding[]>,
+  eligibleIds: Set<string>,
+): Array<[string, string]> {
+  const seen = new Set<string>();
+  const ordered: Array<[string, string]> = [];
+
+  for (const [key, findings] of fragmentFindings) {
+    if (!findings.some((finding) => finding.questionId === questionId)) continue;
+    const [a, b] = key.split("|");
+    if (!eligibleIds.has(a) || !eligibleIds.has(b)) continue;
+    seen.add(key);
+    ordered.push([a, b]);
+  }
+
+  for (const { a, b } of rankPairsByTfIdf(input, questionId)) {
+    const key = pairKey(a, b);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ordered.push([a, b]);
+  }
+
+  return ordered;
+}
+
 function selectCandidates(
   input: SimilarityClassInput,
   fragmentFindings: Map<string, FragmentFinding[]>,
@@ -218,35 +264,11 @@ function selectCandidates(
   for (const question of input.questions) {
     if (question.type !== "long") continue;
 
-    const eligibleIds = new Set(
-      input.participants
-        .filter((participant) => {
-          const response = participant.responses.get(question.id);
-          return response?.kind === "long" && isLongEligible(tokenize(response.text));
-        })
-        .map((participant) => participant.participantId),
-    );
+    const eligibleIds = eligibleParticipantIds(input, question.id);
     if (eligibleIds.size < 2) continue;
 
     const budget = Math.max(20, 3 * eligibleIds.size);
-    const seen = new Set<string>();
-    const ordered: Array<[string, string]> = [];
-
-    for (const [key, findings] of fragmentFindings) {
-      if (!findings.some((finding) => finding.questionId === question.id)) continue;
-      const [a, b] = key.split("|");
-      if (!eligibleIds.has(a) || !eligibleIds.has(b)) continue;
-      seen.add(key);
-      ordered.push([a, b]);
-    }
-
-    for (const { a, b } of rankPairsByTfIdf(input, question.id)) {
-      const key = pairKey(a, b);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      ordered.push([a, b]);
-    }
-
+    const ordered = orderPairsForQuestion(input, question.id, fragmentFindings, eligibleIds);
     notSelectedPairs += Math.max(0, ordered.length - budget);
 
     const questionCandidates: PairCandidate[] = [];
