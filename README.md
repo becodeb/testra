@@ -51,6 +51,22 @@ Para probar la imagen de producción tal cual la va a correr Coolify:
 docker compose up --build
 ```
 
+## Detección de copia entre alumnos
+
+Compara a los alumnos de una toma entre sí (ver
+[docs/vigilancia.md](docs/vigilancia.md#coincidencias-entre-alumnos) y
+[docs/coincidencias-evaluacion.md](docs/coincidencias-evaluacion.md)). Las señales de código no
+necesitan nada extra; la parte semántica usa Jev (TypeSafe AI) vía Vercel AI Gateway:
+
+- `AI_GATEWAY_API_KEY` en `.env` (ver `.env.example`). **Vercel exige una tarjeta cargada en la
+  cuenta del gateway incluso para el uso gratuito**: sin eso, el gateway responde
+  `billing_required` y el panel avisa que la revisión de redacción no está disponible por ahora,
+  mostrando igual las señales de código.
+- `npm run eval:copias` corre el harness de evaluación contra el dataset fijo
+  (`scripts/copy-eval/`).
+- `npm run db:seed:coincidencias` carga una toma de demostración con 24 alumnos
+  (`http://127.0.0.1:4321/resultados?run=run-coincidencias-demo`).
+
 ## Producción
 
 Testra corre como un solo contenedor Node en la VM de Coolify, con Postgres al
@@ -87,6 +103,7 @@ Nunca publiques `.env`, tokens de Coolify, credenciales de Postgres ni claves de
 
 - [Arquitectura](docs/architecture.md)
 - [Vigilancia y límites](docs/vigilancia.md)
+- [Evaluación de coincidencias entre alumnos](docs/coincidencias-evaluacion.md)
 - [Google Classroom](docs/classroom.md)
 - [Despliegue](docs/deployment.md)
 - [Convenciones visuales](CONTRIBUTING.md)
