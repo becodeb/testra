@@ -38,6 +38,15 @@ export const serverEnv = {
   get AI_ROUTER_URL() {
     return process.env.AI_ROUTER_URL ?? "https://ai-router.becode.com.ar";
   },
+  // Vercel AI Gateway para Jev (deteccion de copia entre alumnos). Ver
+  // `src/server/jev-client.ts`. Sin esta clave `jevConfigured()` da falso y la
+  // comparacion entre alumnos se queda solo con las señales de código.
+  get AI_GATEWAY_API_KEY() {
+    return optional("AI_GATEWAY_API_KEY");
+  },
+  get AI_GATEWAY_URL() {
+    return process.env.AI_GATEWAY_URL ?? "https://ai-gateway.vercel.sh";
+  },
   get ALLOW_DEMO_AUTH() {
     return optional("ALLOW_DEMO_AUTH");
   },
