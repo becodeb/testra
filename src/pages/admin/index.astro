@@ -7,7 +7,7 @@ import { getPlatformOverview } from "@/server/repository";
 const actor = getActor(Astro.locals);
 if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
 // Un docente comun no tiene que enterarse de que esto existe.
-if (!isSuperadmin(actor)) return Astro.rewrite(`/404?msg=${encodeURIComponent("No encontrado")}`);
+if (!isSuperadmin(actor)) { Astro.locals.notFoundMessage = "No encontrado"; return Astro.rewrite("/404"); }
 const overview = await getPlatformOverview();
 ---
 

@@ -164,6 +164,16 @@ hydration-mismatch warnings the audit also saw (reported, not fixed).
   pre-existing hints. Final `npm test`: 267 passed. Dev server stopped
   after this check.
 
+- 2026-09-23: T4 follow-up (parent review). `/404?msg=` let anyone show
+  arbitrary text under the Testra brand on this domain (content spoofing).
+  The message now travels in `Astro.locals.notFoundMessage` and `404.astro`
+  never reads the URL. Verified with curl: the five routes still answer 404
+  with their own message and a viewport meta; `/404?msg=Cuenta%20suspendida`
+  shows "No encontrado". `npx astro check`: 0 errors, 0 warnings, 3 hints.
+  `npm test`: 267 passed. Parent spot check of the scroll fades at 390 px:
+  visible on table rows and the section nav; header rows with their own
+  background cover it (known limit of the technique, accepted).
+
 ## Next step
 
 None — T1 through T6 are all done. Possible follow-ups (not decided,

@@ -3,11 +3,12 @@
 // lo hacía con `new Response(mensaje, { status: 404 })`: sin `<head>`, sin
 // meta viewport, así que un celular la renderizaba a 980px y la mostraba
 // alejada. Las rutas que necesitan un 404 dinámico (sesión, evaluación,
-// código de ingreso inexistentes) ahora hacen
-// `return Astro.rewrite(\`/404?msg=${encodeURIComponent(mensaje)}\`)`, que
-// preserva la URL pedida y el mensaje exacto; esta página sólo le pone
-// viewport, marca y estilo. El estado 404 lo fija acá mismo, así no depende
-// de que cada llamador se acuerde.
+// código de ingreso inexistentes) ahora guardan el mensaje en
+// `Astro.locals.notFoundMessage` y hacen `return Astro.rewrite("/404")`, que
+// preserva la URL pedida; esta página sólo le pone viewport, marca y estilo.
+// El mensaje nunca sale de la URL: si lo hiciera, cualquiera podría mostrar
+// un texto arbitrario con la marca de Testra en este dominio. El estado 404
+// lo fija acá mismo, así no depende de que cada llamador se acuerde.
 import { Image } from "astro:assets";
 
 import testraMark from "@/assets/testra-mark.png";
@@ -16,7 +17,7 @@ import "@/styles/global.css";
 
 Astro.response.status = 404;
 
-const message = Astro.url.searchParams.get("msg") || "No encontrado";
+const message = Astro.locals.notFoundMessage ?? "No encontrado";
 ---
 
 <!doctype html>

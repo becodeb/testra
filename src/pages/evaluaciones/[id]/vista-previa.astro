@@ -8,7 +8,7 @@ const actor = getActor(Astro.locals, "teacher");
 if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname)}`);
 if (!isTeacher(actor)) return Astro.redirect("/rendir");
 const exam = await getExam(Astro.params.id!, actor);
-if (!exam) return Astro.rewrite(`/404?msg=${encodeURIComponent("Evaluación inexistente")}`);
+if (!exam) { Astro.locals.notFoundMessage = "Evaluación inexistente"; return Astro.rewrite("/404"); }
 ---
 
 <AppLayout title={`Vista previa · ${exam.title}`} active="evaluaciones">
