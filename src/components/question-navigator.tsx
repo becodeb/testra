@@ -28,7 +28,7 @@ export function QuestionNavigator({
   mode = "teacher",
 }: QuestionNavigatorProps) {
   return (
-    <nav aria-label="Navegación entre preguntas" className="flex flex-col gap-3">
+    <nav aria-label="Navegación entre preguntas" className="flex flex-col gap-2 sm:gap-3">
       <div className="flex flex-wrap items-center gap-2">
         {states.map((state, index) => {
           const active = index === activeIndex;
@@ -73,7 +73,7 @@ export function QuestionNavigator({
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted">
+      <div className="hidden flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted sm:flex">
         <span className="inline-flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-brand" aria-hidden="true" /> Activa
         </span>

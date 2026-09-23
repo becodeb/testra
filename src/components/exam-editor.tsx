@@ -441,7 +441,7 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
                 <h1 className="truncate text-lg font-semibold text-ink">{title || "Sin título"}</h1>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap lg:gap-4">
               <span className={`inline-flex items-center gap-2 text-sm ${saveError ? "text-alert" : "text-ink-2"}`} aria-live="polite">
                 {saveState === "pending" ? <span className="size-2 rounded-full bg-warn" aria-hidden="true" /> : <StatusBadge state={saveState} />}
                 {saveError || (saveState === "pending" ? "Cambios sin guardar" : saveState === "loading" ? "Guardando…" : "Guardado")}
@@ -650,8 +650,8 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
           </div>
         )}
 
-        <div className="sticky bottom-0 z-10 -mx-4 mt-auto border-t bg-paper/95 px-4 py-4 shadow-[0_-8px_24px_rgba(22,24,29,.04)] supports-[backdrop-filter]:bg-paper/90 supports-[backdrop-filter]:backdrop-blur-sm lg:-mx-6 lg:px-6">
-          <div className="mx-auto flex max-w-[1132px] flex-col gap-3">
+        <div className="sticky bottom-0 z-10 -mx-4 mt-auto border-t bg-paper/95 px-4 py-2.5 shadow-[0_-8px_24px_rgba(22,24,29,.04)] supports-[backdrop-filter]:bg-paper/90 supports-[backdrop-filter]:backdrop-blur-sm sm:py-4 lg:-mx-6 lg:px-6">
+          <div className="mx-auto flex max-w-[1132px] flex-col gap-2 sm:gap-3">
             <QuestionNavigator
               states={completionStates}
               activeIndex={activeIndex}
@@ -659,7 +659,7 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
               onAdd={addQuestion}
               onMove={moveQuestion}
             />
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 sm:pt-3">
               <Dialog open={importOpen} onOpenChange={setImportOpen}>
                 <DialogTrigger asChild>
                   <Button type="button" variant="outline" size="sm">
@@ -689,7 +689,7 @@ export function ExamEditor({ initialExam, aiEnabled = false }: ExamEditorProps) 
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
-              <span className="text-xs text-muted">Arrastrá las burbujas para reordenar. También podés usar “Mover”.</span>
+              <span className="hidden text-xs text-muted sm:inline">Arrastrá las burbujas para reordenar. También podés usar “Mover”.</span>
             </div>
           </div>
         </div>
