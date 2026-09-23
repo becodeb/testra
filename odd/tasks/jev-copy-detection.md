@@ -110,7 +110,7 @@ existing LLM report.
     into pair findings with levels (`strong`, `review`), honest semantic status.
   - Checks: unit tests with a fake evaluator (levels, budget, degradation on billing error,
     names never in the state).
-- [ ] T4 — Evaluation: does it work? Route: delegated writer (phase C) + parent runs.
+- [x] T4 — Evaluation: does it work? Route: delegated writer (phase C) + parent runs.
   - Synthetic Spanish dataset generated with the ai-router (independent answers, copies:
     near-verbatim, paraphrase, shared mistake; hard negatives: memorized class definition),
     committed as a fixture; eval runner reporting precision/recall/false positives on hard
@@ -131,6 +131,11 @@ existing LLM report.
 - [ ] T7 — Docs. Route: same writer.
   - `docs/vigilancia.md` (what is compared, what is sent to Jev, ZDR, limits, non-goals),
     README env var.
+- [ ] T8 — Measure Jev for real and calibrate `SEMANTIC_*`. Route: parent runs the harness.
+  Blocked on the owner: the Vercel team needs a card on file.
+  - `EVAL_JEV=1 EVAL_JEV_VARIANTS=base,no_context,es npm run eval:copias`, plus the LLM
+    comparison on the same 120 pairs; adjust `SEMANTIC_STRONG_PROBABILITY` /
+    `SEMANTIC_REVIEW_PROBABILITY` from the numbers.
 
 ## Acceptance criteria
 
@@ -194,6 +199,31 @@ at the end. RDD is off globally (owner decision 2026-09-23): no review ceremony.
   lexical sanity checks pass. One crude slang phrase replaced by a neutral one before
   committing (the repo is public).
 
+- 2026-09-23: T4 done by the same writer (`de4d459` harness, fixture, generator,
+  `npm run eval:copias`; `f79211c` calibration) and the parent (`2eb8142`). Results
+  (`scripts/copy-eval/results/`):
+  - Code fragments: precision 93.8 %, recall 62.5 % (verbatim 100 %, partial 83 %, shared
+    mistake 67 %, paraphrase 0 % — by construction, that is Jev's job); 0 of 18
+    class-definition hard negatives flagged. The one false positive is an idiom two students
+    used independently.
+  - TF-IDF prefilter: 24/24 copies inside the budget of 72 of 276 pairs.
+  - LLM judge through the free ai-router (120-pair sample, same context): precision 58.3 %,
+    recall 87.5 %, **72.2 % false positives on students who only repeat the class
+    definition**, 17.5 % parse/transport failures, p50 629 ms. Consistent between runs.
+  - Closed questions: the first rule (≥2 rare shared wrong answers) flagged 19.3 innocent
+    pairs per 30-student class. Replaced by an expected-by-chance model (Poisson-binomial
+    over the questions both got wrong, collision probability from the rest of the class,
+    corrected by the number of pairs): with α_review = 1, α_strong = 0.01 the innocent pairs
+    flagged drop to 0.045 (15 mc) and 0.12 (mixed) per class, detection 12 % (15 mc only), 0 %
+    (true/false only — sharing a wrong true/false answer says nothing), 50.5 % (mixed with
+    short answers). The writer had picked 0.05/0.001; the parent changed it because the
+    runner chose by worst-case detection, which true/false pins at 0.
+  - Fragment "run alone" trigger calibrated to 11 tokens: at 8–10 it flags memorizers of the
+    class definition. On this dataset it adds nothing; kept as a safety net.
+  - Jev: stops cleanly on `billing_required` after the first 4 concurrent calls; zero numbers
+    made up. Moved to T8.
+  Checks: `npx vitest run` 259/259, `npx astro check` 0/0/3 hints, `npm run eval:copias` OK.
+
 ## Next step
 
-Phase C (T4 evaluation) with the same writer, then phase B (T5–T7).
+Phase B (T5–T7) with a fresh writer; T8 when the owner enables billing.
