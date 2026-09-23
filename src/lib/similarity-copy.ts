@@ -1,5 +1,4 @@
-import type { PairQuestionFinding, SemanticFindingReport, SimilarityPair, SimilarityReport } from "@/server/similarity-analysis";
-import type { SimilarityQuestionType } from "@/server/similarity-signals";
+import type { ClosedPatternQuestion, PairQuestionFinding, SemanticFindingReport, SimilarityPair, SimilarityReport } from "@/server/similarity-analysis";
 
 // Textos para el docente sobre "Coincidencias entre alumnos". Mismo formato
 // que `incident-copy.ts` ({title, what, normal, review}) para que las dos
@@ -134,7 +133,11 @@ export function pairEvidenceLine(pair: SimilarityPair): string {
     }
   }
 
-  if (pair.closedPattern && pair.closedPattern.sharedWrong > 0) {
+  // Un solo shared wrong nunca cruza CLOSED_MIN_SHARED_REVIEW (2): mostrarlo
+  // en la línea corta sería agitar una coincidencia que el propio modelo de
+  // azar no considera evidencia. Con 2+ sí es información real, aunque ese
+  // par haya quedado marcado por otra señal.
+  if (pair.closedPattern && pair.closedPattern.sharedWrong >= 2) {
     const { sharedWrong, expectedByChance } = pair.closedPattern;
     parts.push(
       `${sharedWrong} respuesta${sharedWrong === 1 ? "" : "s"} incorrecta${sharedWrong === 1 ? "" : "s"} igual${sharedWrong === 1 ? "" : "es"} (por azar: ${expectedByChanceLabel(expectedByChance)})`,
@@ -156,8 +159,9 @@ export function othersWithSameLine(othersWithSame: number): string {
   return othersWithSame === 0 ? "nadie más la eligió" : `la eligieron ${othersWithSame} compañero${othersWithSame === 1 ? "" : "s"} más`;
 }
 
-export function copyForClosedQuestion(type: SimilarityQuestionType): SimilarityCopy {
-  return similarityCopy[type === "sa" ? "shared_wrong_short" : "shared_wrong_choice"];
+/** "«label»: los dos eligieron «answerLabel»; nadie más la eligió." / "...; la eligieron N compañeros más." */
+export function closedPatternQuestionLine(question: ClosedPatternQuestion): string {
+  return `«${question.label}»: los dos eligieron «${question.answerLabel}»; ${othersWithSameLine(question.othersWithSame)}.`;
 }
 
 /** "Comparten fragmentos que nadie más escribió (41 % del texto)". */
@@ -182,9 +186,9 @@ export function pairKeyOf(pair: SimilarityPair): string {
   return pair.a.participantId < pair.b.participantId ? `${pair.a.participantId}|${pair.b.participantId}` : `${pair.b.participantId}|${pair.a.participantId}`;
 }
 
-/** Preguntas cerradas (mc/ms/tf/sa) del par que sí tienen la opción compartida, en el orden en que llegaron. */
-export function closedFindingsOf(pair: SimilarityPair): PairQuestionFinding[] {
-  return pair.questions.filter((question) => question.type !== "long" && question.sharedWrongAnswer);
+/** Preguntas cerradas (mc/ms/tf/sa) donde el par coincidió, en el orden en que llegaron. Siempre no vacío cuando `closedPattern` existe. */
+export function closedPatternQuestionsOf(pair: SimilarityPair): ClosedPatternQuestion[] {
+  return pair.closedPattern?.questions ?? [];
 }
 
 /** Preguntas de desarrollo del par, en el orden en que llegaron. */

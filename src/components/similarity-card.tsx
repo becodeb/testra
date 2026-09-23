@@ -3,12 +3,11 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
-  closedFindingsOf,
   closedPatternLine,
-  copyForClosedQuestion,
+  closedPatternQuestionLine,
+  closedPatternQuestionsOf,
   fragmentCoverageLine,
   longFindingsOf,
-  othersWithSameLine,
   pairEvidenceLine,
   pairKeyOf,
   relativeTimeLabel,
@@ -66,28 +65,21 @@ function renderHighlighted(text: string, spans: FragmentSpan[]) {
 
 function ClosedPatternDetail({ pair }: { pair: SimilarityPair }) {
   if (!pair.closedPattern) return null;
-  const findings = closedFindingsOf(pair);
+  // Siempre que `closedPattern` existe hay al menos una pregunta acá (viene
+  // de `sharedWrong ≥ 1`, independiente de si esa señal sola alcanza a
+  // marcar al par): ya no hace falta un estado "sin detalle".
+  const questions = closedPatternQuestionsOf(pair);
   return (
     <section>
       <h5 className="text-sm font-semibold text-ink">Respuestas incorrectas en común</h5>
       <p className="mt-1 text-sm text-ink-2">{closedPatternLine(pair.closedPattern)}</p>
-      {findings.length ? (
-        <ul className="mt-2 space-y-2">
-          {findings.map((finding) => {
-            const copy = copyForClosedQuestion(finding.type);
-            return (
-              <li key={finding.questionId} className="rounded-md bg-inset p-3 text-sm">
-                <p className="font-medium text-ink-2">{finding.label}</p>
-                <p className="mt-0.5 text-ink-2">
-                  Los dos respondieron «{finding.sharedWrongAnswer!.label}» — {othersWithSameLine(finding.sharedWrongAnswer!.othersWithSame)}.
-                </p>
-                <p className="mt-1 text-xs text-muted">{copy.normal}</p>
-                <p className="mt-0.5 text-xs font-medium text-brand-deep">{copy.review}</p>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+      <ul className="mt-2 space-y-2">
+        {questions.map((question) => (
+          <li key={question.questionId} className="rounded-md bg-inset p-3 text-sm text-ink-2">
+            {closedPatternQuestionLine(question)}
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

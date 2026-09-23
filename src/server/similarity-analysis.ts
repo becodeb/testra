@@ -47,8 +47,11 @@ export interface SimilarityPairSide {
   name: string;
 }
 
-export interface SharedWrongAnswerReport {
+/** Una pregunta cerrada donde el par coincidió, con la opción que eligieron los dos. Ver `SimilarityPair.closedPattern`. */
+export interface ClosedPatternQuestion {
+  questionId: string;
   label: string;
+  answerLabel: string;
   othersWithSame: number;
 }
 
@@ -68,12 +71,16 @@ export interface SemanticFindingReport {
   reworded_copy: number;
 }
 
+// Una fila por pregunta de DESARROLLO donde el par coincidió (fragmentos y/o
+// Jev). Las preguntas cerradas ya no pasan por acá: van aparte en
+// `SimilarityPair.closedPattern.questions`, sin nivel propio, porque esa
+// evidencia se muestra independientemente de si por sí sola alcanza a marcar
+// al par (ver `ClosedPatternQuestion`).
 export interface PairQuestionFinding {
   questionId: string;
   label: string;
   type: SimilarityQuestionType;
   level: SignalLevel;
-  sharedWrongAnswer?: SharedWrongAnswerReport;
   fragments?: FragmentReport;
   semantic?: SemanticFindingReport;
   answerA: string;
@@ -84,7 +91,7 @@ export interface SimilarityPair {
   a: SimilarityPairSide;
   b: SimilarityPairSide;
   level: SignalLevel;
-  closedPattern?: { sharedWrong: number; expectedByChance: number; pValue: number };
+  closedPattern?: { sharedWrong: number; expectedByChance: number; pValue: number; questions: ClosedPatternQuestion[] };
   questions: PairQuestionFinding[];
 }
 
@@ -528,28 +535,18 @@ function combinePairs(
     return draft;
   }
 
-  // `closedFindings` ya solo trae pares marcados (el nivel se decidió en
-  // `computeClosedSignals` con el modelo estadístico completo): cada pregunta
-  // que coincidió se muestra como evidencia, siempre en "review" acá — la
-  // escalada a "strong" es trabajo exclusivo del agregado `closedPattern`
-  // (P(X≥S) bajo el α correspondiente), no de una pregunta individual.
-  for (const [key, findings] of closedFindings) {
-    if (!findings.length) continue;
+  // `closedFindings` ya trae, para todo par con `sharedWrong ≥ 1`, el detalle
+  // de qué preguntas cerradas coincidieron (ver `computeClosedSignals`),
+  // independiente de si esa coincidencia por sí sola alcanza a marcar al par
+  // — esa decisión sigue siendo trabajo exclusivo del agregado `closedPattern`
+  // (P(X≥S) bajo el α correspondiente), nunca de una pregunta individual. Acá
+  // solo hace falta abrir el draft: el detalle en sí se arma más abajo, al
+  // construir `closedPattern.questions`, para que un par que termina SIN
+  // marcar (por esta ni por ninguna otra señal) no quede de todos modos en el
+  // reporte.
+  for (const key of closedFindings.keys()) {
     const [a, b] = key.split("|");
-    const draft = ensure(a, b);
-    for (const finding of findings) {
-      const question = questionById.get(finding.questionId);
-      if (!question) continue;
-      draft.questions.set(finding.questionId, {
-        questionId: finding.questionId,
-        label: question.label,
-        type: question.type,
-        level: "review",
-        sharedWrongAnswer: { label: finding.label, othersWithSame: finding.othersWithSame },
-        answerA: responseDisplay(byId.get(a), finding.questionId),
-        answerB: responseDisplay(byId.get(b), finding.questionId),
-      });
-    }
+    ensure(a, b);
   }
 
   for (const [key, findings] of fragmentFindings) {
@@ -619,7 +616,15 @@ function combinePairs(
       level,
       closedPattern:
         closedSummary && closedSummary.sharedWrong > 0
-          ? { sharedWrong: closedSummary.sharedWrong, expectedByChance: closedSummary.expectedByChance, pValue: closedSummary.pValue }
+          ? {
+              sharedWrong: closedSummary.sharedWrong,
+              expectedByChance: closedSummary.expectedByChance,
+              pValue: closedSummary.pValue,
+              questions: (closedFindings.get(key) ?? []).flatMap((finding) => {
+                const question = questionById.get(finding.questionId);
+                return question ? [{ questionId: finding.questionId, label: question.label, answerLabel: finding.label, othersWithSame: finding.othersWithSame }] : [];
+              }),
+            }
           : undefined,
       questions,
     });
@@ -631,7 +636,6 @@ function combinePairs(
 function questionScore(finding: PairQuestionFinding): number {
   if (finding.semantic) return Math.max(finding.semantic.shared_distinctive_wording, finding.semantic.same_mistake, finding.semantic.reworded_copy);
   if (finding.fragments) return finding.fragments.coverage;
-  if (finding.sharedWrongAnswer) return 1 / (1 + finding.sharedWrongAnswer.othersWithSame);
   return 0;
 }
 

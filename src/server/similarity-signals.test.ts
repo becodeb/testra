@@ -338,6 +338,68 @@ describe("computeFragmentSignals + rankPairsByTfIdf", () => {
   });
 });
 
+// Regresión: `spansA`/`spansB` tienen que quedar orientados por id (el mismo
+// criterio que usa `pairKey`), nunca por el orden en que `eligible` (o sea
+// `input.participants`) trae a los dos alumnos. En producción ese orden es el
+// de la consulta SQL por `display_name`, así que no coincide con el orden de
+// los ids salvo por casualidad — todos los tests de arriba usan "p1"/"p2" en
+// ese mismo orden en las dos dimensiones, y por eso no detectaban esto.
+describe("computeFragmentSignals: spansA/spansB se orientan por id, no por orden del array", () => {
+  const questionId = "q-orden";
+  const prompt = "Contá con tus palabras un dato curioso sobre el cielo nocturno.";
+
+  function longQuestion(): FullQuestion {
+    return { id: questionId, position: 0, prompt, points: 10, type: "long", config: {} } as FullQuestion;
+  }
+  const question = longQuestion();
+  const similarityQuestion: SimilarityQuestion = { id: questionId, label: questionLabel(prompt), type: "long", prompt, expectedText: expectedTextFor(question) };
+
+  function participant(id: string, text: string): ParticipantEntry {
+    const response = normalizeResponse(question, text);
+    return { participantId: id, name: id, responses: new Map(response ? [[questionId, response]] : []) };
+  }
+
+  // Frase compartida larga (12 tokens) para cruzar el umbral "alone" sin
+  // depender de la cobertura, y con prefijos de largo bien distinto en cada
+  // lado: si los spans de un lado se aplicaran sobre el texto del otro,
+  // caerían en un offset equivocado y no calzarían con ningún límite de
+  // token de ESE texto, ni recortarían las palabras de la frase.
+  const shared = "brillante cometa lunar atraviesa silenciosamente el firmamento nocturno mientras las estrellas titilan";
+  const textP1 = `Ana escribió: ${shared} cerca de casa.`;
+  const textP9 = `Beto redactó una introducción bastante más larga y distinta antes de decir que un ${shared} lejos de aquí.`;
+
+  // A propósito en desorden respecto de `pairKey`: "p1" < "p9", pero "p9" va
+  // primero en el array (como pasaría si p9 tuviera un display_name que
+  // ordena antes alfabéticamente).
+  const participants: ParticipantEntry[] = [participant("p9", textP9), participant("p1", textP1)];
+  const input: SimilarityClassInput = { questions: [similarityQuestion], participants };
+
+  function assertSpansMatchOwnText(spans: { start: number; end: number }[], text: string) {
+    expect(spans.length).toBeGreaterThan(0);
+    const tokens = tokenize(text);
+    const startOffsets = new Set(tokens.map((token) => token.start));
+    const endOffsets = new Set(tokens.map((token) => token.end));
+    const sharedWords = new Set(shared.split(" ").map((word) => word.toLocaleLowerCase("es")));
+    for (const span of spans) {
+      // El span empieza y termina en un límite de token de SU PROPIO texto.
+      expect(startOffsets.has(span.start)).toBe(true);
+      expect(endOffsets.has(span.end)).toBe(true);
+      // Lo que recorta son, palabra por palabra, palabras de la frase compartida.
+      const words = text.slice(span.start, span.end).split(/\s+/).filter(Boolean);
+      for (const word of words) expect(sharedWords.has(word.toLocaleLowerCase("es"))).toBe(true);
+    }
+  }
+
+  it("spansA pertenece al id menor (p1) y spansB al id mayor (p9), aunque p9 venga primero en el array", () => {
+    const findings = computeFragmentSignals(input);
+    const [finding] = findings.get(pairKey("p1", "p9")) ?? [];
+    expect(finding).toBeDefined();
+
+    assertSpansMatchOwnText(finding!.spansA, textP1);
+    assertSpansMatchOwnText(finding!.spansB, textP9);
+  });
+});
+
 // Caso real que motivó este camino (T4, calibración): "Ley de Inercia Térmica
 // de Torricelli" — un tramo raro y largo, verbatim en dos respuestas, con
 // longestRun=8 (cumple) pero coverage=0.135 (no llega a 0.15) porque las

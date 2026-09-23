@@ -316,6 +316,48 @@ describe("analyzeSimilarity", () => {
     expect(flagged?.closedPattern?.sharedWrong).toBe(3);
     expect(flagged?.closedPattern?.expectedByChance).toBeLessThan(1);
     expect(flagged?.level).not.toBeNull();
+    expect(flagged?.closedPattern?.questions).toHaveLength(3);
+    expect(flagged?.closedPattern?.questions.every((question) => question.answerLabel === "mezcla rara compartida" && question.othersWithSame === 0)).toBe(true);
+    expect(new Set(flagged?.closedPattern?.questions.map((question) => question.questionId))).toEqual(new Set(["q-sa1", "q-sa2", "q-sa3"]));
+  });
+
+  it("closedPattern.questions muestra las preguntas cerradas coincidentes aunque esa señal sola no alcance a marcar al par (independiente de significancia)", async () => {
+    const questionId = "q-long-frag";
+    // Fragmento largo (14 tokens), casi todo el texto de cada uno: el par
+    // queda "strong" por el fragmento compartido, SIN depender del patrón
+    // cerrado (que acá comparte una sola respuesta incorrecta — muy por
+    // debajo de CLOSED_MIN_SHARED_REVIEW=2, así que nunca marca por sí solo).
+    const shared = "un cometa brillante y silencioso cruza lentamente todo el firmamento nocturno helado";
+    const textA = `${shared} según mi propia opinión.`;
+    const textB = `${shared} tal como yo lo vi.`;
+
+    const mcQuestion: SimilarityQuestion = { id: "q-mc", label: "Pregunta cerrada", type: "mc", prompt: "¿?", expectedText: "", wrongOptionCount: 3 };
+
+    function participant(id: string, text: string, correct: boolean): ParticipantEntry {
+      return {
+        participantId: id,
+        name: `Alumno ${id}`,
+        responses: new Map<string, ParticipantResponse>([
+          [questionId, { kind: "long", text }],
+          [mcQuestion.id, { kind: "closed", key: correct ? "a" : "d", label: correct ? "Opción A" : "Opción D", correct }],
+        ]),
+      };
+    }
+
+    const others = Array.from({ length: 20 }, (_, i) => participant(`o${i + 1}`, longText(`o${i + 1}`), true));
+    const pair = [participant("p1", textA, false), participant("p2", textB, false)];
+    const input: SimilarityClassInput = { questions: [longQuestion(questionId), mcQuestion], participants: [...others, ...pair] };
+
+    const report = await analyzeSimilarity(input, { evaluator: null });
+
+    const flagged = report.pairs.find((candidate) => {
+      const ids = new Set([candidate.a.participantId, candidate.b.participantId]);
+      return ids.has("p1") && ids.has("p2");
+    });
+    expect(flagged).toBeDefined();
+    expect(flagged?.level).toBe("strong"); // por el fragmento, no por lo cerrado
+    expect(flagged?.closedPattern?.sharedWrong).toBe(1);
+    expect(flagged?.closedPattern?.questions).toEqual([{ questionId: "q-mc", label: "Pregunta cerrada", answerLabel: "Opción D", othersWithSame: 0 }]);
   });
 
   it("sin preguntas de desarrollo elegibles, el estado es 'not_needed' y no se llama a Jev", async () => {

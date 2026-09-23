@@ -231,7 +231,14 @@ export interface ClosedPatternSummary {
 export interface ClosedAnalysis {
   /** Un resumen por cada par con al menos una pregunta donde ambos fallaron, esté o no marcado. */
   patterns: Map<string, ClosedPatternSummary>;
-  /** Solo para los pares que terminan marcados: el detalle de qué preguntas coincidieron. */
+  /**
+   * Para todo par con al menos una coincidencia (`sharedWrong ≥ 1`), esté o no
+   * marcado por el modelo de azar: el detalle de qué preguntas coincidieron y
+   * con qué respuesta. Independiente de `level` a propósito, para que el
+   * docente pueda ver la evidencia cruda aunque, por sí sola, no alcance la
+   * significancia estadística que exige `closedLevelFor` (el par puede estar
+   * igual marcado por otra señal).
+   */
   findings: Map<string, SharedWrongAnswerFinding[]>;
 }
 
@@ -397,7 +404,10 @@ export function computeClosedSignals(input: SimilarityClassInput): ClosedAnalysi
 
       const key = pairKey(a, b);
       patterns.set(key, { sharedWrong, expectedByChance: Math.round(expected * 10) / 10, pValue, level });
-      if (level) findings.set(key, matches);
+      // Independiente de `level`: un par que termina marcado por OTRA señal
+      // (fragmentos, semántica) igual quiere mostrar sus coincidencias
+      // cerradas como evidencia, aunque por sí solas no alcancen a marcarlo.
+      if (matches.length) findings.set(key, matches);
     }
   }
 
@@ -561,8 +571,18 @@ export function computeFragmentSignals(input: SimilarityClassInput): Map<string,
         if (!level) continue;
 
         const key = pairKey(a.participantId, b.participantId);
+        // `pairKey` ordena por id, no por el orden en que `eligible` (que sigue
+        // el orden de `input.participants`, o sea el de la consulta SQL por
+        // `display_name`) trae a `a`/`b`. Sin esto, cuando el orden del array
+        // no coincide con el orden de los ids, `spansA` terminaba siendo los
+        // spans de `a` (el que vino primero en el array) pero asignados al
+        // participante que `combinePairs` arma como "A" a partir de la key ya
+        // ordenada (el id menor) — que podía ser el otro. Acá se orientan los
+        // spans al mismo criterio que la key, así "A" siempre es el id menor
+        // de los dos, sin importar en qué orden llegaron.
+        const [spansA, spansB] = a.participantId < b.participantId ? [runA.spans, runB.spans] : [runB.spans, runA.spans];
         const findings = result.get(key) ?? [];
-        findings.push({ questionId: question.id, coverage, longestRun, spansA: runA.spans, spansB: runB.spans, level });
+        findings.push({ questionId: question.id, coverage, longestRun, spansA, spansB, level });
         result.set(key, findings);
       }
     }
