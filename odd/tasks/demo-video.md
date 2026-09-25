@@ -105,6 +105,54 @@ a whole). RDD: off globally by the user (2026-09-23), no review ceremony.
   sync, dead frames, blur; fix what fails. Route: inline review + delegated fixes.
 - [ ] T5 — Final render + delivery of the MP4 to the user.
 
+## Storyboard v2 (approved 2026-09-25, supersedes the table above)
+
+User feedback on the draft: the student view is missing, and short text cards
+("diapositivas") should explain the key ideas; longer than 30 s is fine. The
+user's pitch stresses: varied question formats, assisted correction reviewed
+by the teacher, incidents logged with what/when/how long, an individual report
+per student, no automatic judgment, and transparency (the student is told).
+
+~34 s, 120 BPM (17 bars). The cursor belongs to whoever's screen is shown.
+
+| t | Beat |
+|---|---|
+| 0:00 | Card "Creá tu examen." |
+| 0:01.5 | Editor: key "Fotosíntesis" marked; "Tipo de respuesta" select opens showing the 5 real types (Opción única, Varias opciones, Verdadero / Falso, Respuesta corta, Desarrollo), closes; click "Preparar para el curso" |
+| 0:05.5 | Room morph, code K7M4QH |
+| 0:07 | Student joins (code → input, "Lucía Paredes", "Entrar a la sala") |
+| 0:09 | Room fills; "Iniciar evaluación" @10; En curso, Rindiendo |
+| 0:11 | Card "Mientras rinden, Testra registra." |
+| 0:12.5 | Student runtime (real `student-runtime.tsx` look): Lucía on question 2, leaves the window, returns → real dialog "Este evento quedó registrado" + "Estuviste fuera de la ventana 4,3 s. Tu docente ve el mismo registro. Los incidentes no cambian tu nota automáticamente." → "Entendido" |
+| **0:17 AHA** | the registered event flies from the student's screen into the teacher's "Avisos de actividad" (Lucía Paredes — La evaluación dejó de estar visible (4,3 s)), subtitle legible |
+| 0:19 | "Finalizar evaluación" → Cerrada, Entregó |
+| 0:19.5 | Card "Cada aviso, con su contexto." |
+| 0:21 | Lucía's per-student report (results detail dialog, "Avisos (2)", real `IncidentCard`): Cambió de pestaña o ventana · 4,3 s · "Estaba en la pregunta 2: …" · what/normal · "Qué conviene revisar: …"; plus "Usó copiar, cortar o pegar" · "Pegó 12 caracteres" |
+| 0:24 | Card "La IA sugiere. Vos decidís." |
+| 0:25.5 | AI correction (Sofía) 3 de 4 → "Aceptar esta sugerencia" → "La nota la ponés vos." |
+| 0:28.5 | Results → "Publicar resultados" → "Publicados" |
+| 0:31 | Logo + "Evaluaciones en línea que no deciden por vos." → empty canvas (loop) |
+
+Also fix from the draft: 13.2 "Informado por el navegador" half cut by its
+reveal; the fast camera moves around 12 s and 14 s blur text too much.
+
+Delivery (user, 2026-09-25): rendering is slow on this Pi, so push the branch
+and hand the user a prompt for the Claude on their computer to clone and
+render. Push authorized for `feat/demo-video` only (Coolify deploys
+`feat/postgres-coolify`, so this does not deploy).
+
+- [~] T6 — Scene v2 done (`8cb5068`: build ok, stills every 0.5 s reviewed,
+  determinism 16.7/29.5 ok, tsc clean; accepted ~0.3 s empty-canvas breath
+  between card exit and UI entry at 21.0 and 26.0; report titles follow the
+  real IncidentCard copy). Music re-time + portable renderer delegated.
+  Original scope: Scene v2 + music re-timed to v2 + portable renderer (Chrome and
+  ffmpeg auto-detected on macOS/Windows/Linux, env overrides). Route:
+  delegated writer. Checks: build, stills per beat reviewed, determinism,
+  music checks as T2, renderer selftest.
+- [ ] T7 — Push `feat/demo-video` and write the local-render prompt.
+- [ ] T8 — Draft/final render (here in background and/or on the user's
+  computer) and delivery.
+
 ## Progress
 
 - 2026-09-25: research done, storyboard approved, branch created, ffmpeg
@@ -112,9 +160,9 @@ a whole). RDD: off globally by the user (2026-09-23), no review ceremony.
 - 2026-09-25: T1 done (`e529a32`). T2+T3 delegated to one writer.
 - 2026-09-25: container restart killed the draft render and wiped /tmp;
   ffmpeg moved to ~/.local/opt. T2+T3 done, draft rendered.
-- User asked to see the draft before the final render.
+- User asked to see the draft before the final render. Draft served via a
+  Cloudflare quick tunnel (user authorized). Feedback → storyboard v2.
 
 ## Next step
 
-T4: user feedback on the draft + known issues (13.2 "Informado por el
-navegador" half cut by its reveal; heavy blur on the 12 s and 14 s camera moves).
+T6 (scene v2). T4/T5 are superseded by T6–T8.
