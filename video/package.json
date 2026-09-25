@@ -1,0 +1,18 @@
+{
+  "name": "testra-demo-video",
+  "private": true,
+  "type": "module",
+  "description": "Renders the Testra demo video. Uses the repo root node_modules (run npm ci at the root first).",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "build": "vite build --config vite.config.mjs",
+    "stills": "node tools/still.mjs 0.8 3.5 7.0 11.9 15.5 17.2 22.5 25.0 28.4 30.7 32.5",
+    "music": "node audio/compose.mjs && node audio/onsets.mjs",
+    "selftest": "node tools/render.mjs --selftest",
+    "render:draft": "node tools/render.mjs --scale 1 --out out/testra-demo-draft.mp4",
+    "render:final": "node tools/render.mjs --scale 2 --out out/testra-demo.mp4",
+    "concat": "node tools/concat.mjs"
+  }
+}

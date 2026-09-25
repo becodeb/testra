@@ -1,7 +1,7 @@
 // Renders the scene to video: CDP capture → motion blur by exact averaging of
 // subframes → lossless FFV1 chunks (resumable) → H.264 + AAC.
 //
-//   node video/tools/render.mjs                    full 24 s → video/out/testra-demo.mp4
+//   node video/tools/render.mjs                    whole piece → video/out/testra-demo.mp4
 //   node video/tools/render.mjs --from 12 --to 14 --out video/out/test.mp4
 //   node video/tools/render.mjs --from 0 --to 8 --out video/build/a.mkv   (one lossless chunk)
 //   node video/tools/render.mjs --selftest         proves the averaging is exact per group
@@ -15,7 +15,10 @@
 // Options: --scale 1|2 (dpr; 2 supersamples 3840×2160 → 1080p lanczos),
 // --blur N (min subframes when moving, default 4; 1 disables blur),
 // --blur-max N (default 16), --ghost-px P (default 2), --chunk S (seconds per
-// resumable chunk, default 4), --no-audio, --tune <x264 tune>, --crf N (14).
+// resumable chunk, default 4), --jobs N (chunks rendered concurrently, each
+// with its own Chrome and ffmpeg; default 1), --gpu (GPU raster; off by
+// default for reproducible frames), --no-audio, --tune <x264 tune>, --crf N (14).
+// Chunk boundaries never depend on --jobs, so the output is the same either way.
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm } from "node:fs/promises";
@@ -23,12 +26,13 @@ import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Worker } from "node:worker_threads";
 
+import { DURATION, FPS } from "../src/timeline.ts";
 import { DIST_DIR, openScene, VIDEO_DIR } from "./cdp.mjs";
-import { countFrames, encodeFinal, FPS, HEIGHT, spawnFfmpeg, WIDTH } from "./encode.mjs";
+import { checkFfmpeg, countFrames, encodeFinal, HEIGHT, spawnFfmpeg, WIDTH } from "./encode.mjs";
+import { findChrome } from "./find-bin.mjs";
 import { solidPng } from "./png.mjs";
 
 const SHUTTER = 0.5; // 180°: open for half a frame
-const DURATION = 24;
 const IN_FLIGHT = 3; // frames queued to the sink before we wait
 
 const { values: opt } = parseArgs({
@@ -40,6 +44,8 @@ const { values: opt } = parseArgs({
     "blur-max": { type: "string", default: "16" },
     "ghost-px": { type: "string", default: "2" },
     chunk: { type: "string", default: "4" },
+    jobs: { type: "string", default: "1" },
+    gpu: { type: "boolean", default: false },
     out: { type: "string", default: join(VIDEO_DIR, "out", "testra-demo.mp4") },
     "no-audio": { type: "boolean", default: false },
     tune: { type: "string" },
@@ -94,6 +100,8 @@ const scale = Number(opt.scale);
 const blurMin = Math.max(1, Math.round(Number(opt.blur)));
 const blurMax = Math.max(blurMin, Math.round(Number(opt["blur-max"])));
 const ghostPx = Number(opt["ghost-px"]);
+const jobs = Math.max(1, Math.round(Number(opt.jobs)));
+const gpu = opt.gpu || process.env.CHROME_GPU === "1";
 const out = resolve(opt.out);
 const f0 = Math.round(from * FPS);
 const f1 = Math.round(to * FPS);
@@ -124,16 +132,35 @@ const todo = ranges.filter((r) => r.file === out || countFrames(r.file) !== r.b 
 const total = todo.reduce((n, r) => n + r.b - r.a, 0);
 console.log(`scene ${sceneId} · frames ${f0}–${f1} · scale ${scale} · blur ${blurMin}–${blurMax} (≤${ghostPx}px) · ${ranges.length - todo.length}/${ranges.length} chunks reused`);
 
+console.log(`chrome ${findChrome()}${gpu ? " (gpu)" : ""} · ffmpeg ${checkFfmpeg()} · jobs ${jobs}`);
+
 if (todo.length) {
-  const scene = await openScene({ scale });
   const stats = { done: 0, moving: 0, captures: 0, redo: 0, k: {}, started: performance.now() };
-  try {
-    await scene.session.send("Runtime.evaluate", { expression: RECT_PROBE });
-    for (const r of todo) await captureRange(scene, r, stats);
-    if (scene.errors.length) throw new Error(`page errors:\n${scene.errors.join("\n")}`);
-  } finally {
-    await scene.close();
-  }
+  const queue = [...todo];
+  // Each job owns one browser and pulls whole chunks until the queue is empty.
+  const job = async () => {
+    const scene = await openScene({ scale, gpu });
+    try {
+      // Every chunk starts from a freshly loaded page, so its frames never
+      // depend on which chunk this browser rendered before (keeps --jobs exact).
+      let first = true;
+      for (let r = queue.shift(); r; r = queue.shift()) {
+        if (!first) await scene.reload();
+        first = false;
+        await scene.session.send("Runtime.evaluate", { expression: RECT_PROBE });
+        await captureRange(scene, r, stats);
+      }
+      if (scene.errors.length) throw new Error(`page errors:\n${scene.errors.join("\n")}`);
+    } catch (error) {
+      queue.length = 0; // other jobs stop after their current chunk
+      throw error;
+    } finally {
+      await scene.close();
+    }
+  };
+  const results = await Promise.allSettled(Array.from({ length: Math.min(jobs, todo.length) }, job));
+  const failed = results.find((r) => r.status === "rejected");
+  if (failed) throw failed.reason;
   const secs = (performance.now() - stats.started) / 1000;
   console.log(
     `captured ${stats.done} frames (${stats.moving} moving, subframes ${JSON.stringify(stats.k)}, ${stats.redo} refined, ${stats.captures} screenshots) in ${secs.toFixed(1)} s · ${(secs / stats.done).toFixed(3)} s/frame`,
@@ -201,6 +228,7 @@ async function captureRange(scene, { a, b, file }, stats) {
   const partial = `${file}.partial.mkv`;
   const sink = openSink(partial);
   let lastShift = 0;
+  await scene.setTime(a / FPS); // the first motion test reads layout at the chunk start
   const shot = async (t) => {
     await scene.setTime(t);
     stats.captures++;
@@ -242,7 +270,7 @@ async function captureRange(scene, { a, b, file }, stats) {
         const eta = (total - stats.done) / rate;
         const rss = (process.memoryUsage().rss / 2 ** 20).toFixed(0);
         console.log(
-          `frame ${stats.done}/${total} (t=${t.toFixed(3)}) · ${rate.toFixed(2)} fps · moving ${stats.moving} · ETA ${Math.floor(eta / 60)}m${String(Math.round(eta % 60)).padStart(2, "0")}s · rss ${rss} MB`,
+          `frame ${stats.done}/${total} (t=${t.toFixed(3)}${jobs > 1 ? `, chunk ${a}` : ""}) · ${rate.toFixed(2)} fps · moving ${stats.moving} · ETA ${Math.floor(eta / 60)}m${String(Math.round(eta % 60)).padStart(2, "0")}s · rss ${rss} MB`,
         );
       }
     }

@@ -8,9 +8,10 @@ import { tmpdir } from "node:os";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { findChrome } from "./find-bin.mjs";
+
 export const VIDEO_DIR = fileURLToPath(new URL("..", import.meta.url));
 export const DIST_DIR = join(VIDEO_DIR, "dist");
-export const CHROMIUM = process.env.CHROMIUM ?? "/usr/bin/chromium";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -109,17 +110,22 @@ class Session {
 /**
  * Launch one headless Chromium with the scene loaded at 1920×1080 CSS px;
  * `scale` is the device pixel ratio (2 captures 3840×2160).
- * Always call `close()` (it SIGKILLs the browser and removes its profile).
+ * GPU rasterization stays off unless `gpu` (or CHROME_GPU=1): software
+ * raster is the same on every machine.
+ * Always call `close()` (it kills the browser and removes its profile).
  */
-export async function openScene({ width = 1920, height = 1080, scale = 1, query = "" } = {}) {
+export async function openScene({ width = 1920, height = 1080, scale = 1, query = "", gpu = process.env.CHROME_GPU === "1" } = {}) {
+  const chrome = findChrome();
   const server = await serveDist();
   const userDataDir = await mkdtemp(join(tmpdir(), "testra-video-"));
   const child = spawn(
-    CHROMIUM,
+    chrome,
     [
       "--headless",
-      "--no-sandbox",
-      "--disable-gpu",
+      // Containers and root shells on Linux need this; desktop Chrome elsewhere does not.
+      ...(process.platform === "linux" ? ["--no-sandbox"] : []),
+      ...(gpu ? [] : ["--disable-gpu"]),
+      "--force-color-profile=srgb",
       "--hide-scrollbars",
       "--mute-audio",
       "--no-first-run",
@@ -183,15 +189,20 @@ export async function openScene({ width = 1920, height = 1080, scale = 1, query 
     // The app formats dates with the browser's zone; pin it so every machine renders the same frames.
     await session.send("Emulation.setTimezoneOverride", { timezoneId: "America/Argentina/Buenos_Aires" });
 
-    const loaded = session.once("Page.loadEventFired");
-    await session.send("Page.navigate", { url: `${server.url}index.html${query}` });
-    await loaded;
-    await evaluate(session, "window.__ready");
+    const load = async () => {
+      const loaded = session.once("Page.loadEventFired");
+      await session.send("Page.navigate", { url: `${server.url}index.html${query}` });
+      await loaded;
+      await evaluate(session, "window.__ready");
+    };
+    await load();
 
     return {
       session,
       errors,
       close,
+      /** Fresh page state, as if the browser had just started (the scene keeps layout anchors between frames). */
+      reload: load,
       /** Render the scene at t (seconds). */
       setTime: (t) => evaluate(session, `window.__setTime(${Number(t)})`),
       /** True when something moves at t (for motion-blur subframes). */

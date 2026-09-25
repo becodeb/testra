@@ -141,10 +141,15 @@ and hand the user a prompt for the Claude on their computer to clone and
 render. Push authorized for `feat/demo-video` only (Coolify deploys
 `feat/postgres-coolify`, so this does not deploy).
 
-- [~] T6 — Scene v2 done (`8cb5068`: build ok, stills every 0.5 s reviewed,
+- [x] T6 — Scene v2 done (`8cb5068`: build ok, stills every 0.5 s reviewed,
   determinism 16.7/29.5 ok, tsc clean; accepted ~0.3 s empty-canvas breath
   between card exit and UI entry at 21.0 and 26.0; report titles follow the
   real IncidentCard copy). Music re-time + portable renderer delegated.
+  Music v2: 34.000 s, −15.09 LUFS, TP −1.37, 48 kicks max 1.02 ms off grid,
+  loop clean. Portable renderer: tools/find-bin.mjs (Chrome/Edge/Chromium +
+  ffmpeg per OS), `--jobs N` (per-chunk reload keeps chunks bit-identical),
+  video/package.json scripts, README rewritten; `--selftest` PASS (parent
+  re-ran). Untested on macOS/Windows.
   Original scope: Scene v2 + music re-timed to v2 + portable renderer (Chrome and
   ffmpeg auto-detected on macOS/Windows/Linux, env overrides). Route:
   delegated writer. Checks: build, stills per beat reviewed, determinism,

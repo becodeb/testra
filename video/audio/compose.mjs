@@ -1,6 +1,6 @@
-// Composes the demo soundtrack in code: 120 BPM, 12 bars, 48 kHz stereo WAV.
-// Every time comes from ../src/timeline.ts (imported with Node's type
-// stripping), so the beat grid and the UI accents cannot drift apart.
+// Composes the demo soundtrack in code: 120 BPM, 48 kHz stereo WAV, as long
+// as the scene. Every time comes from ../src/timeline.ts (imported with
+// Node's type stripping), so the beat grid and the UI accents cannot drift.
 // Usage: node video/audio/compose.mjs [--out video/build/music.wav]
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import * as TL from "../src/timeline.ts";
 import { automation, biquad, dbToGain, gainToDb, lufs, mtof, prng, saw, SR, svf, writeWav } from "./dsp.mjs";
 
-const { T, BEAT, BAR, SIXTEENTH, THIRTY_SECOND, DURATION, bars } = TL;
+const { T, BEAT, BAR, SIXTEENTH, THIRTY_SECOND, DURATION, CARDS, bars } = TL;
 const HERE = dirname(fileURLToPath(import.meta.url));
 const outArg = process.argv.indexOf("--out");
 const OUT = resolve(outArg > 0 ? process.argv[outArg + 1] : `${HERE}/../build/music.wav`);
@@ -18,19 +18,31 @@ const N = Math.round(DURATION * SR);
 const TARGET_LUFS = -15;
 const CEILING_DB = -1.5;
 
+const floorTo = (t, g) => Math.floor(t / g + 1e-9) * g;
+const ceilTo = (t, g) => Math.ceil(t / g - 1e-9) * g;
+
 // Sections, all derived from the storyboard timeline.
 const S = {
-  groove: T.pullOut, // kick enters
-  clap: bars(2), // clap from bar 3
-  build: T.morphRow,
+  groove: bars(1), // first downbeat after card 1: the kick enters
+  clap: bars(2),
+  build: T.morphRow, // the room fills, then the run starts
+  leave: T.leave, // the student leaves the window: drums drop out
+  back: T.back,
   riser: T.signal - BAR,
   aha: T.signal,
   ahaEnd: T.clickEnd,
-  light: T.morphAi,
-  lift: T.morphResults,
+  light: ceilTo(CARDS[2].out, BEAT), // reading the report
+  lift: ceilTo(CARDS[3].out, BEAT), // correction and publish
+  arp2: floorTo(T.saved, BAR),
   outro: T.outro,
-  fade: T.outro + BAR * 0.6,
+  fade: T.outro + BAR * 0.9,
 };
+/** Cards 2–4 are breathing moments: from the 8th before a card enters to the beat after it leaves. */
+const BREATHS = CARDS.slice(1).map((c) => [floorTo(c.in, BEAT / 2), ceilTo(c.out, BEAT)]);
+const inBreath = (t) => BREATHS.some(([a, b]) => t >= a - 1e-9 && t < b - 1e-9);
+const inDip = (t) => t >= S.leave - 1e-9 && t < S.back - 1e-9;
+const drumsOff = (t) => t < S.groove - 1e-9 || t >= S.outro - 1e-9 || inBreath(t) || inDip(t);
+const inLight = (t) => t >= S.light - 1e-9 && t < floorTo(CARDS[3].in, BEAT / 2) - 1e-9;
 
 // Harmony: [start, pad voicing (MIDI), bass root (MIDI)].
 const V = {
@@ -43,20 +55,23 @@ const V = {
   Gm9: [[53, 57, 58, 62], 43],
 };
 const CHORDS = [
-  [bars(0), V.Dm9],
-  [bars(1), V.Bbmaj9],
+  [bars(0), V.Dm9], // card 1
+  [bars(1), V.Bbmaj9], // editor
   [bars(2), V.Fmaj9],
-  [bars(3), V.C69],
+  [bars(3), V.C69], // the room opens, the student joins
   [bars(4), V.Dm9],
-  [bars(5), V.Bbmaj9],
-  [bars(6), V.C69],
-  [T.signal, V.FmajAha],
-  [T.clickEnd, V.Am7],
-  [bars(8), V.Dm9],
-  [bars(9), V.Bbmaj9],
-  [bars(10), V.Gm9],
+  [bars(5), V.Bbmaj9], // start; card 2
+  [bars(6), V.Gm9], // student typing
+  [S.leave, V.Am7], // leaves, comes back, reads the dialog
+  [bars(8), V.C69], // the event flies to the teacher
+  [S.aha, V.FmajAha], // AHA
+  [T.clickEnd, V.Dm9], // card 3, report
+  [bars(11), V.Bbmaj9],
+  [bars(12), V.C69], // card 4
+  [bars(13), V.Dm9], // correction
+  [bars(14), V.Bbmaj9], // results
   [T.clickPublish, V.C69],
-  [T.outro, V.FmajAha],
+  [S.outro, V.FmajAha],
 ].map(([t, [pad, bass]]) => ({ t, pad, bass }));
 const chordAt = (t) => CHORDS.findLast((c) => c.t <= t + 1e-9) ?? CHORDS[0];
 
@@ -274,44 +289,55 @@ CHORDS.forEach((c, i) => {
   });
 });
 
-const kickTimes = grid(S.groove, S.outro, BEAT).filter((t) => Math.abs(t - (S.aha - BEAT)) > 1e-6);
-for (const t of kickTimes) kick(t, 1);
+// Kick: four on the floor, out under the cards, the dip and the beat before the AHA.
+const kickTimes = grid(S.groove, S.outro, BEAT).filter((t) => !drumsOff(t) && Math.abs(t - (S.aha - BEAT)) > 1e-6);
+for (const t of kickTimes) kick(t, inLight(t) ? 0.85 : 1);
 
 // Bass on 8ths: offbeats lead, downbeats softer (the kick owns them).
 for (const t of grid(S.groove, S.outro, BEAT / 2)) {
+  if (drumsOff(t) || (t >= S.aha - BEAT && t < S.aha)) continue;
   const step = Math.round((t % BAR) / (BEAT / 2));
   const offbeat = step % 2 === 1;
-  if (inRange(t, S.light, S.lift) && !offbeat) continue;
-  if (inRange(t, S.aha - BEAT, S.aha)) continue; // breath before the AHA
+  if (inLight(t) && !offbeat) continue;
   const root = chordAt(t).bass + (step === 7 ? 12 : 0);
   bassNote(t, root, offbeat ? 1 : 0.55, offbeat ? 0.19 : 0.14);
 }
-// Pickup into the AHA and the final sub.
+// Long soft roots hold the floor while a card is up; a pickup into the AHA; the final sub.
+for (const [a, b] of BREATHS) bassNote(a, chordAt(a).bass, 0.35, b - a - 0.1, 0.9);
 bassNote(S.aha, chordAt(S.aha).bass, 1, 0.3);
 bassNote(S.outro, chordAt(S.outro).bass, 0.55, BAR * 0.5, 0.35);
 
-// Hats on 16ths with deterministic humanization; open hats in the build/lifts.
-const openDecay = automation([[S.build, 0.03], [S.aha, 0.12], [S.ahaEnd, 0.09], [S.light, 0.05], [S.lift, 0.05], [S.outro, 0.1]]);
+// Hats on 16ths with deterministic humanization. Under the cards only soft
+// offbeat 8ths remain; they open up through the build, the AHA and the lift.
+const openDecay = automation([[S.build, 0.03], [BREATHS[0][0], 0.07], [S.aha, 0.12], [S.ahaEnd, 0.09], [S.lift, 0.05], [S.outro, 0.1]]);
 for (const t of grid(S.groove, S.outro, SIXTEENTH)) {
   const step = Math.round((t % BEAT) / SIXTEENTH);
-  const accent = [0.55, 0.32, 0.85, 0.36][step];
-  let vel = accent * (0.82 + rnd() * 0.36);
-  if (inRange(t, S.light, S.lift)) vel *= 0.7;
-  const open = step === 2 && (inRange(t, S.build, S.light) || inRange(t, S.lift, S.outro));
+  let vel = [0.55, 0.32, 0.85, 0.36][step] * (0.82 + rnd() * 0.36);
+  if (inDip(t)) continue;
+  if (inBreath(t)) {
+    if (step !== 2) continue;
+    vel *= 0.35;
+  } else if (inLight(t)) vel *= 0.7;
+  const open = step === 2 && !inBreath(t) && ((t >= S.build && t < S.light) || t >= S.lift);
   hat(t, vel, open ? openDecay(t) : 0.022, step % 2 ? 0.25 : -0.15);
 }
 
 // Clap on 2 and 4 from bar 3.
 for (const t of grid(S.clap, S.outro, BEAT)) {
   const beat = Math.round((t % BAR) / BEAT);
-  if (beat === 1 || beat === 3) clap(t, inRange(t, S.light, S.lift) ? 0.7 : 1);
+  if ((beat === 1 || beat === 3) && !drumsOff(t)) clap(t, inLight(t) ? 0.7 : 1);
 }
+
+// A soft swell into every return of the groove.
+for (const [, b] of BREATHS) riser(b - BEAT, b, 0.3);
+riser(S.leave + SIXTEENTH, S.back, 0.22);
 
 // Soft e-piano plucks: syncopated 16ths from the pad voicing, an octave up.
 const pluckSteps = (t) => {
-  if (t < S.groove) return [2, 6, 10, 13];
-  if (inRange(t, S.light, S.lift)) return [3, 10];
-  if (inRange(t, S.lift, S.outro)) return [3, 6, 10, 12, 14];
+  if (t < S.groove || inBreath(t)) return [2, 10];
+  if (inDip(t)) return [];
+  if (inLight(t)) return [3, 10];
+  if (t >= S.lift) return [3, 6, 10, 12, 14];
   return [3, 6, 10, 14];
 };
 let rot = 0;
@@ -320,13 +346,14 @@ for (const t of grid(0, S.outro, SIXTEENTH)) {
   if (!pluckSteps(t).includes(step)) continue;
   const pad = chordAt(t).pad;
   const m = pad[rot++ % pad.length] + 12;
-  const vel = t < S.groove ? 0.35 + 0.15 * (t / S.groove) : 0.42;
-  pluck(bus.keys, t, m, vel, { index: 1.2, decay: 0.28, pan: rot % 2 ? 0.3 : -0.3, send: 0.35 });
+  const vel = t < S.groove ? 0.35 + 0.15 * (t / S.groove) : inBreath(t) ? 0.34 : 0.42;
+  pluck(bus.keys, t, m, vel, { index: 1.2, decay: inBreath(t) ? 0.4 : 0.28, pan: rot % 2 ? 0.3 : -0.3, send: inBreath(t) ? 0.6 : 0.35 });
 }
 
-// AHA: bright 16th bell arpeggio, full for two beats of chorus, then easing out.
-const arpVel = automation([[S.aha, 0.55], [S.ahaEnd, 0.45], [S.light, 0.08]]);
-for (const [i, t] of grid(S.aha, S.light, SIXTEENTH).entries()) {
+// AHA: bright 16th bell arpeggio through the fullest bar, easing out into card 3.
+const arpEnd = BREATHS[1][0];
+const arpVel = automation([[S.aha, 0.55], [S.ahaEnd, 0.45], [arpEnd, 0.08]]);
+for (const [i, t] of grid(S.aha, arpEnd, SIXTEENTH).entries()) {
   const pad = chordAt(t).pad;
   const up = [...pad, pad[0] + 12, pad[1] + 12];
   const seq = [...up, ...up.slice(1, -1).reverse()];
@@ -334,22 +361,24 @@ for (const [i, t] of grid(S.aha, S.light, SIXTEENTH).entries()) {
   pluck(bus.keys, t, seq[i % seq.length] + 24, arpVel(t) * accent, { ratio: 3, index: 1.4, decay: 0.2, idecay: 0.05, pan: i % 2 ? 0.45 : -0.45, send: 0.45 });
 }
 // Lift for "Publicá": the arpeggio returns on 8ths, softer.
-for (const [i, t] of grid(S.lift, S.outro, BEAT / 2).entries()) {
+for (const [i, t] of grid(S.arp2, S.outro, BEAT / 2).entries()) {
   const pad = chordAt(t).pad;
-  pluck(bus.keys, t, pad[i % pad.length] + 24, 0.22 + 0.12 * (i / 8), { ratio: 3, index: 1.1, decay: 0.2, idecay: 0.05, pan: i % 2 ? 0.4 : -0.4, send: 0.45 });
+  pluck(bus.keys, t, pad[i % pad.length] + 24, 0.2 + 0.14 * Math.min(1, i / 12), { ratio: 3, index: 1.1, decay: 0.2, idecay: 0.05, pan: i % 2 ? 0.4 : -0.4, send: 0.45 });
 }
 
-// Musical accents on UI moments: the code types as an ascending arpeggio,
-// the status cascades as runs, and the "check" moments ring a two-note chime.
+// Musical accents on UI moments: the code types as an ascending arpeggio, the
+// pointer glides over the answer types, the status cascades run, and the
+// "check" moments ring a two-note chime.
 const tonesFrom = (pad, count, octave) => {
   const out = [];
   for (let o = 0; out.length < count; o += 12) for (const m of pad) if (out.length < count) out.push(m + octave + o);
   return out;
 };
 TL.codeKeyTimes.forEach((t, i) => pluck(bus.keys, t, tonesFrom(chordAt(t).pad, 6, 12)[i], 0.3, { ratio: 2, index: 1, decay: 0.22, pan: -0.5 + i * 0.2, send: 0.4 }));
+TL.selectHover.forEach(([item, t]) => pluck(bus.keys, t, tonesFrom(chordAt(t).pad, 5, 24)[item], 0.12, { ratio: 3, index: 0.7, decay: 0.14, pan: -0.3 + item * 0.15, send: 0.4 }));
 TL.rindiendoTimes.forEach((t, i) => pluck(bus.keys, t, tonesFrom(chordAt(t).pad, 5, 24)[i], 0.18, { ratio: 3, index: 0.9, decay: 0.16, pan: -0.4 + i * 0.2, send: 0.4 }));
 TL.entregoTimes.forEach((t, i) => pluck(bus.keys, t, tonesFrom(chordAt(t).pad, 5, 24)[4 - i], 0.18, { ratio: 3, index: 0.9, decay: 0.16, pan: 0.4 - i * 0.2, send: 0.4 }));
-for (const t of [T.saveDone, T.saved, T.published]) {
+for (const t of [T.saveDone, T.dialogOpen, T.signalPaste, T.saved, T.published]) {
   const [a, b] = tonesFrom(chordAt(t).pad, 8, 24).slice(-2);
   pluck(bus.keys, t, a, 0.26, { ratio: 2, index: 0.8, decay: 0.45, pan: -0.2, send: 0.5 });
   pluck(bus.keys, t + THIRTY_SECOND, b, 0.22, { ratio: 2, index: 0.8, decay: 0.5, pan: 0.2, send: 0.5 });
@@ -364,18 +393,23 @@ tonesFrom(chordAt(S.outro).pad, 5, 12).forEach((m, i) =>
   pluck(bus.keys, S.outro + i * 0.022, m, 0.32, { ratio: 2, index: 1.1, decay: 0.55, idecay: 0.15, pan: -0.4 + i * 0.2, send: 0.7 }),
 );
 
-// UI foley from the timeline.
+// UI foley from the timeline: clicks, and key ticks for the code, the name and the answer.
 for (const e of TL.EVENTS) if (e.kind === "click") uiClick(e.t, 1);
-[...TL.codeKeyTimes, ...TL.nameKeyTimes].forEach((t, i) => keyTick(t, 0.55 + rnd() * 0.3, i % 2 ? 0.15 : -0.1));
+[...TL.codeKeyTimes, ...TL.nameKeyTimes, ...TL.answerKeyTimes].forEach((t, i) => keyTick(t, 0.55 + rnd() * 0.3, i % 2 ? 0.15 : -0.1));
 
 // ---------------------------------------------------------------- mix
 
-// Pad: filter automation (intro opens toward the downbeat of the groove).
-const padCut = automation(
-  [[0, 280], [S.groove, 1900], [S.build, 1900], [S.aha - 0.01, 3600], [S.aha, 4600], [S.ahaEnd, 3600], [S.light, 2200], [S.lift, 2200], [S.outro, 3200], [DURATION, 1400]],
-  { log: true },
-);
-const padLevel = automation([[0, 1], [S.groove, 0.8], [S.aha, 0.95], [S.ahaEnd, 0.85], [S.light, 0.72], [S.lift, 0.8], [S.outro, 1], [DURATION, 1]]);
+// Pad: filter automation. The intro opens toward the groove; every card and
+// the dip close it down, and it reopens with the UI.
+const cutKeys = [[0, 280], [S.groove, 1900], [S.build, 1900], [BREATHS[0][0], 2600]];
+for (const [a, b] of BREATHS) cutKeys.push([a + 0.25, 1000], [b - 0.25, 1300], [b, 2200]);
+cutKeys.push([S.leave, 2200], [S.leave + 0.08, 650], [S.back - 0.05, 700], [S.back + 0.3, 2000]);
+cutKeys.push([S.aha - 0.01, 3600], [S.aha, 4600], [S.ahaEnd, 3600], [S.light + 0.01, 2000], [S.lift + 0.01, 2400], [S.outro, 3200], [DURATION, 1400]);
+const padCut = automation(cutKeys, { log: true });
+const levelKeys = [[0, 1], [S.groove, 0.8], [S.build, 0.85]];
+for (const [a, b] of BREATHS) levelKeys.push([a, 0.85], [a + 0.3, 0.95], [b - 0.1, 0.95], [b, 0.82]);
+levelKeys.push([S.aha, 0.95], [S.ahaEnd, 0.85], [S.light + 0.01, 0.72], [S.lift + 0.01, 0.8], [S.outro, 1], [DURATION, 1]);
+const padLevel = automation(levelKeys);
 for (let c = 0; c < 2; c++) svf(bus.pad[c], padCut, { q: 0.8 });
 biquad(bus.bass, { type: "lp", freq: 1100 });
 for (let c = 0; c < 2; c++) {
@@ -428,7 +462,7 @@ for (let c = 0; c < 2; c++) {
 
 // DC blocker, loop-safe fades (5 ms in; cosine out to true silence at the end).
 const fadeIn = idx(0.005);
-const fadeFrom = idx(S.fade + 0.2);
+const fadeFrom = idx(T.fadeOut);
 for (const ch of mix) {
   let x1 = 0, y1 = 0;
   const r = 1 - (TAU * 12) / SR;
