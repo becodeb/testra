@@ -1,0 +1,36 @@
+@import "../../src/styles/global.css";
+
+@source "./";
+@source "../../src/components/ui";
+
+/* Every visual is a function of t: nothing may move on its own. */
+*,
+*::before,
+*::after {
+  transition: none !important;
+  animation: none !important;
+  caret-color: transparent !important;
+}
+
+html,
+body {
+  margin: 0;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+  background: var(--color-canvas);
+}
+
+body {
+  min-height: 0;
+}
+
+/* The scene draws its own caret: a solid bar, never blinking. */
+.scene-caret {
+  display: inline-block;
+  width: 2px;
+  margin-left: 1px;
+  background: var(--color-ink);
+  vertical-align: middle;
+}
