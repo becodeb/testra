@@ -107,10 +107,11 @@ class Session {
 }
 
 /**
- * Launch one headless Chromium with the scene loaded at 1920×1080, dpr 1.
+ * Launch one headless Chromium with the scene loaded at 1920×1080 CSS px;
+ * `scale` is the device pixel ratio (2 captures 3840×2160).
  * Always call `close()` (it SIGKILLs the browser and removes its profile).
  */
-export async function openScene({ width = 1920, height = 1080, query = "" } = {}) {
+export async function openScene({ width = 1920, height = 1080, scale = 1, query = "" } = {}) {
   const server = await serveDist();
   const userDataDir = await mkdtemp(join(tmpdir(), "testra-video-"));
   const child = spawn(
@@ -177,7 +178,7 @@ export async function openScene({ width = 1920, height = 1080, query = "" } = {}
     await session.send("Runtime.enable");
     await session.send("Log.enable");
     await session.send("Page.enable");
-    await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+    await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: scale, mobile: false });
     await session.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 247, g: 248, b: 250, a: 1 } });
 
     const loaded = session.once("Page.loadEventFired");
@@ -195,8 +196,8 @@ export async function openScene({ width = 1920, height = 1080, query = "" } = {}
       motion: (t) => evaluate(session, `window.__motion(${Number(t)})`),
       duration: () => evaluate(session, "window.__duration"),
       /** PNG of the viewport as a Buffer. */
-      screenshot: async () => {
-        const { data } = await session.send("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false });
+      screenshot: async (options = {}) => {
+        const { data } = await session.send("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false, ...options });
         return Buffer.from(data, "base64");
       },
       stderr: () => stderr,

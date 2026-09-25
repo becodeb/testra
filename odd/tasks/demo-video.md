@@ -36,7 +36,7 @@ from `src/` read-only. Rendered media stays out of git (`video/build/`,
 - Music is composed in code (FreePD closed 2026-09-25; Internet Archive search
   failed), so the beat grid is exact and there is no license risk.
 - Environment: Raspberry Pi 5 (aarch64, 4 cores, ~1 GB free RAM). ffmpeg is a
-  static build at `/tmp/tools/ffmpeg` (not on PATH). The repo's Playwright
+  static build at `~/.local/opt/ffmpeg/` (symlinked at `/tmp/tools/`, which a container restart wipes; not on PATH). The repo's Playwright
   hangs on `page.screenshot` with `/usr/bin/chromium`: drive Chromium over CDP
   from Node instead (Node 24 has `fetch`/`WebSocket`).
 - Repo conventions: Spanish conventional commits, no AI attribution.
@@ -79,7 +79,7 @@ a whole). RDD: off globally by the user (2026-09-23), no review ceremony.
   Checks: `npx vite build --config video/vite.config.mjs` built; 34 stills via
   `node video/tools/still.mjs` with no page errors; same t twice → identical
   sha256 (8.45, 20.3); `tsc` over `video/src` with the repo tsconfig: clean.
-  Evidence: commit recorded below.
+  Evidence: commit `e529a32`.
   Deviations accepted: zoom at 0:00 is 1.25× (1.35× overflows the card);
   bubble 1 never gets a check (the real UI never checks the active bubble);
   name types on 32nds; morph boxes are empty for ~0.2 s before content fades in.
@@ -87,14 +87,20 @@ a whole). RDD: off globally by the user (2026-09-23), no review ceremony.
   was the header, where the pill read as a Testra UI element, which the brief
   forbids; the real eyebrows (SALA DE ESPERA, EVALUACIÓN EN VIVO, CORRECCIÓN
   CON IA) already carry the story.
-- [ ] T2 — Music: composed 24 s track at 120 BPM with accents on the storyboard
+- [x] T2 — Music: composed 24 s track at 120 BPM with accents on the storyboard
   clicks, written as WAV by a Node script. Route: delegated writer.
-  Checks: duration 24.0 s ±10 ms; onsets on the grid; loudness sane (ffmpeg
-  `volumedetect` peak ≤ −1 dB).
-- [ ] T3 — Renderer: CDP frame capture at 60 fps with 4-subframe motion blur on
-  moving frames only, piped to ffmpeg, muxed with the music. Route: delegated
-  writer (with T2).
-  Checks: a 2 s test render plays; frame count = 1440 for the full render.
+  Checks: ffprobe 24.000000 s (1,152,000 frames), deterministic sha256;
+  volumedetect max −1.5 dB; loudnorm −15.02 LUFS, TP −1.41; 39 kick onsets,
+  mean dev 0.83 ms, max 0.98 ms; loop point clean (last 10 ms −91 dB);
+  UI foley ~24 dB under the music.
+- [x] T3 — Renderer: CDP frame capture at 60 fps with motion blur on moving
+  frames only, piped to ffmpeg, muxed with the music. Route: delegated writer
+  (with T2). Deviation: adaptive 4/8/16 subframes averaged in Node (fixed 4 +
+  tmix ghosted on fast zooms). Chunked and resumable.
+  Checks: `render.mjs --selftest` PASS (no bleed between groups); test 12–14 s
+  120 frames 60 fps BT.709; brand #0a2878 decodes to [9,40,120]; full draft
+  `video/out/testra-demo-draft.mp4`: 1440 frames, 24.000 s, AAC 48 kHz, peak
+  −1.5 dB (parent re-checked). ~31 min at scale 1, ~75 min est. at scale 2.
 - [ ] T4 — QA: one still per beat, review legibility, overlaps, click/action
   sync, dead frames, blur; fix what fails. Route: inline review + delegated fixes.
 - [ ] T5 — Final render + delivery of the MP4 to the user.
@@ -103,7 +109,12 @@ a whole). RDD: off globally by the user (2026-09-23), no review ceremony.
 
 - 2026-09-25: research done, storyboard approved, branch created, ffmpeg
   static installed at `/tmp/tools/ffmpeg`.
+- 2026-09-25: T1 done (`e529a32`). T2+T3 delegated to one writer.
+- 2026-09-25: container restart killed the draft render and wiped /tmp;
+  ffmpeg moved to ~/.local/opt. T2+T3 done, draft rendered.
+- User asked to see the draft before the final render.
 
 ## Next step
 
-T1.
+T4: user feedback on the draft + known issues (13.2 "Informado por el
+navegador" half cut by its reveal; heavy blur on the 12 s and 14 s camera moves).
