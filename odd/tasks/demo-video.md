@@ -154,9 +154,12 @@ render. Push authorized for `feat/demo-video` only (Coolify deploys
   ffmpeg auto-detected on macOS/Windows/Linux, env overrides). Route:
   delegated writer. Checks: build, stills per beat reviewed, determinism,
   music checks as T2, renderer selftest.
-- [ ] T7 — Push `feat/demo-video` and write the local-render prompt.
-- [ ] T8 — Draft/final render (here in background and/or on the user's
-  computer) and delivery.
+- [x] T7 — Push `feat/demo-video` and write the local-render prompt (pushed
+  2026-09-25 at `f2be34a`; prompt handed to the user in chat).
+- [ ] T8 — Final render on the user's computer (`npm --prefix video run
+  render:final -- --jobs N`, see video/README.md). The Pi draft render was
+  stopped on purpose (redundant) and the Cloudflare tunnel closed.
+  Checks: 2040 frames, 60 fps, 34.000 s, 1920×1080, AAC; spot stills sharp.
 
 ## Progress
 
@@ -170,4 +173,7 @@ render. Push authorized for `feat/demo-video` only (Coolify deploys
 
 ## Next step
 
-T6 (scene v2). T4/T5 are superseded by T6–T8.
+T8 on the user's computer. For changes after watching it: edit `video/src`
+(timeline in `video/src/timeline.ts`), `npm --prefix video run build`, review
+stills, re-run `music` if event times moved, then render. T4/T5 were
+superseded by T6–T8.
