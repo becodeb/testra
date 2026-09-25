@@ -2,8 +2,10 @@ import { AlertTriangle, Clock3, Link2, Minus, Plus, Radio, Square, Users } from 
 
 import { Button } from "@/components/ui/button";
 
-import { clockLabel, EXAM, formatTime, percent, STUDENTS, TOMAS } from "../data";
-import { enter, EASE, fadeIn, fadeOut, progress, spring, SPRINGS, swap } from "../motion";
+import { clipboardDetail, copyForIncident } from "@/lib/incident-copy";
+
+import { clockLabel, EXAM, formatTime, LUCIA, percent, STUDENTS } from "../data";
+import { enter, EASE, fadeIn, fadeOut, progress, SPRINGS, springTo, swap } from "../motion";
 import { anchor, useControl, useScene } from "../scene-context";
 import { codeKeyTimes, entregoTimes, progressTicks, rindiendoTimes, T } from "../timeline";
 
@@ -157,33 +159,67 @@ function ParticipantCount() {
   return <span className="mono-number inline-flex items-center gap-2 text-sm text-muted"><Users className="size-4" aria-hidden="true" /><span className="inline-block" style={s.style}>{s.showNew ? count : Math.max(0, count - 1)}</span></span>;
 }
 
-function Signal() {
-  const { t, anchors } = useScene();
-  const inner = anchors["signal-inner"]?.h ?? 96;
-  const p = spring(t - T.signal, SPRINGS.soft);
-  const o = EASE.app(progress(t, T.signal + 0.04, T.signal + 0.22));
-  const incident = STUDENTS[TOMAS];
+export interface SignalData {
+  type: string;
+  durationMs: number;
+  meta?: Record<string, unknown>;
+  at: number;
+}
+
+/** Lucía's two signals, as the teacher's panel lists them. */
+export const SIGNALS: ReadonlyArray<SignalData> = [
+  { type: "cambio-de-pestana", durationMs: 4300, at: T.back },
+  { type: "atajo-copiar-pegar", durationMs: 0, meta: { action: "paste", characters: 12 }, at: T.signalPaste },
+];
+
+/** incidentLabel() of live-run-monitor.tsx. */
+export function signalLabel(signal: SignalData) {
+  const duration = signal.durationMs > 0 ? ` (${(signal.durationMs / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} s)` : "";
+  const detalle = signal.type === "atajo-copiar-pegar" ? clipboardDetail(signal.meta) : "";
+  return `${copyForIncident(signal.type).title}${duration}${detalle ? ` · ${detalle}` : ""}`;
+}
+
+/** One incident article of the "Avisos de actividad" panel. */
+export function SignalArticle({ signal, anchorName }: { signal: SignalData; anchorName?: string }) {
   return (
-    <div style={{ height: t < T.signal ? 0 : inner * p, overflow: "hidden" }}>
-      <article className="p-4" {...anchor("signal-inner")} style={{ opacity: o, transform: `translateY(${((1 - p) * -6).toFixed(3)}px)` }}>
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden="true" />
-          <div>
-            <p className="text-sm font-semibold text-ink">{incident.name}</p>
-            <p className="mt-0.5 text-sm text-ink-2">La evaluación dejó de estar visible (4,2 s)</p>
-            <p className="mt-1 text-xs text-muted">Informado por el navegador · {clockLabel(T.signal)}</p>
-          </div>
+    <article className="p-4" {...(anchorName ? anchor(anchorName) : {})}>
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden="true" />
+        <div>
+          <p className="text-sm font-semibold text-ink">{STUDENTS[LUCIA].name}</p>
+          <p className="mt-0.5 text-sm text-ink-2">{signalLabel(signal)}</p>
+          <p className="mt-1 text-xs text-muted">Informado por el navegador · {clockLabel(signal.at)}</p>
         </div>
-      </article>
+      </div>
+    </article>
+  );
+}
+
+/**
+ * A slot that opens to the article's height. Text never shows while it is
+ * clipped: the first one is revealed by the landing morph box, the second
+ * fades in only once its slot is fully open.
+ */
+function SignalSlot({ index, opensAt, landsAt }: { index: number; opensAt: number; landsAt: number }) {
+  const { t, anchors } = useScene();
+  const inner = anchors[`signal-inner-${index}`]?.h ?? 96;
+  const p = springTo(t, opensAt, landsAt - opensAt, SPRINGS.soft);
+  const opacity = index === 0 ? (t >= landsAt - 0.02 ? 1 : 0) : EASE.app(progress(t, landsAt, landsAt + 0.2));
+  return (
+    <div style={{ height: inner * p, overflow: "hidden" }} {...anchor(`signal-slot-${index}`)}>
+      <div style={{ opacity }}>
+        <SignalArticle signal={SIGNALS[index]} anchorName={`signal-inner-${index}`} />
+      </div>
     </div>
   );
 }
 
 export function RoomScreen() {
   const { t } = useScene();
-  const counter = swap(t, T.signal);
+  const count = t >= T.signalPaste + 0.3 ? 2 : t >= T.signal ? 1 : 0;
+  const counter = swap(t, t >= T.signalPaste + 0.3 ? T.signalPaste + 0.3 : T.signal);
   const emptyRows = fadeOut(t, T.morphRow - 0.1, 0.1);
-  const emptySignals = t < T.signal ? fadeOut(t, T.signal - 0.1, 0.1) : 0;
+  const emptySignals = fadeOut(t, T.flyStart + 0.1, 0.1);
   const part = (i: number) => enter(t, T.morphRoomEnd + i * 0.125, 14, SPRINGS.soft);
   const cardVisible = t >= T.morphRoomEnd - 0.1;
 
@@ -211,10 +247,12 @@ export function RoomScreen() {
           <section className="rounded-lg border bg-paper shadow-card" aria-labelledby="incidents-title" style={part(1)} {...anchor("avisos")}>
             <div className="flex items-center justify-between border-b px-4 py-3">
               <div><h2 id="incidents-title" className="font-semibold text-ink">Avisos de actividad</h2><p className="mt-0.5 text-xs text-muted">Señales para revisar; no prueban una conducta por sí solas.</p></div>
-              <span className="mono-number text-sm text-warn"><span className="inline-block" style={counter.style}>{counter.showNew ? 1 : 0}</span></span>
+              <span className="mono-number text-sm text-warn"><span className="inline-block" style={counter.style}>{counter.showNew ? count : Math.max(0, count - 1)}</span></span>
             </div>
             <div className="divide-y">
-              {t < T.signal ? <p className="p-6 text-center text-sm text-muted" style={{ opacity: emptySignals }}>No hay avisos de actividad registrados.</p> : <Signal />}
+              {t < T.flyStart + 0.2 ? <p className="p-6 text-center text-sm text-muted" style={{ opacity: emptySignals }}>No hay avisos de actividad registrados.</p> : null}
+              {t >= T.flyStart + 0.2 ? <SignalSlot index={0} opensAt={T.flyStart + 0.2} landsAt={T.signal} /> : null}
+              {t >= T.signalPaste ? <SignalSlot index={1} opensAt={T.signalPaste} landsAt={T.signalPaste + 0.3} /> : null}
             </div>
           </section>
         </div>

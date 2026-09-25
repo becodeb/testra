@@ -1,3 +1,4 @@
+import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { ArrowLeft, ArrowRight, BrainCircuit, Check, CircleAlert, ClipboardPaste, Copy, Eye, GripVertical, Plus, Settings2, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { QUESTION_TYPE_LABELS } from "@/domain/exam-import";
 import { cn } from "@/lib/utils";
 
 import { EXAM } from "../data";
@@ -53,13 +55,60 @@ function Navigator({ states }: { states: Completion[] }) {
   );
 }
 
-/** The select trigger of ui/select.tsx, drawn closed. */
-function SelectTriggerStatic({ value }: { value: string }) {
+const TYPE_LABELS = Object.values(QUESTION_TYPE_LABELS);
+
+/** ui/select.tsx drawn by hand: trigger, and its item-aligned menu while open. */
+function TypeSelect() {
+  const { t, hover, pressed } = useScene();
+  const open = t >= T.clickSelect + 0.06 && t < T.clickOption + 0.16;
+  // Radix animates with fade + zoom-in-95 (open) / zoom-out-95 (close).
+  const pin = EASE.app(progress(t, T.clickSelect + 0.06, T.clickSelect + 0.21));
+  const pout = EASE.app(progress(t, T.clickOption + 0.06, T.clickOption + 0.16));
+  const menu = pin * (1 - pout);
+  const triggerPressed = hover === "select-trigger" && pressed;
   return (
-    <button type="button" data-slot="select-trigger" data-size="default" className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs">
-      <span data-slot="select-value" className="line-clamp-1 flex items-center gap-2">{value}</span>
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 text-muted-foreground opacity-50" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-    </button>
+    <div className="relative">
+      <button
+        type="button"
+        data-slot="select-trigger"
+        data-size="default"
+        data-state={open ? "open" : "closed"}
+        className={`flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs ${triggerPressed ? "translate-y-px" : ""}`}
+        {...anchor("select-trigger")}
+      >
+        <span data-slot="select-value" className="line-clamp-1 flex items-center gap-2">{TYPE_LABELS[0]}</span>
+        <ChevronDownIcon className="size-4 text-muted-foreground opacity-50" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div
+          role="listbox"
+          data-slot="select-content"
+          className="absolute -top-[5px] left-0 z-50 w-full min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md"
+          style={{ opacity: menu, transform: `scale(${(0.95 + 0.05 * menu).toFixed(4)})`, transformOrigin: "50% 18px" }}
+        >
+          <div className="p-1">
+            {TYPE_LABELS.map((label, i) => {
+              const highlighted = hover === `select-item-${i}`;
+              return (
+                <div
+                  key={label}
+                  role="option"
+                  aria-selected={i === 0}
+                  data-slot="select-item"
+                  className={`relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none ${highlighted ? "bg-accent text-accent-foreground" : ""}`}
+                  {...anchor(`select-item-${i}`)}
+                >
+                  <span data-slot="select-item-indicator" className="absolute right-2 flex size-3.5 items-center justify-center">
+                    {i === 0 ? <CheckIcon className="size-4 text-muted-foreground" /> : null}
+                  </span>
+                  <span>{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -82,9 +131,9 @@ export function EditorScreen() {
   const prepareHover = useControl("btn-prepare", "bg-primary/90");
 
   // Entrance: the band fades in, the question card springs in.
-  const bandIn = fadeIn(t, 0.05, 0.35);
-  const cardP = spring(t - 0.12, SPRINGS.soft);
-  const cardO = EASE.app(progress(t, 0.12, 0.42));
+  const bandIn = fadeIn(t, T.editorIn - 0.05, 0.35);
+  const cardP = spring(t - T.editorIn, SPRINGS.soft);
+  const cardO = EASE.app(progress(t, T.editorIn, T.editorIn + 0.3));
 
   return (
     <div className="relative flex h-full flex-col bg-canvas">
@@ -151,7 +200,7 @@ export function EditorScreen() {
                 <FieldGroup className="content-start gap-5">
                   <Field>
                     <FieldLabel htmlFor="question-type">Tipo de respuesta</FieldLabel>
-                    <SelectTriggerStatic value="Opción única" />
+                    <TypeSelect />
                     <FieldDescription>Podés cambiarlo sin perder el enunciado.</FieldDescription>
                   </Field>
                   <Field>

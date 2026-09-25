@@ -22,29 +22,45 @@ const root = createRoot(container);
 let anchors: Anchors = {};
 /** Anchors captured at reference times, for controls that later unmount. */
 let reference: Anchors = {};
-const REFERENCE_TIMES = [0.5, 3.5, 5.5, 7.5, 9.9, 12, 14.9, 17, 18.6, 20.9];
+const REFERENCE_TIMES = [2.0, 3.5, 4.8, 6.5, 8.0, 10.4, 13.5, 15.5, 17.5, 18.9, 21.4, 23.0, 26.5, 27.6, 30.1];
 
 function render(t: number) {
   flushSync(() => root.render(<App t={t} anchors={anchors} />));
 }
 
-/** Layout rects in world coordinates (transforms ignored on purpose). */
+/** Layout rect of `el` in world coordinates (transforms ignored on purpose). */
+function worldRect(el: HTMLElement, world: HTMLElement) {
+  let x = 0;
+  let y = 0;
+  let node: HTMLElement | null = el;
+  while (node && node !== world) {
+    x += node.offsetLeft;
+    y += node.offsetTop;
+    node = node.offsetParent as HTMLElement | null;
+  }
+  return node === world ? { x, y, w: el.offsetWidth, h: el.offsetHeight } : null;
+}
+
+/**
+ * Anchors: every `[data-anchor]`, plus `[data-anchor-each]` containers whose
+ * `[data-anchor-select]` descendants become `<prefix>-0`, `<prefix>-1`… (for
+ * real components that cannot carry our attributes).
+ */
 function measure(): Anchors {
   const world = container.querySelector<HTMLElement>("[data-world]");
   const out: Anchors = {};
   if (!world) return out;
   for (const el of container.querySelectorAll<HTMLElement>("[data-anchor]")) {
     if (el.closest("[data-no-anchors]")) continue;
-    let x = 0;
-    let y = 0;
-    let node: HTMLElement | null = el;
-    while (node && node !== world) {
-      x += node.offsetLeft;
-      y += node.offsetTop;
-      node = node.offsetParent as HTMLElement | null;
-    }
-    if (node !== world) continue;
-    out[el.dataset.anchor!] = { x, y, w: el.offsetWidth, h: el.offsetHeight };
+    const r = worldRect(el, world);
+    if (r) out[el.dataset.anchor!] = r;
+  }
+  for (const group of container.querySelectorAll<HTMLElement>("[data-anchor-each]")) {
+    if (group.closest("[data-no-anchors]")) continue;
+    group.querySelectorAll<HTMLElement>(group.dataset.anchorSelect ?? "*").forEach((el, i) => {
+      const r = worldRect(el, world);
+      if (r) out[`${group.dataset.anchorEach}-${i}`] = r;
+    });
   }
   return out;
 }

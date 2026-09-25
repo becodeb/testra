@@ -1,3 +1,5 @@
+import { T } from "./timeline";
+
 // Scene data. Exam and questions follow scripts/seed.sql.
 
 export const EXAM = {
@@ -37,8 +39,11 @@ export const STUDENTS: ReadonlyArray<Student> = [
 
 /** Row of Sofía, the answer the AI correction reviews. */
 export const SOFIA = 1;
-/** Row of Tomás, the one with the activity signal. */
-export const TOMAS = 2;
+/** Row of Lucía: the student we follow, and the one with the activity signals. */
+export const LUCIA = 0;
+
+/** Lucía's answers, as her report shows them. */
+export const LUCIA_ANSWERS = ["Fotosíntesis", "clorofila", "Produce oxígeno y alimento para los seres vivos."] as const;
 
 export const SOFIA_ANSWER =
   "La fotosíntesis produce el oxígeno que respiran casi todos los seres vivos y la glucosa que sostiene las cadenas alimentarias. Sin ella no entraría energía al ecosistema.";
@@ -50,13 +55,13 @@ export const TEACHER = { name: "Mariana Costa", role: "Docente", initials: "MC" 
 
 export const percent = (score: number, max = EXAM.totalPoints) => Math.round((score / max) * 100);
 
-// Wall clock: the run starts at 10:12:00 on 25/09/2026 (Buenos Aires), at t = 10 s.
+// Wall clock: the run starts at 10:12:00 on 25/09/2026 (Buenos Aires), at the start click.
 const START_MS = Date.UTC(2026, 8, 25, 13, 12, 0);
 const TZ = "America/Argentina/Buenos_Aires";
 const timeFormatter = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: TZ });
 const dateFormatter = new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short", timeZone: TZ });
 
-export const clockMs = (t: number) => START_MS + Math.floor((t - 10) * 1000);
+export const clockMs = (t: number) => START_MS + Math.floor((t - T.clickStart) * 1000);
 export const clockLabel = (t: number) => timeFormatter.format(clockMs(t));
 export const dateLabel = (ms: number) => dateFormatter.format(ms);
 export const PUBLISHED_MS = Date.UTC(2026, 8, 25, 13, 53, 0);

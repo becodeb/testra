@@ -1,14 +1,15 @@
 import { ArrowRight, KeyRound, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { TESTRA_MARK as testraMark } from "../assets";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 
 import { EXAM } from "../data";
-import { enter, SPRINGS, swap } from "../motion";
+import { swap } from "../motion";
 import { anchor, useScene } from "../scene-context";
+import { Runtime } from "./runtime";
+import { StudentHeader } from "./student-header";
 import { nameKeyTimes, STUDENT_NAME, T } from "../timeline";
 
 const INPUT = "w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs outline-none md:text-sm";
@@ -23,22 +24,6 @@ function Swapped({ at, before, after, className }: { at: number; before: ReactNo
 
 /** The student can only type: a solid caret, no pointer. */
 const Caret = ({ h }: { h: number }) => <span className="scene-caret" style={{ height: h }} aria-hidden="true" />;
-
-/** StudentLayout header, logged out (so it offers "Entrar"). */
-function StudentHeader() {
-  return (
-    <header className="border-b bg-paper">
-      <div className="mx-auto flex h-[3.75rem] max-w-[1020px] items-center justify-between px-4 lg:px-6">
-        <a className="flex items-center gap-2.5" aria-label="Testra, inicio"><span className="testra-mark" aria-hidden="true"><img src={testraMark} alt="" width={128} height={128} /></span><span className="font-bold tracking-[-.025em] text-brand-deep">Testra</span></a>
-        <nav className="flex items-center gap-4 text-xs font-medium text-muted" aria-label="Navegación">
-          <a>Acerca de</a>
-          <a>Qué se registra</a>
-          <a className="inline-flex h-8 items-center rounded-md bg-brand px-3 font-semibold text-white">Entrar</a>
-        </nav>
-      </div>
-    </header>
-  );
-}
 
 /** join-run.tsx, both steps, driven by t. */
 export function JoinCard({ hideName = false }: { hideName?: boolean }) {
@@ -97,11 +82,11 @@ export function JoinCard({ hideName = false }: { hideName?: boolean }) {
 
 export function StudentPage() {
   const { t } = useScene();
+  if (t >= T.act2Swap) return <Runtime />;
   // The card is hidden while the morph box carries it back to the teacher.
   const cardOpacity = t >= T.morphRow ? 0 : 1;
-  const pageIn = enter(t, 3.6, 0, SPRINGS.soft);
   return (
-    <div className="absolute top-0 h-full bg-canvas" style={{ width: 1440, opacity: pageIn.opacity }}>
+    <div className="absolute inset-0 bg-canvas">
       <StudentHeader />
       <main className="mx-auto grid min-h-[750px] max-w-lg place-items-center px-4 py-12">
         <div className="w-full" {...anchor("join-card")} style={{ opacity: cardOpacity }}>

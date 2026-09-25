@@ -5,14 +5,30 @@ import { SceneContext } from "./scene-context";
 import { T } from "./timeline";
 import { CorrectionScreen } from "./scenes/correction";
 import { EditorScreen } from "./scenes/editor";
+import { CardText, uiPresence } from "./scenes/cards";
 import { AppHeader } from "./scenes/header";
+import { ReportDialog } from "./scenes/report";
 import { StudentPage } from "./scenes/join";
 import { MorphLayer } from "./scenes/morphs";
 import { CursorView, Outro } from "./scenes/overlay";
 import { ResultsScreen } from "./scenes/results";
 import { RoomScreen } from "./scenes/room";
 
-const HOVERABLE = ["btn-prepare", "btn-start", "btn-end", "btn-accept", "btn-publish"] as const;
+const HOVERABLE = [
+  "btn-prepare",
+  "btn-start",
+  "btn-end",
+  "btn-accept",
+  "btn-publish",
+  "select-trigger",
+  "select-item-0",
+  "select-item-1",
+  "select-item-2",
+  "select-item-3",
+  "select-item-4",
+  "btn-understood",
+  "report-name",
+] as const;
 
 function Screen({ opacity, children }: { opacity: number; children: React.ReactNode }) {
   return <div className="absolute inset-0" style={{ opacity, visibility: opacity > 0 ? "visible" : "hidden" }}>{children}</div>;
@@ -24,18 +40,21 @@ export function App({ t, anchors }: { t: number; anchors: Anchors }) {
   const hover = hoveredAnchor(t, anchors, HOVERABLE);
   const scene = { t, anchors, hover, pressed: isPressed(t) };
 
-  const headerIn = fadeIn(t, 0.05, 0.35);
+  const headerIn = fadeIn(t, T.editorIn - 0.05, 0.3);
   // UI dissolves into the canvas at the outro, the header lockup flies out of it.
-  const worldOut = 1 - EASE.inOut(progress(t, T.outro + 0.05, T.outro + 0.5));
+  const worldOut = 1 - EASE.inOut(progress(t, T.outro, T.outro + 0.18));
 
   const editor = t < T.morphRoom ? 1 : fadeOut(t, T.morphRoom, 0.12);
-  const room = t < T.morphRoom ? 0 : t < T.morphAi ? 1 : fadeOut(t, T.morphAi, 0.12);
-  const correction = t >= T.morphAi && t < T.morphResults ? 1 : 0;
-  const results = t >= T.morphResults ? 1 : 0;
+  // Acts swap while the UI is hidden behind a card.
+  const room = t >= T.morphRoom && t < T.act3Swap ? 1 : 0;
+  const results = (t >= T.act3Swap && t < T.act4Swap) || t >= T.morphResults ? 1 : 0;
+  const correction = t >= T.act4Swap && t < T.morphResults ? 1 : 0;
+  const ui = uiPresence(t);
 
   return (
     <SceneContext.Provider value={scene}>
       <div className="relative overflow-hidden bg-canvas" style={{ width: STAGE_W, height: STAGE_H }}>
+        <div className="absolute inset-0" style={{ opacity: ui.opacity, transform: `scale(${ui.scale.toFixed(5)})`, transformOrigin: "50% 50%" }}>
         <div
           data-world=""
           className="absolute top-0 left-0"
@@ -51,14 +70,17 @@ export function App({ t, anchors }: { t: number; anchors: Anchors }) {
               <Screen opacity={correction}><CorrectionScreen /></Screen>
               <Screen opacity={results}><ResultsScreen /></Screen>
             </div>
+            <ReportDialog />
           </div>
           <div className="absolute top-0" style={{ left: STUDENT_X, width: PAGE_W, height: PAGE_H }}>
             <StudentPage />
           </div>
           <MorphLayer />
         </div>
-        <Outro cam={cam} />
         <CursorView cam={cam} />
+        </div>
+        <Outro cam={cam} />
+        <CardText />
       </div>
     </SceneContext.Provider>
   );

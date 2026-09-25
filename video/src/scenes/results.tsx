@@ -2,7 +2,7 @@ import { BadgeCheck, BarChart3, CalendarDays, CheckCircle2, ChevronRight, Histor
 
 import { Button } from "@/components/ui/button";
 
-import { dateLabel, EXAM, percent, PUBLISHED_MS, SESSION_MS, SOFIA, STUDENTS } from "../data";
+import { dateLabel, EXAM, LUCIA, percent, PUBLISHED_MS, SESSION_MS, SOFIA, STUDENTS } from "../data";
 import { enter, fadeIn, SPRINGS, swap } from "../motion";
 import { anchor, useControl, useScene } from "../scene-context";
 import { T } from "../timeline";
@@ -26,7 +26,7 @@ function PublishResults({ pendingManual }: { pendingManual: number }) {
     ? `Resultados publicados el ${dateLabel(PUBLISHED_MS)}.`
     : t >= T.publishEnabled && (textSwap.showNew || published)
       ? "Al publicar, los resultados quedan definitivos."
-      : "Faltan corregir 1 respuesta de desarrollo.";
+      : `Faltan corregir ${pendingManual} respuesta${pendingManual === 1 ? "" : "s"} de desarrollo.`;
   const enabledP = fadeIn(t, T.publishEnabled);
   const opacity = blocked ? 0.5 : working ? 0.5 : 0.5 + 0.5 * enabledP;
   const chipSwap = swap(t, T.published);
@@ -59,18 +59,21 @@ function PublishResults({ pendingManual }: { pendingManual: number }) {
 export function ResultRow({ i, landed, force = false }: { i: number; landed: boolean; force?: boolean }) {
   const { t } = useScene();
   const s = STUDENTS[i];
-  const pending = i === SOFIA && !landed;
+  // Before the AI act every long answer is still waiting for the teacher.
+  const report = t < T.act4Swap;
+  const pending = report || (i === SOFIA && !landed);
+  const nameHover = useControl("report-name", "underline");
   const score = pending ? s.auto : s.auto + s.long;
   const isTarget = i === SOFIA;
   // Sofía's slot is filled by the morph; the other rows populate around it as it
   // lands, so the flying card never passes over their text.
   const order = i < SOFIA ? i : i - 1;
-  const shown = force ? { opacity: 1 } : isTarget ? { opacity: t >= T.morphResultsEnd - 0.05 ? 1 : 0 } : t < T.morphResultsEnd - 0.05 ? { opacity: 0 } : enter(t, T.morphResultsEnd - 0.05 + order * 0.0625, 8, SPRINGS.ui);
+  const shown = force || report ? { opacity: 1 } : isTarget ? { opacity: t >= T.morphResultsEnd - 0.05 ? 1 : 0 } : t < T.morphResultsEnd - 0.05 ? { opacity: 0 } : enter(t, T.morphResultsEnd - 0.05 + order * 0.0625, 8, SPRINGS.ui);
   // Collapsed table borders ignore the row's opacity, so the divider fades explicitly.
   const style = { ...shown, borderBottomColor: `rgba(227,230,235,${shown.opacity.toFixed(3)})` };
   return (
     <tr className="hover:bg-canvas" style={style} {...anchor(`results-row-${i}`)}>
-      <th scope="row" className="px-4 py-3"><button className="font-semibold text-brand">{s.name}</button></th>
+      <th scope="row" className="px-4 py-3"><button className={`font-semibold text-brand ${i === LUCIA && report ? nameHover : ""}`} {...(i === LUCIA && report && !force ? anchor("report-name") : {})}>{s.name}</button></th>
       <td className="px-4 py-3"><span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ok"><CheckCircle2 className="size-3.5" />{pending ? "Entregó" : "Corregida"}</span></td>
       <td className="mono-number px-4 py-3 text-xs whitespace-nowrap text-muted">{attemptLabel(s.started)}</td>
       <td className="mono-number px-4 py-3 text-xs whitespace-nowrap text-muted">{attemptLabel(s.submitted)}</td>
@@ -88,8 +91,9 @@ export function ResultRow({ i, landed, force = false }: { i: number; landed: boo
 export function ResultsScreen() {
   const { t } = useScene();
   const landed = t >= T.morphResultsEnd;
-  const pendingManual = landed ? 0 : 1;
-  const part = (i: number) => enter(t, T.morphResults + 0.05 + i * 0.0625, 12, SPRINGS.soft);
+  const report = t < T.act4Swap;
+  const pendingManual = report ? 5 : landed ? 0 : 1;
+  const part = (i: number) => (report ? { opacity: 1 } : enter(t, T.morphResults + 0.05 + i * 0.0625, 12, SPRINGS.soft));
   const tabs = [
     { id: "notas", label: "Notas", icon: ListChecks },
     { id: "correcciones", label: "Correcciones", icon: SquarePen },
@@ -148,13 +152,13 @@ export function ResultsScreen() {
               </div>
             </section>
 
-            <section className="overflow-hidden rounded-lg border bg-paper shadow-card" style={{ opacity: fadeIn(t, T.morphResults + 0.2, 0.2) }} {...anchor("results-notas")}>
+            <section className="overflow-hidden rounded-lg border bg-paper shadow-card" style={{ opacity: report ? 1 : fadeIn(t, T.morphResults + 0.2, 0.2) }} {...anchor("results-notas")}>
               {/* The section's text populates once the flying card has landed, so it never passes over text. */}
-              <div style={{ opacity: fadeIn(t, T.morphResultsEnd - 0.05, 0.15) }}>
+              <div style={{ opacity: report ? 1 : fadeIn(t, T.morphResultsEnd - 0.05, 0.15) }}>
                 <PublishResults pendingManual={pendingManual} />
               </div>
               <table className="w-full min-w-[620px] text-left text-sm">
-                <thead className="bg-inset text-xs text-ink-2" style={{ opacity: fadeIn(t, T.morphResultsEnd - 0.05, 0.15) }}>
+                <thead className="bg-inset text-xs text-ink-2" style={{ opacity: report ? 1 : fadeIn(t, T.morphResultsEnd - 0.05, 0.15) }}>
                   <tr>
                     {["Alumno", "Estado", "Inicio", "Entrega", "Tiempo", "Respondidas", "Nota"].map((label, c) => (
                       <th key={label} className={`px-4 py-3${c >= 4 ? " text-right" : ""}`} {...anchor(`results-col-${c}`)}>{label}</th>

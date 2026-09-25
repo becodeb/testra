@@ -180,6 +180,8 @@ export async function openScene({ width = 1920, height = 1080, scale = 1, query 
     await session.send("Page.enable");
     await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: scale, mobile: false });
     await session.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 247, g: 248, b: 250, a: 1 } });
+    // The app formats dates with the browser's zone; pin it so every machine renders the same frames.
+    await session.send("Emulation.setTimezoneOverride", { timezoneId: "America/Argentina/Buenos_Aires" });
 
     const loaded = session.once("Page.loadEventFired");
     await session.send("Page.navigate", { url: `${server.url}index.html${query}` });

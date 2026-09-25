@@ -107,7 +107,7 @@ export function AiCard() {
 
 export function CorrectionScreen() {
   const { t } = useScene();
-  const visible = t >= T.morphAiEnd - 0.05 && t < T.morphResults;
+  const visible = t >= T.act4Swap && t < T.morphResults;
   return (
     <div className="grid h-full place-items-center px-6">
       <div className="w-full max-w-3xl" {...anchor("ai-card")} style={{ opacity: visible ? 1 : 0 }}>

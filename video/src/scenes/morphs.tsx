@@ -8,7 +8,8 @@ import { STUDENT_NAME, T } from "../timeline";
 import { AiCard } from "./correction";
 import { JoinCard } from "./join";
 import { ResultRow } from "./results";
-import { RoomCard, Row } from "./room";
+import { RoomCard, Row, SignalArticle, SIGNALS } from "./room";
+import { StudentDialog } from "./runtime";
 
 const PAPER = "#ffffff";
 const LINE = "#e3e6eb";
@@ -197,19 +198,21 @@ function JoinToRow() {
   );
 }
 
-/** Sofía's row opens into the AI correction card. */
-function RowToAi() {
+/** The event Lucía acknowledged flies to the teacher and becomes the panel's first signal. */
+function DialogToSignal() {
   const { t, anchors } = useScene();
-  const from = anchors["room-row-1"];
-  const to = anchors["ai-card"];
-  const land = T.morphAiEnd - 0.05;
-  if (!from || !to || t < T.morphAi || t >= land + 0.1) return null;
-  const { p, content } = morphClock(t, T.morphAi + 0.06, land);
-  const name = fadeOut(t, T.morphAi, 0.06);
+  const from = anchors["student-dialog"];
+  const to = anchors["signal-inner-0"];
+  if (!from || !to || t < T.flyStart || t >= T.signal + 0.1) return null;
+  const { p } = morphClock(t, T.flyStart + 0.04, T.signal);
+  // The dialog's words give way to the teacher's row early, so the flying
+  // object always carries readable content, never an empty frame.
+  const dialog = fadeOut(t, T.flyStart, 0.08);
+  const content = EASE.app(progress(p, 0.12, 0.4));
   return (
-    <Box rect={lerpRect(from, to, p)} look={flightLook(p, 0, 12, true)} opacity={fadeOut(t, land, 0.1)}>
-      {content > 0 ? <div className="absolute top-[-1px] left-[-1px]" style={{ width: to.w, opacity: content }}><AiCard /></div> : null}
-      {name > 0 ? <span className="absolute top-0 left-4 flex h-full items-center text-sm font-medium text-ink" style={{ opacity: name, maxHeight: from.h }}>{STUDENTS[1].name}</span> : null}
+    <Box rect={lerpRect(from, to, p)} look={flightLook(p, 8, 0)} opacity={fadeOut(t, T.signal, 0.1)}>
+      {dialog > 0 ? <div style={{ width: from.w, opacity: dialog }}><StudentDialog /></div> : null}
+      {content > 0 ? <div className="absolute top-[-1px] left-[-1px]" style={{ width: to.w, opacity: content }}><SignalArticle signal={SIGNALS[0]} /></div> : null}
     </Box>
   );
 }
@@ -221,7 +224,9 @@ function AiToResults() {
   const to = anchors["results-row-1"];
   if (!from || !to || t < T.morphResults || t >= T.morphResultsEnd + 0.1) return null;
   // The card holds while its content fades, then closes into the row.
-  const { p, content: row } = morphClock(t, T.morphResults + 0.12, T.morphResultsEnd - 0.05);
+  const { p } = morphClock(t, T.morphResults + 0.12, T.morphResultsEnd - 0.05);
+  // Sofía's row shows up early inside the closing card, so the box is never empty.
+  const row = EASE.app(progress(p, 0.25, 0.55));
   const content = fadeOut(t, T.morphResults + 0.02, 0.1);
   return (
     <Box rect={lerpRect(from, to, p)} look={flightLook(p, 12, 0)} opacity={fadeOut(t, T.morphResultsEnd - 0.05, 0.1)}>
@@ -246,7 +251,7 @@ export function MorphLayer() {
       <ButtonToRoom />
       <CodeToJoin />
       <JoinToRow />
-      <RowToAi />
+      <DialogToSignal />
       <AiToResults />
     </div>
   );

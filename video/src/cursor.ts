@@ -13,35 +13,55 @@ interface Move {
 }
 
 const START: CursorTarget = { x: 1180, y: 900 };
+const STUDENT_REST = { anchor: "runtime-input", fx: 0.72, fy: 1, dy: 44 };
 
 /**
- * Arrivals land 150–250 ms before each click. After every click the cursor
- * follows through ~60–120 px (screen) into neutral space so the result reads.
+ * One pointer, owned by whoever's screen is on camera. Arrivals land
+ * 150–250 ms before each click; after a click it follows through a little
+ * into neutral space so the result reads.
  */
 const MOVES: ReadonlyArray<Move> = [
-  { t0: T.cursorEnter, t1: 0.8, to: { anchor: "key-radio" }, arc: 0.12 },
-  { t0: 1.15, t1: 1.55, to: { anchor: "key-radio", dx: -46, dy: -40 }, arc: 0.1 },
-  { t0: 1.95, t1: 2.8, to: { anchor: "btn-prepare", fx: 0.42 }, arc: -0.1 },
-  { t0: 3.15, t1: 3.55, to: { anchor: "btn-prepare", fx: 0.3, fy: 1, dy: 52 }, arc: 0.1 },
-  // Hidden while the student joins; it comes back from the empty table area.
-  { t0: 8.55, t1: 8.56, to: { anchor: "room-table", fx: 0.42, fy: 0.62 } },
-  { t0: 8.9, t1: 9.8, to: { anchor: "btn-start", fx: 0.45 }, arc: 0.1 },
-  { t0: 10.15, t1: 10.5, to: { anchor: "room-controls", fx: 0.3, fy: 0.62 }, arc: -0.1 },
-  { t0: 13.95, t1: 13.96, to: { anchor: "room-controls", fx: 0.62, fy: 0.9, dy: 30 } },
-  { t0: 14.2, t1: 14.8, to: { anchor: "btn-end", fx: 0.4 }, arc: -0.12 },
-  { t0: 15.15, t1: 15.8, to: { anchor: "room-row-1", fx: 0.15 }, arc: 0.12 },
-  { t0: 16.2, t1: 17.0, to: { anchor: "ai-suggestion", fx: 0.62, fy: 0.62 }, arc: 0.1 },
-  { t0: 17.95, t1: 18.3, to: { anchor: "btn-accept", fx: 0.42 }, arc: -0.08 },
-  { t0: 18.65, t1: 19.0, to: { anchor: "btn-accept", fx: 0.7, dy: 38 }, arc: 0.1 },
-  { t0: 20.15, t1: 20.8, to: { anchor: "btn-publish", fx: 0.42 }, arc: 0.1 },
-  { t0: 21.15, t1: 21.5, to: { anchor: "btn-publish", fx: -0.1, dy: 16 }, arc: -0.1 },
+  // Teacher, editor
+  { t0: T.cursorEnter, t1: 2.05, to: { anchor: "key-radio" }, arc: 0.12 },
+  { t0: 2.4, t1: 2.8, to: { anchor: "select-trigger", fx: 0.45 }, arc: -0.12 },
+  // Menu open: glide down over every type, then back up to "Opción única".
+  { t0: 3.1, t1: 3.65, to: { anchor: "select-item-4", fx: 0.35 }, arc: 0.04 },
+  { t0: 3.7, t1: 3.9, to: { anchor: "select-item-0", fx: 0.35 }, arc: -0.04 },
+  { t0: 4.15, t1: 4.8, to: { anchor: "btn-prepare", fx: 0.42 }, arc: -0.1 },
+  { t0: 5.15, t1: 5.5, to: { anchor: "btn-prepare", fx: 0.3, fy: 1, dy: 52 }, arc: 0.1 },
+  // Teacher, room (the student joins without a pointer)
+  { t0: 9.6, t1: 9.61, to: { anchor: "room-table", fx: 0.42, fy: 0.62 } },
+  { t0: 9.8, t1: 10.3, to: { anchor: "btn-start", fx: 0.45 }, arc: 0.1 },
+  { t0: 10.65, t1: 11.0, to: { anchor: "room-controls", fx: 0.3, fy: 0.62 }, arc: -0.1 },
+  // Lucía: rests by her answer, leaves the frame, comes back, acknowledges.
+  { t0: 12.4, t1: 12.41, to: STUDENT_REST },
+  { t0: 13.8, t1: 14.1, to: { x: 1640 + 1560, y: 700 }, arc: 0.1 },
+  { t0: 14.55, t1: 15.0, to: { anchor: "student-dialog", fx: 0.62, fy: 1.3 }, arc: -0.08 },
+  { t0: 15.95, t1: 16.3, to: { anchor: "btn-understood", fx: 0.45 }, arc: 0.1 },
+  // Teacher again: "Finalizar evaluación".
+  { t0: 18.2, t1: 18.21, to: { anchor: "room-controls", fx: 0.62, fy: 0.9, dy: 30 } },
+  { t0: 18.3, t1: 18.8, to: { anchor: "btn-end", fx: 0.4 }, arc: -0.12 },
+  // Resultados: open Lucía.
+  { t0: 20.75, t1: 20.76, to: { anchor: "results-row-0", fx: 0.5, fy: 1.6 } },
+  { t0: 20.95, t1: 21.3, to: { anchor: "report-name", fx: 0.45 }, arc: 0.1 },
+  // AI correction and publishing.
+  { t0: 25.7, t1: 25.71, to: { anchor: "ai-suggestion", fx: 0.8, fy: 1.4 } },
+  { t0: 26.0, t1: 26.6, to: { anchor: "ai-suggestion", fx: 0.62, fy: 0.62 }, arc: 0.1 },
+  { t0: 27.2, t1: 27.55, to: { anchor: "btn-accept", fx: 0.42 }, arc: -0.08 },
+  { t0: 27.9, t1: 28.25, to: { anchor: "btn-accept", fx: 0.7, dy: 38 }, arc: 0.1 },
+  { t0: 29.4, t1: 30.05, to: { anchor: "btn-publish", fx: 0.42 }, arc: 0.1 },
+  { t0: 30.4, t1: 30.75, to: { anchor: "btn-publish", fx: -0.1, dy: 16 }, arc: -0.1 },
 ];
 
 /** Visible windows [from, to]; 150 ms fades at both ends. */
 const VISIBLE: ReadonlyArray<readonly [number, number]> = [
-  [T.cursorEnter, 4.1],
-  [8.6, 10.8],
-  [14.0, 21.85],
+  [T.cursorEnter, 5.65],
+  [9.65, 11.15],
+  [12.75, 14.1],
+  [14.55, 16.75],
+  [18.2, 19.45],
+  [20.9, 21.9],
+  [26.0, 31.05],
 ];
 
 export const CURSOR_SIZE = 26;

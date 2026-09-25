@@ -24,9 +24,9 @@ function activeSection(t: number): Section {
 /** Pending corrections in the nav badge: 5 when the run ends, 1 left when the queue opens. */
 function correctionBadge(t: number): { value: number; pill: number; digit: { opacity: number; filter?: string } } | null {
   if (t < T.badgeFive || t >= T.saved + 0.12) return null;
-  if (t < T.morphAi) return { value: 5, pill: fadeIn(t, T.badgeFive), digit: { opacity: 1 } };
+  if (t < T.act4Swap) return { value: 5, pill: fadeIn(t, T.badgeFive), digit: { opacity: 1 } };
   if (t < T.saved) {
-    const s = swap(t, T.morphAi);
+    const s = swap(t, T.act4Swap);
     return { value: s.showNew ? 1 : 5, pill: 1, digit: s.style };
   }
   return { value: 1, pill: 1 - (t - T.saved) / 0.12, digit: { opacity: 1 } };
