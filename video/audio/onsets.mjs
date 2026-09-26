@@ -1,10 +1,10 @@
 // Kick-onset check: finds low-band onsets in the rendered WAV and reports
-// their deviation from the beat grid in timeline.ts.
+// their deviation from the beat grid (video time, see paced.mjs).
 // Usage: node video/audio/onsets.mjs [video/build/music.wav]
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BEAT, SIXTEENTH } from "../src/timeline.ts";
+import { BEAT, SIXTEENTH } from "./paced.mjs";
 import { biquad, readWav, SR } from "./dsp.mjs";
 
 const file = resolve(process.argv[2] ?? fileURLToPath(new URL("../build/music.wav", import.meta.url)));
@@ -61,6 +61,7 @@ for (const o of onsets) {
 const devs = onBeat.map((o) => Math.abs(o.dev) * 1000);
 console.log(
   JSON.stringify({
+    beatSeconds: +BEAT.toFixed(6),
     onsetsOnBeat: onBeat.length,
     otherOnsets: other.length,
     first: +onBeat[0]?.t.toFixed(4),

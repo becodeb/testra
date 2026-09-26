@@ -1,4 +1,4 @@
-// Usage: node video/tools/still.mjs 0.5 3.2 13.4 ...
+// Usage: node video/tools/still.mjs 0.6 4.2 20.6 ...   (video time, seconds)
 // Writes video/out/stills/t-XX.XX.png and fails on any page console error.
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";

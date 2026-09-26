@@ -9,6 +9,15 @@ export const THIRTY_SECOND = BEAT / 8; // 0.0625 s
 export const DURATION = 34; // 17 bars
 export const FPS = 60;
 
+/**
+ * Global pace. Everything in this file is "story time" on a 120 BPM grid; the
+ * video plays it PACE times slower (video time = story time × PACE), so the
+ * music runs at 120 / PACE = 100 BPM. Only the boundaries convert: main.tsx
+ * (video → story), the renderer (video time) and the music (story → video).
+ */
+export const PACE = 1.2;
+export const VIDEO_DURATION = DURATION * PACE; // 40.8 s
+
 export const beats = (n: number) => n * BEAT;
 export const bars = (n: number) => n * BAR;
 export const snap = (t: number, grid = SIXTEENTH) => Math.round(t / grid) * grid;

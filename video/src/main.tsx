@@ -5,7 +5,7 @@ import "./styles.css";
 import { App } from "./App";
 import { cameraMoving, type Anchors } from "./camera";
 import { cursorMoving } from "./cursor";
-import { DURATION, TWEEN_WINDOWS } from "./timeline";
+import { DURATION, PACE, TWEEN_WINDOWS, VIDEO_DURATION } from "./timeline";
 
 declare global {
   interface Window {
@@ -85,8 +85,9 @@ async function waitForAssets() {
   await Promise.all([...document.images].map((img) => (img.complete ? Promise.resolve() : img.decode().catch(() => undefined))));
 }
 
+/** `t` is video time; the scene renders story time `t / PACE`. */
 async function setTime(t: number) {
-  renderSettled(Math.min(Math.max(t, 0), DURATION));
+  renderSettled(Math.min(Math.max(t / PACE, 0), DURATION));
   // Drop every compositor layer and raster tile so a frame never depends on
   // the frame rendered before it (Chrome reuses raster scales across commits).
   container.style.display = "none";
@@ -112,8 +113,10 @@ async function boot() {
   await setTime(q ? Number(q) : 0);
 }
 
-window.__duration = DURATION;
+window.__duration = VIDEO_DURATION;
 window.__setTime = setTime;
-window.__motion = (t: number) =>
-  cameraMoving(t, anchors) || cursorMoving(t, anchors) || TWEEN_WINDOWS.some(([a, b]) => t >= a && t <= b);
+window.__motion = (videoT: number) => {
+  const t = videoT / PACE;
+  return cameraMoving(t, anchors) || cursorMoving(t, anchors) || TWEEN_WINDOWS.some(([a, b]) => t >= a && t <= b);
+};
 window.__ready = boot();

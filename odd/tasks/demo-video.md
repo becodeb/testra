@@ -182,10 +182,16 @@ render. Push authorized for `feat/demo-video` only (Coolify deploys
   beat). Test render 27.8–29.3: readable at 28.3, sharp from 28.4. Music
   regenerated (48 kicks, max 1.02 ms off grid, −14.94 LUFS).
 
+- 2026-09-26: user feedback on the final: "parece cámara rápida", make it a
+  bit longer (music may change). Decision: global `PACE = 1.2` at the
+  boundaries (scene in story time, video/music in video time): 40.8 s,
+  100 BPM, everything 20 % calmer. User asked the parent to finish it and
+  keep the quality MP4 → final render at scale 2 on the Pi (delegated).
+
 ## Next step
 
-T8 on the user's computer: pull and re-run `render:final` (the scene hash
-changed, so every chunk re-renders). For changes after watching it: edit `video/src`
+PACE change + final scale-2 render on the Pi; verify 2448 frames, 40.800 s,
+AAC; keep the MP4 outside git (copy to ~/Videos/testra/). For changes after watching it: edit `video/src`
 (timeline in `video/src/timeline.ts`), `npm --prefix video run build`, review
 stills, re-run `music` if event times moved, then render. T4/T5 were
 superseded by T6–T8.

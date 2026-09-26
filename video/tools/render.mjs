@@ -26,7 +26,7 @@ import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Worker } from "node:worker_threads";
 
-import { DURATION, FPS } from "../src/timeline.ts";
+import { FPS, VIDEO_DURATION as DURATION } from "../src/timeline.ts";
 import { DIST_DIR, openScene, VIDEO_DIR } from "./cdp.mjs";
 import { checkFfmpeg, countFrames, encodeFinal, HEIGHT, spawnFfmpeg, WIDTH } from "./encode.mjs";
 import { findChrome } from "./find-bin.mjs";

@@ -1,15 +1,21 @@
-// Composes the demo soundtrack in code: 120 BPM, 48 kHz stereo WAV, as long
-// as the scene. Every time comes from ../src/timeline.ts (imported with
-// Node's type stripping), so the beat grid and the UI accents cannot drift.
+// Composes the demo soundtrack in code: 48 kHz stereo WAV, as long as the
+// video. Every time comes from ../src/timeline.ts scaled to video time by
+// ./paced.mjs (story grid 120 BPM × PACE 1.2 → 100 BPM), so the beat grid and
+// the UI accents cannot drift. Musical offsets below are written in story
+// seconds and scaled with `st()`; acoustic constants (envelopes, reverb) are not.
 // Usage: node video/audio/compose.mjs [--out video/build/music.wav]
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import * as TL from "../src/timeline.ts";
+import * as TL from "./paced.mjs";
 import { automation, biquad, dbToGain, gainToDb, lufs, mtof, prng, saw, SR, svf, writeWav } from "./dsp.mjs";
 
-const { T, BEAT, BAR, SIXTEENTH, THIRTY_SECOND, DURATION, CARDS, bars } = TL;
+const { T, BEAT, BAR, SIXTEENTH, THIRTY_SECOND, DURATION, CARDS, PACE, bars } = TL;
+/** A musical offset given in story seconds, in video seconds. */
+const st = (seconds) => seconds * PACE;
+/** Position of t on a grid of `unit`, modulo `per` steps (robust to float `%`). */
+const stepOf = (t, unit, per) => ((Math.round(t / unit) % per) + per) % per;
 const HERE = dirname(fileURLToPath(import.meta.url));
 const outArg = process.argv.indexOf("--out");
 const OUT = resolve(outArg > 0 ? process.argv[outArg + 1] : `${HERE}/../build/music.wav`);
@@ -296,22 +302,22 @@ for (const t of kickTimes) kick(t, inLight(t) ? 0.85 : 1);
 // Bass on 8ths: offbeats lead, downbeats softer (the kick owns them).
 for (const t of grid(S.groove, S.outro, BEAT / 2)) {
   if (drumsOff(t) || (t >= S.aha - BEAT && t < S.aha)) continue;
-  const step = Math.round((t % BAR) / (BEAT / 2));
+  const step = stepOf(t, BEAT / 2, 8);
   const offbeat = step % 2 === 1;
   if (inLight(t) && !offbeat) continue;
   const root = chordAt(t).bass + (step === 7 ? 12 : 0);
-  bassNote(t, root, offbeat ? 1 : 0.55, offbeat ? 0.19 : 0.14);
+  bassNote(t, root, offbeat ? 1 : 0.55, st(offbeat ? 0.19 : 0.14));
 }
 // Long soft roots hold the floor while a card is up; a pickup into the AHA; the final sub.
-for (const [a, b] of BREATHS) bassNote(a, chordAt(a).bass, 0.35, b - a - 0.1, 0.9);
-bassNote(S.aha, chordAt(S.aha).bass, 1, 0.3);
+for (const [a, b] of BREATHS) bassNote(a, chordAt(a).bass, 0.35, b - a - st(0.1), 0.9);
+bassNote(S.aha, chordAt(S.aha).bass, 1, st(0.3));
 bassNote(S.outro, chordAt(S.outro).bass, 0.55, BAR * 0.5, 0.35);
 
 // Hats on 16ths with deterministic humanization. Under the cards only soft
 // offbeat 8ths remain; they open up through the build, the AHA and the lift.
 const openDecay = automation([[S.build, 0.03], [BREATHS[0][0], 0.07], [S.aha, 0.12], [S.ahaEnd, 0.09], [S.lift, 0.05], [S.outro, 0.1]]);
 for (const t of grid(S.groove, S.outro, SIXTEENTH)) {
-  const step = Math.round((t % BEAT) / SIXTEENTH);
+  const step = stepOf(t, SIXTEENTH, 4);
   let vel = [0.55, 0.32, 0.85, 0.36][step] * (0.82 + rnd() * 0.36);
   if (inDip(t)) continue;
   if (inBreath(t)) {
@@ -324,7 +330,7 @@ for (const t of grid(S.groove, S.outro, SIXTEENTH)) {
 
 // Clap on 2 and 4 from bar 3.
 for (const t of grid(S.clap, S.outro, BEAT)) {
-  const beat = Math.round((t % BAR) / BEAT);
+  const beat = stepOf(t, BEAT, 4);
   if ((beat === 1 || beat === 3) && !drumsOff(t)) clap(t, inLight(t) ? 0.7 : 1);
 }
 
@@ -342,7 +348,7 @@ const pluckSteps = (t) => {
 };
 let rot = 0;
 for (const t of grid(0, S.outro, SIXTEENTH)) {
-  const step = Math.round((t % BAR) / SIXTEENTH);
+  const step = stepOf(t, SIXTEENTH, 16);
   if (!pluckSteps(t).includes(step)) continue;
   const pad = chordAt(t).pad;
   const m = pad[rot++ % pad.length] + 12;
@@ -402,12 +408,12 @@ for (const e of TL.EVENTS) if (e.kind === "click") uiClick(e.t, 1);
 // Pad: filter automation. The intro opens toward the groove; every card and
 // the dip close it down, and it reopens with the UI.
 const cutKeys = [[0, 280], [S.groove, 1900], [S.build, 1900], [BREATHS[0][0], 2600]];
-for (const [a, b] of BREATHS) cutKeys.push([a + 0.25, 1000], [b - 0.25, 1300], [b, 2200]);
-cutKeys.push([S.leave, 2200], [S.leave + 0.08, 650], [S.back - 0.05, 700], [S.back + 0.3, 2000]);
+for (const [a, b] of BREATHS) cutKeys.push([a + st(0.25), 1000], [b - st(0.25), 1300], [b, 2200]);
+cutKeys.push([S.leave, 2200], [S.leave + st(0.08), 650], [S.back - st(0.05), 700], [S.back + st(0.3), 2000]);
 cutKeys.push([S.aha - 0.01, 3600], [S.aha, 4600], [S.ahaEnd, 3600], [S.light + 0.01, 2000], [S.lift + 0.01, 2400], [S.outro, 3200], [DURATION, 1400]);
 const padCut = automation(cutKeys, { log: true });
 const levelKeys = [[0, 1], [S.groove, 0.8], [S.build, 0.85]];
-for (const [a, b] of BREATHS) levelKeys.push([a, 0.85], [a + 0.3, 0.95], [b - 0.1, 0.95], [b, 0.82]);
+for (const [a, b] of BREATHS) levelKeys.push([a, 0.85], [a + st(0.3), 0.95], [b - st(0.1), 0.95], [b, 0.82]);
 levelKeys.push([S.aha, 0.95], [S.ahaEnd, 0.85], [S.light + 0.01, 0.72], [S.lift + 0.01, 0.8], [S.outro, 1], [DURATION, 1]);
 const padLevel = automation(levelKeys);
 for (let c = 0; c < 2; c++) svf(bus.pad[c], padCut, { q: 0.8 });
