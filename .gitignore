@@ -11,3 +11,7 @@ test-results/
 !.env.example
 .DS_Store
 *.log
+video/.vite/
+video/dist/
+video/build/
+video/out/
