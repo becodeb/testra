@@ -188,10 +188,20 @@ render. Push authorized for `feat/demo-video` only (Coolify deploys
   100 BPM, everything 20 % calmer. User asked the parent to finish it and
   keep the quality MP4 → final render at scale 2 on the Pi (delegated).
 
+- 2026-09-26: PACE change committed (`e2f92cf`). Final scale-2 render on the
+  Pi: 2448 frames (2076 moving, 13 572 screenshots) in 5542 s + 116 s encode.
+  ffprobe: h264 1920×1080 60 fps, 2448 frames, AAC, 40.800000 s, 17.9 MB.
+  Spot frames from the MP4 reviewed (editor, student dialog, AHA, report tags
+  "visible 1", AI card, Publicados): clean. Push-in at video 33.6–34.0: 33.8
+  is one blurred frame, 33.7/33.9 soft but readable, sharp from 34.0 (was
+  ~0.45 s unreadable) — accepted as normal camera motion blur.
+  Saved outside git: `~/Videos/testra/testra-demo-final.mp4` (same sha256).
+- [x] T8 — done.
+
 ## Next step
 
-PACE change + final scale-2 render on the Pi; verify 2448 frames, 40.800 s,
-AAC; keep the MP4 outside git (copy to ~/Videos/testra/). For changes after watching it: edit `video/src`
+None required. Optional: share the MP4 (tunnel on request), merge decision
+for `feat/demo-video` is the user's. For changes after watching it: edit `video/src`
 (timeline in `video/src/timeline.ts`), `npm --prefix video run build`, review
 stills, re-run `music` if event times moved, then render. T4/T5 were
 superseded by T6–T8.
