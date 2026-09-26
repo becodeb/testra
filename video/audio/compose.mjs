@@ -98,7 +98,6 @@ const idx = (t) => Math.round(t * SR);
 const TAU = 2 * Math.PI;
 const panGains = (pan) => [Math.cos(((pan + 1) * Math.PI) / 4), Math.sin(((pan + 1) * Math.PI) / 4)];
 const smooth = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
-const inRange = (t, a, b) => t >= a - 1e-9 && t < b - 1e-9;
 const grid = (from, to, step) => {
   const out = [];
   for (let i = 0; from + i * step < to - 1e-9; i++) out.push(from + i * step);

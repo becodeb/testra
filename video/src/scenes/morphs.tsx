@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 
 import type { Rect } from "../camera";
-import { EXAM, STUDENTS } from "../data";
+import { EXAM } from "../data";
 import { clamp, EASE, fadeOut, lerp, mixColor, progress, springTo, SPRINGS } from "../motion";
 import { useScene } from "../scene-context";
 import { STUDENT_NAME, T } from "../timeline";
