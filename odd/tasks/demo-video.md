@@ -171,9 +171,21 @@ render. Push authorized for `feat/demo-video` only (Coolify deploys
 - User asked to see the draft before the final render. Draft served via a
   Cloudflare quick tunnel (user authorized). Feedback → storyboard v2.
 
+- 2026-09-26: the user rendered the final on their PC (Windows, Node 24.19,
+  ffmpeg 9.0.2 via winget, `render:final -- --jobs 4`, ~44 min + 51 s encode;
+  2040 frames, 34.000 s, AAC). Two defects found there and fixed here:
+  (1) report tags touched "Otras señales" and read "visible1": the scene's
+  Tailwind never scanned `src/components/incident-list.tsx`, so `ms-1.5` and
+  `space-y-5` were not generated; added its `@source`. (2) text unreadable
+  28.25–28.7 s during the push-in to "La nota la ponés vos.": new
+  `SPRINGS.glide` (ζ≈0.98, ~0.9 s), zoom 1.6→1.45, `pushIn` 28.25→28.0 (on the
+  beat). Test render 27.8–29.3: readable at 28.3, sharp from 28.4. Music
+  regenerated (48 kicks, max 1.02 ms off grid, −14.94 LUFS).
+
 ## Next step
 
-T8 on the user's computer. For changes after watching it: edit `video/src`
+T8 on the user's computer: pull and re-run `render:final` (the scene hash
+changed, so every chunk re-renders). For changes after watching it: edit `video/src`
 (timeline in `video/src/timeline.ts`), `npm --prefix video run build`, review
 stills, re-run `music` if event times moved, then render. T4/T5 were
 superseded by T6–T8.

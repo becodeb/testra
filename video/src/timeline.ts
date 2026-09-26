@@ -96,7 +96,7 @@ export const T = {
   aiCountEnd: 26.75,
   clickAccept: 27.75,
   saved: 28.125,
-  pushIn: 28.25,
+  pushIn: 28.0,
 
   // Results
   morphResults: 29.25, // AI card → results row

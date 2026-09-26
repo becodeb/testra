@@ -11,6 +11,7 @@ export const SPRINGS = {
   snappy: { stiffness: 380, damping: 34 }, // ζ≈0.87, settles ~0.25 s
   ui: { stiffness: 200, damping: 24 }, // ζ≈0.85, settles ~0.35 s
   soft: { stiffness: 120, damping: 19 }, // ζ≈0.87, settles ~0.5 s
+  glide: { stiffness: 55, damping: 14.5 }, // ζ≈0.98, settles ~0.9 s: slow enough that text never smears
   camera: { stiffness: 42, damping: 11.4 }, // ζ≈0.88, settles ~0.7 s
   press: { stiffness: 700, damping: 44 },
 } satisfies Record<string, SpringConfig>;

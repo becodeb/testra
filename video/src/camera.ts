@@ -76,7 +76,7 @@ export const FRAMINGS: ReadonlyArray<Framing> = [
 
   // Act 4 — AI correction, results, outro (behind card 4).
   { t: 25.2, cut: true, target: "ai-card", zoom: 1.15 },
-  { t: T.pushIn, target: "ai-note", zoom: 1.6, at: { sx: 730, sy: 850 }, cfg: SPRINGS.soft },
+  { t: T.pushIn, target: "ai-note", zoom: 1.45, at: { sx: 730, sy: 850 }, cfg: SPRINGS.glide },
   { t: T.morphResults, view: { left: 40, top: 0 }, zoom: 1.05, cfg: SPRINGS.soft },
   { t: T.outro, target: PAGE_CENTER, zoom: 1 },
 ];

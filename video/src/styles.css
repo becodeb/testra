@@ -2,6 +2,7 @@
 
 @source "./";
 @source "../../src/components/ui";
+@source "../../src/components/incident-list.tsx";
 
 /* Every visual is a function of t: nothing may move on its own. */
 *,
