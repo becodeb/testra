@@ -1,0 +1,465 @@
+---
+import { Image } from "astro:assets";
+import { ArrowLeft, Check, Printer, X } from "lucide-react";
+
+import testraMark from "@/assets/testra-mark.png";
+import Seo from "@/components/Seo.astro";
+import { RichContent } from "@/components/rich-content";
+import "@/styles/global.css";
+import {
+  attemptMinutes,
+  formatPoints,
+  gradedByLabel,
+  printoutUrl,
+  scoreTone,
+  submitReasonLabel,
+} from "@/lib/exam-printout";
+import { getActor, isTeacher } from "@/server/actors";
+import { getExamPrintout, type PrintedQuestion } from "@/server/exam-printout";
+
+// La copia en papel del examen corregido: queda como constancia. Es una página
+// aparte y no un modal para que el navegador la imprima o la guarde en PDF tal
+// cual se ve, sin la cabecera del panel ni nada de la interfaz alrededor.
+
+const actor = getActor(Astro.locals, "teacher");
+if (!actor) return Astro.redirect(`/login?next=${encodeURIComponent(Astro.url.pathname + Astro.url.search)}`);
+if (!isTeacher(actor)) return Astro.redirect("/rendir");
+
+const runId = Astro.url.searchParams.get("run") ?? "";
+const participantId = Astro.url.searchParams.get("alumno") ?? undefined;
+const includeIncidents = Astro.url.searchParams.get("incidentes") === "si";
+const autoPrint = Astro.url.searchParams.get("imprimir") === "1";
+
+const printout = runId ? await getExamPrintout(actor, { runId, participantId, includeIncidents }) : null;
+if (!printout || !printout.papers.length) Astro.response.status = 404;
+
+// El papel es lo que queda: tiene que decir la hora de la toma, no la del
+// contenedor, que corre en UTC.
+const timeZone = "America/Argentina/Buenos_Aires";
+const dateFormatter = new Intl.DateTimeFormat("es-AR", { dateStyle: "long", timeZone });
+// 24 horas: en papel "02:04 p. m." se lee mal y "14:04" no tiene vuelta.
+const dateTimeFormatter = new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone });
+const timeFormatter = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", timeZone });
+const formatDate = (value: number | null) => (value ? dateFormatter.format(value) : "—");
+const formatDateTime = (value: number | null) => (value ? dateTimeFormatter.format(value) : "—");
+const seconds = (ms: number) => `${(ms / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} s`;
+
+const backUrl = runId ? `/resultados?run=${encodeURIComponent(runId)}&tab=notas` : "/resultados";
+const withIncidentsUrl = printoutUrl({ runId, participantId, includeIncidents: true });
+const withoutIncidentsUrl = printoutUrl({ runId, participantId, includeIncidents: false });
+
+const single = printout?.papers.length === 1 ? printout.papers[0] : null;
+const pageTitle = printout
+  ? single ? `${printout.run.title} · ${single.participant.name}` : `${printout.run.title} · ${printout.papers.length} alumnos`
+  : "Examen para imprimir";
+
+const toneClass = {
+  full: "border-ok/40 bg-ok/10 text-ok",
+  partial: "border-warn/40 bg-warn/10 text-warn",
+  none: "border-alert/40 bg-alert/10 text-alert",
+  pending: "border-line-2 bg-inset text-muted",
+} as const;
+
+/** Verdadero/Falso se imprime igual que una opción múltiple: dos opciones, una marcada. */
+function choiceOptions(question: PrintedQuestion) {
+  if (question.answer.kind === "choice") return { multiple: question.answer.multiple, options: question.answer.options };
+  if (question.answer.kind === "tf") {
+    const { value, correct } = question.answer;
+    return {
+      multiple: false,
+      options: [
+        { id: "true", text: "Verdadero", selected: value === true, correct: correct === true },
+        { id: "false", text: "Falso", selected: value === false, correct: correct === false },
+      ],
+    };
+  }
+  return null;
+}
+
+function incidentSummary(incidents: Array<{ title: string }>) {
+  const counts = new Map<string, number>();
+  for (const incident of incidents) counts.set(incident.title, (counts.get(incident.title) ?? 0) + 1);
+  return [...counts.entries()].sort((left, right) => right[1] - left[1]);
+}
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <Seo title={pageTitle} description="Examen corregido para imprimir." />
+  </head>
+  <body class="printout" data-auto-print={autoPrint && printout?.papers.length ? "true" : undefined}>
+    <div class="no-print sticky top-0 z-10 border-b bg-paper">
+      <div class="mx-auto flex max-w-[210mm] flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <a href={backUrl} class="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:underline">
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          Volver a resultados
+        </a>
+        {printout?.papers.length ? (
+          <div class="flex flex-wrap items-center gap-3">
+            <div class="inline-flex rounded-md border bg-inset p-0.5 text-sm font-semibold" role="group" aria-label="Avisos de supervisión">
+              <a
+                href={withoutIncidentsUrl}
+                aria-current={!includeIncidents ? "true" : undefined}
+                class:list={["rounded-sm px-3 py-1.5", !includeIncidents ? "bg-paper text-ink shadow-card" : "text-muted hover:text-ink"]}
+              >Sin incidentes</a>
+              <a
+                href={withIncidentsUrl}
+                aria-current={includeIncidents ? "true" : undefined}
+                class:list={["rounded-sm px-3 py-1.5", includeIncidents ? "bg-paper text-ink shadow-card" : "text-muted hover:text-ink"]}
+              >Con incidentes</a>
+            </div>
+            <button type="button" data-print class="inline-flex h-9 items-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white transition-colors hover:bg-brand-deep">
+              <Printer className="size-4" aria-hidden="true" />
+              Imprimir o guardar PDF
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+
+    <main id="contenido">
+      {!printout || !printout.papers.length ? (
+        <section class="sheet text-center">
+          <h1 class="text-lg font-semibold text-ink">No hay un examen para imprimir</h1>
+          <p class="mt-2 text-sm text-muted">El alumno todavía no entregó, la sesión no existe o no tenés acceso a ella.</p>
+        </section>
+      ) : printout.papers.map((paper) => {
+        const finishedFull = paper.questions.filter((question) => scoreTone(question.pointsAwarded, question.points) === "full").length;
+        return (
+          <article class="sheet" aria-label={`Examen de ${paper.participant.name}`}>
+            <header>
+              <div class="flex items-center justify-between gap-4 border-b-2 border-ink pb-3">
+                <div class="flex items-center gap-2.5">
+                  <span class="testra-mark" aria-hidden="true"><Image src={testraMark} alt="" width={96} quality={90} loading="eager" /></span>
+                  <div>
+                    <p class="text-sm font-bold tracking-[-.02em] text-brand-deep">Testra</p>
+                    {printout.run.organization ? <p class="text-xs text-muted">{printout.run.organization}</p> : null}
+                  </div>
+                </div>
+                <div class="text-right">
+                  <p class="text-[.7rem] font-bold tracking-[.08em] text-ink-2 uppercase">Constancia de evaluación</p>
+                  <p class="mono-number text-xs text-muted">Toma {printout.run.code}</p>
+                </div>
+              </div>
+
+              <div class="mt-5 grid gap-5 sm:grid-cols-[1fr_auto] sm:items-start">
+                <div class="min-w-0">
+                  {printout.run.subject ? <p class="text-xs font-semibold tracking-[.08em] text-brand uppercase">{printout.run.subject}</p> : null}
+                  <h1 class="mt-1 text-2xl leading-tight font-semibold tracking-[-.02em] text-ink">{printout.run.title}</h1>
+                  <dl class="facts mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm sm:grid-cols-[auto_1fr_auto_1fr]">
+                    <dt>Alumno/a</dt><dd class="font-semibold text-ink sm:col-span-3">{paper.participant.name}</dd>
+                    <dt>Correo</dt><dd class="sm:col-span-3">{paper.participant.email ?? "—"}</dd>
+                    <dt>Docente</dt><dd>{printout.run.teacher ?? "—"}</dd>
+                    <dt>Fecha</dt><dd>{formatDate(printout.run.date)}</dd>
+                    <dt>Inicio</dt><dd class="mono-number">{formatDateTime(paper.participant.startedAt)}</dd>
+                    <dt>Entrega</dt><dd class="mono-number">{formatDateTime(paper.participant.submittedAt)}</dd>
+                    <dt>Duración</dt><dd class="mono-number">{attemptMinutes(paper.participant.startedAt, paper.participant.submittedAt)} de {Math.round(printout.run.timeLimitS / 60)} min</dd>
+                    <dt>Cierre</dt><dd>{submitReasonLabel(paper.participant.submitReason, paper.participant.status)}</dd>
+                    {paper.participant.extraTimeS > 0 ? <><dt>Tiempo extra</dt><dd class="mono-number">{Math.round(paper.participant.extraTimeS / 60)} min</dd></> : null}
+                    {paper.participant.reopenedCount > 0 ? <><dt>Reaperturas</dt><dd class="mono-number">{paper.participant.reopenedCount}</dd></> : null}
+                  </dl>
+                </div>
+                <div class="grade-box rounded-md border-2 border-ink px-6 py-4 text-center sm:min-w-[10rem]">
+                  <p class="text-[.7rem] font-bold tracking-[.08em] text-muted uppercase">Nota final</p>
+                  <p class="mono-number mt-1 text-4xl leading-none font-bold text-ink">{paper.percent}%</p>
+                  <p class="mono-number mt-2 text-sm text-ink-2">{formatPoints(paper.score)} / {formatPoints(paper.maxPoints)} puntos</p>
+                  {paper.passed !== null ? (
+                    <p class:list={["mt-2 text-xs font-bold", paper.passed ? "text-ok" : "text-alert"]}>
+                      {paper.passed ? "Aprobado" : "No aprobado"}
+                      <span class="font-normal text-muted"> · mínimo {printout.run.passingScorePercent}%</span>
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
+              <p class="mt-4 text-xs text-muted">
+                {paper.questions.length} preguntas · {paper.answeredCount} respondidas · {finishedFull} con el puntaje completo
+              </p>
+              {paper.pendingCorrections > 0 ? (
+                <p class="mt-3 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm font-semibold text-warn">
+                  Corrección incompleta: falta{paper.pendingCorrections === 1 ? "" : "n"} corregir {paper.pendingCorrections} respuesta{paper.pendingCorrections === 1 ? "" : "s"}. La nota puede cambiar.
+                </p>
+              ) : null}
+            </header>
+
+            <section class="mt-7" aria-label="Preguntas y respuestas">
+              <div class="section-title flex flex-wrap items-baseline justify-between gap-2 border-b pb-2">
+                <h2 class="text-sm font-bold tracking-[.06em] text-ink uppercase">Preguntas y respuestas</h2>
+                <p class="flex items-center gap-3 text-[.7rem] text-muted">
+                  <span class="inline-flex items-center gap-1"><span class="marker is-selected" aria-hidden="true"></span>Marcó el alumno</span>
+                  <span class="inline-flex items-center gap-1"><Check className="size-3.5 text-ok" aria-hidden="true" />Respuesta correcta</span>
+                </p>
+              </div>
+              <ol class="divide-y">
+                {paper.questions.map((question) => {
+                  const tone = scoreTone(question.pointsAwarded, question.points);
+                  const choice = choiceOptions(question);
+                  return (
+                    <li class="question py-4">
+                      <div class="question-head flex items-start gap-3">
+                        <span class="mono-number grid size-6 shrink-0 place-items-center rounded-sm bg-ink text-xs font-bold text-white">{question.number}</span>
+                        <div class="min-w-0 flex-1 text-[.95rem] leading-6 font-medium text-ink">
+                          <RichContent text={question.prompt} assets={question.assets} />
+                        </div>
+                        <span class:list={["mono-number shrink-0 rounded-sm border px-2 py-0.5 text-xs font-bold whitespace-nowrap", toneClass[tone]]}>
+                          {question.pointsAwarded === null ? "—" : formatPoints(question.pointsAwarded)} / {formatPoints(question.points)} pts
+                        </span>
+                      </div>
+
+                      <div class="mt-3 ps-9">
+                        {choice ? (
+                          <>
+                            <ul class="grid gap-1.5">
+                              {choice.options.map((option) => (
+                                <li class:list={["option flex items-start gap-2.5 rounded-sm border px-2.5 py-1.5 text-sm", option.selected && option.correct && "border-ok/50 bg-ok/5", option.selected && !option.correct && "border-alert/50 bg-alert/5"]}>
+                                  <span class:list={["marker mt-0.5", choice.multiple && "is-square", option.selected && "is-selected"]} aria-hidden="true"></span>
+                                  <span class="sr-only">{option.selected ? "Marcada. " : ""}</span>
+                                  <div class="min-w-0 flex-1 text-ink-2"><RichContent text={option.text} /></div>
+                                  {option.correct ? (
+                                    <span class="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-ok"><Check className="size-3.5" aria-hidden="true" />Correcta</span>
+                                  ) : option.selected ? (
+                                    <span class="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-alert"><X className="size-3.5" aria-hidden="true" />Incorrecta</span>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                            {!question.answered ? <p class="mt-2 text-xs font-semibold text-muted">El alumno no marcó ninguna opción.</p> : null}
+                          </>
+                        ) : question.answer.kind === "text" ? (
+                          <>
+                            <p class="text-xs font-semibold text-muted">Respuesta del alumno</p>
+                            {question.answered ? (
+                              <p class="answer-box mt-1 rounded-sm border bg-canvas px-3 py-2 text-sm leading-6 whitespace-pre-wrap text-ink">{question.answer.value}</p>
+                            ) : (
+                              <p class="mt-1 rounded-sm border border-dashed px-3 py-2 text-sm text-muted">Sin responder</p>
+                            )}
+                            {question.answer.accepted ? (
+                              <p class="mt-2 text-xs text-muted">
+                                <span class="font-semibold text-ok">Respuesta{question.answer.accepted.length === 1 ? "" : "s"} aceptada{question.answer.accepted.length === 1 ? "" : "s"}:</span> {question.answer.accepted.join(" · ")}
+                              </p>
+                            ) : null}
+                          </>
+                        ) : null}
+
+                        {question.rubric.length ? (
+                          <table class="mt-3 w-full text-left text-xs">
+                            <thead class="text-muted"><tr><th class="py-1 font-semibold">Criterio de la rúbrica</th><th class="py-1 text-right font-semibold">Puntaje</th></tr></thead>
+                            <tbody class="divide-y border-t">
+                              {question.rubric.map((criterion) => (
+                                <tr>
+                                  <td class="py-1 text-ink-2">{criterion.label}</td>
+                                  <td class="mono-number py-1 text-right text-ink">{criterion.awarded === null ? "—" : formatPoints(criterion.awarded)} / {formatPoints(criterion.maxPoints)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : null}
+
+                        {question.feedback ? (
+                          <div class="mt-3 border-s-2 border-brand ps-3">
+                            <p class="text-xs font-semibold text-brand-deep">Devolución del docente</p>
+                            <p class="mt-0.5 text-sm leading-6 whitespace-pre-wrap text-ink-2">{question.feedback}</p>
+                          </div>
+                        ) : null}
+
+                        <p class="mt-2 text-right text-[.7rem] text-muted">{gradedByLabel(question.gradedBy, question.gradingStatus)}</p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+
+            {paper.incidents ? (
+              <section class="incidents mt-6" aria-label="Registro de supervisión">
+                <div class="section-title border-b pb-2">
+                  <h2 class="text-sm font-bold tracking-[.06em] text-ink uppercase">
+                    Registro de supervisión <span class="mono-number font-semibold text-muted">({paper.incidents.length})</span>
+                  </h2>
+                </div>
+                <p class="mt-2 text-xs leading-5 text-muted">
+                  Lo que registraron el navegador y el servidor durante la evaluación. Los avisos son contexto para el docente: no prueban una conducta y no modificaron la nota.
+                </p>
+                {paper.incidents.length ? (
+                  <>
+                    <ul class="mt-3 flex flex-wrap gap-1.5">
+                      {incidentSummary(paper.incidents).map(([title, count]) => (
+                        <li class="rounded-sm border bg-inset px-2 py-0.5 text-xs text-ink-2">{title} <span class="mono-number ms-1 font-semibold text-ink">{count}</span></li>
+                      ))}
+                    </ul>
+                    <table class="mt-3 w-full text-left text-xs">
+                      <thead class="bg-inset text-ink-2">
+                        <tr>
+                          <th class="px-2 py-1.5 font-semibold">Hora</th>
+                          <th class="px-2 py-1.5 font-semibold">Aviso</th>
+                          <th class="px-2 py-1.5 text-right font-semibold">Duración</th>
+                          <th class="px-2 py-1.5 text-right font-semibold">Pregunta</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y">
+                        {paper.incidents.map((incident) => (
+                          <tr class="incident-row">
+                            <td class="mono-number px-2 py-1.5 whitespace-nowrap text-muted">{timeFormatter.format(incident.at)}</td>
+                            <td class="px-2 py-1.5 text-ink-2">
+                              {incident.title}
+                              {incident.detail ? <span class="block text-muted">{incident.detail}</span> : null}
+                            </td>
+                            <td class="mono-number px-2 py-1.5 text-right whitespace-nowrap text-muted">{incident.durationMs ? seconds(incident.durationMs) : "—"}</td>
+                            <td class="mono-number px-2 py-1.5 text-right text-muted">{incident.questionNumber ?? "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                ) : (
+                  <p class="mt-3 rounded-sm bg-inset px-3 py-2 text-sm text-muted">No se registraron avisos durante la evaluación.</p>
+                )}
+              </section>
+            ) : null}
+
+            <section class="signatures mt-12 grid grid-cols-2 gap-10" aria-label="Firmas">
+              <div class="border-t border-ink pt-1.5 text-center text-xs text-muted">Firma y aclaración del docente</div>
+              <div class="border-t border-ink pt-1.5 text-center text-xs text-muted">Firma y aclaración del alumno/a</div>
+            </section>
+
+            <footer class="mt-8 border-t pt-2 text-[.7rem] leading-5 text-muted">
+              Generado con Testra el {formatDateTime(printout.generatedAt)} por {printout.generatedBy} · Toma {printout.run.code} · Participación <span class="mono-number">{paper.participant.id}</span>
+              {paper.incidents ? null : " · Esta copia no incluye el registro de supervisión."}
+            </footer>
+          </article>
+        );
+      })}
+    </main>
+
+    <style is:global>
+      @page {
+        size: A4;
+        margin: 14mm 14mm 16mm;
+
+        @bottom-right {
+          content: "Página " counter(page) " de " counter(pages);
+          font-family: "Inter Variable", Inter, system-ui, sans-serif;
+          font-size: 8pt;
+          color: #6b7280;
+        }
+      }
+
+      .printout .sheet {
+        width: 210mm;
+        max-width: calc(100% - 2rem);
+        margin: 1.5rem auto;
+        border: 1px solid var(--color-line);
+        border-radius: var(--radius-md);
+        background: var(--color-paper);
+        padding: clamp(1rem, 4vw, 14mm);
+        box-shadow: var(--shadow-card);
+      }
+
+      .printout .facts dt {
+        color: var(--color-muted);
+      }
+
+      .printout .facts dd {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        color: var(--color-ink-2);
+      }
+
+      /* Círculo para una sola opción, cuadrado para varias: lo mismo que se ve
+         en una hoja de examen hecha a mano. */
+      .printout .marker {
+        display: inline-block;
+        width: .8rem;
+        height: .8rem;
+        flex: 0 0 .8rem;
+        border: 1.5px solid var(--color-ink-2);
+        border-radius: 999px;
+      }
+
+      .printout .marker.is-square {
+        border-radius: 2px;
+      }
+
+      .printout .marker.is-selected {
+        border-color: var(--color-ink);
+        background: var(--color-ink);
+        box-shadow: inset 0 0 0 2px var(--color-paper);
+      }
+
+      .printout .option .rich-content,
+      .printout .question-head .rich-content {
+        overflow-wrap: anywhere;
+      }
+
+      @media print {
+        html,
+        body.printout {
+          background: white;
+        }
+
+        .printout {
+          font-size: 10.5pt;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .printout .no-print {
+          display: none !important;
+        }
+
+        .printout .sheet {
+          width: auto;
+          max-width: none;
+          margin: 0;
+          border: 0;
+          border-radius: 0;
+          padding: 0;
+          box-shadow: none;
+        }
+
+        /* Varios alumnos en un mismo archivo: cada uno arranca en su hoja. */
+        .printout .sheet + .sheet {
+          break-before: page;
+        }
+
+        /* El registro entero pasa a la hoja siguiente antes que dejar el título
+           solo al pie. Si no entra en una hoja, igual se parte. */
+        .printout .question,
+        .printout .incidents,
+        .printout .grade-box,
+        .printout .incident-row,
+        .printout .signatures {
+          break-inside: avoid;
+        }
+
+        .printout .section-title,
+        .printout .question-head {
+          break-after: avoid;
+        }
+
+        .printout pre {
+          white-space: pre-wrap;
+        }
+      }
+    </style>
+
+    <script>
+      const printButton = document.querySelector<HTMLButtonElement>("[data-print]");
+      printButton?.addEventListener("click", () => window.print());
+
+      // Una imagen diferida que no llegó a verse no se imprime: se queda como un
+      // hueco en el papel. Se piden todas antes de abrir el diálogo.
+      const images = [...document.querySelectorAll<HTMLImageElement>("img")];
+      for (const image of images) image.loading = "eager";
+
+      if (document.body.dataset.autoPrint === "true") {
+        const ready = Promise.all([
+          document.fonts.ready,
+          ...images.map((image) => (image.complete ? Promise.resolve() : image.decode().catch(() => undefined))),
+        ]);
+        void ready.then(() => window.print());
+      }
+    </script>
+  </body>
+</html>
