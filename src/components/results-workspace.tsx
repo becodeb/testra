@@ -35,7 +35,7 @@ import {
   type AnalyticsEnvelope,
 } from "@/components/analytics-panel";
 import { RichContent } from "@/components/rich-content";
-import { hasFinished } from "@/lib/exam-printout";
+import { hasFinished, printAllSubject, printBlockedReason } from "@/lib/exam-printout";
 
 interface ResultsSnapshot {
   run: {
@@ -167,7 +167,7 @@ export function ResultsWorkspace({
   const detailPending = detail
     ? Number(liveSnapshot?.participants.find((participant) => participant.id === detail.participant.id)?.pending_manual ?? 0)
     : 0;
-  const canPrintDetail = Boolean(detail && hasFinished(detail.participant.status) && detailPending === 0);
+  const detailPrintBlocked = detail ? printBlockedReason(detail.participant.status, detailPending) : null;
 
   useEffect(() => {
     if (!selectedRunId) return;
@@ -436,7 +436,7 @@ export function ResultsWorkspace({
                       size="sm"
                       disabled={!canPrintRun}
                       title={canPrintRun ? undefined : pendingCorrections ? "Se habilita cuando termines de corregir" : "Se habilita cuando la sesión termine"}
-                      onClick={() => setPrintTarget({ subject: `los ${finishedCount} alumno${finishedCount === 1 ? "" : "s"} que entregaron, uno por hoja` })}
+                      onClick={() => setPrintTarget({ subject: printAllSubject(finishedCount) })}
                     >
                       <Printer />
                       Imprimir todos
@@ -526,7 +526,7 @@ export function ResultsWorkspace({
                     />
                   ) : null}
                   <div className="scroll-fade-x overflow-x-auto">
-                    <table className="w-full min-w-[620px] text-left text-sm">
+                    <table className="w-full min-w-[720px] text-left text-sm">
                       <thead className="bg-inset text-xs text-ink-2">
                         <tr>
                           <th className="px-4 py-3">Alumno</th>
@@ -536,6 +536,7 @@ export function ResultsWorkspace({
                           <th className="px-4 py-3 text-right">Tiempo</th>
                           <th className="px-4 py-3 text-right">Respondidas</th>
                           <th className="px-4 py-3 text-right">Nota</th>
+                          <th className="px-4 py-3"><span className="sr-only">Constancia</span></th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
@@ -546,6 +547,7 @@ export function ResultsWorkspace({
                             participant.max_points ?? liveSnapshot.totalPoints,
                           );
                           const percent = Number(participant.percent ?? 0);
+                          const printBlocked = printBlockedReason(String(participant.status), pending);
                           return (
                             <tr
                               key={String(participant.id)}
@@ -592,13 +594,26 @@ export function ResultsWorkspace({
                                   </span>
                                 ) : null}
                               </td>
+                              <td className="px-4 py-3 text-right">
+                                <Button
+                                  variant="outline"
+                                  size="xs"
+                                  disabled={printBlocked !== null}
+                                  title={printBlocked ?? undefined}
+                                  aria-label={`Imprimir el examen de ${String(participant.name)}`}
+                                  onClick={() => setPrintTarget({ participantId: String(participant.id), subject: String(participant.name) })}
+                                >
+                                  <Printer />
+                                  Imprimir
+                                </Button>
+                              </td>
                             </tr>
                           );
                         })}
                         {!liveSnapshot.participants.length ? (
                           <tr>
                             <td
-                              colSpan={7}
+                              colSpan={8}
                               className="px-4 py-10 text-center text-muted"
                             >
                               <Users className="mx-auto mb-2 size-5" />
@@ -691,8 +706,8 @@ export function ResultsWorkspace({
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={!canPrintDetail}
-                      title={canPrintDetail ? undefined : hasFinished(detail.participant.status) ? "Se habilita cuando termines de corregir este examen" : "Se habilita cuando el alumno entregue"}
+                      disabled={detailPrintBlocked !== null}
+                      title={detailPrintBlocked ?? undefined}
                       onClick={() => setPrintTarget({ participantId: detail.participant.id, subject: detail.participant.name, incidentCount: detail.incidents.length })}
                     >
                       <Printer />
