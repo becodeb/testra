@@ -7,6 +7,7 @@ import {
   History,
   ListChecks,
   LoaderCircle,
+  Printer,
   SquarePen,
   Users,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import {
   type CorrectionItem,
 } from "@/components/correction-queue";
 import { IncidentList } from "@/components/incident-list";
+import { PrintExamDialog } from "@/components/print-exam-dialog";
 import { PublishResults } from "@/components/publish-results";
 import { SimilarityCard, StudentSimilarityMatches } from "@/components/similarity-card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +35,7 @@ import {
   type AnalyticsEnvelope,
 } from "@/components/analytics-panel";
 import { RichContent } from "@/components/rich-content";
+import { hasFinished } from "@/lib/exam-printout";
 
 interface ResultsSnapshot {
   run: {
@@ -138,6 +141,7 @@ export function ResultsWorkspace({
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const selectedRunId = liveSnapshot?.run.id;
   const [historialAbierto, setHistorialAbierto] = useState(false);
+  const [printTarget, setPrintTarget] = useState<{ participantId?: string; subject: string; incidentCount?: number } | null>(null);
 
   // La bandeja muestra solo lo que falta corregir: asi se vacia sola en vez de
   // crecer con cada evaluacion. El historico completo vive en el cajon.
@@ -156,6 +160,14 @@ export function ResultsWorkspace({
   const correctionTotal = corrections.length;
   const correctedCount = Math.max(0, correctionTotal - pendingCorrections);
   const correctionPercent = correctionTotal ? Math.round(correctedCount / correctionTotal * 100) : 100;
+  // La copia en papel es de un examen ya corregido: imprimir antes deja una
+  // nota que después cambia, y el papel no se actualiza.
+  const finishedCount = liveSnapshot?.participants.filter((participant) => hasFinished(String(participant.status))).length ?? 0;
+  const canPrintRun = liveSnapshot?.run.status === "ended" && finishedCount > 0 && pendingCorrections === 0;
+  const detailPending = detail
+    ? Number(liveSnapshot?.participants.find((participant) => participant.id === detail.participant.id)?.pending_manual ?? 0)
+    : 0;
+  const canPrintDetail = Boolean(detail && hasFinished(detail.participant.status) && detailPending === 0);
 
   useEffect(() => {
     if (!selectedRunId) return;
@@ -418,7 +430,17 @@ export function ResultsWorkspace({
                       {liveSnapshot.questionCount} preguntas
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!canPrintRun}
+                      title={canPrintRun ? undefined : pendingCorrections ? "Se habilita cuando termines de corregir" : "Se habilita cuando la sesión termine"}
+                      onClick={() => setPrintTarget({ subject: `los ${finishedCount} alumno${finishedCount === 1 ? "" : "s"} que entregaron, uno por hoja` })}
+                    >
+                      <Printer />
+                      Imprimir todos
+                    </Button>
                     <a
                       href={`/sesiones/${encodeURIComponent(liveSnapshot.run.id)}`}
                       className="inline-flex h-9 items-center px-2 text-sm font-semibold text-brand hover:underline"
@@ -663,23 +685,35 @@ export function ResultsWorkspace({
           ) : detail ? (
             <div className="grid gap-6">
               <section>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-semibold text-ink">Respuestas</h3>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      void generateReport("participant", detail.participant.id)
-                    }
-                    disabled={aiLoading === "person"}
-                  >
-                    {aiLoading === "person" ? (
-                      <LoaderCircle className="animate-spin" />
-                    ) : (
-                      <BrainCircuit />
-                    )}
-                    Analizar incidentes
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!canPrintDetail}
+                      title={canPrintDetail ? undefined : hasFinished(detail.participant.status) ? "Se habilita cuando termines de corregir este examen" : "Se habilita cuando el alumno entregue"}
+                      onClick={() => setPrintTarget({ participantId: detail.participant.id, subject: detail.participant.name, incidentCount: detail.incidents.length })}
+                    >
+                      <Printer />
+                      Imprimir examen
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        void generateReport("participant", detail.participant.id)
+                      }
+                      disabled={aiLoading === "person"}
+                    >
+                      {aiLoading === "person" ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <BrainCircuit />
+                      )}
+                      Analizar incidentes
+                    </Button>
+                  </div>
                 </div>
                 <div className="mt-3 divide-y rounded-md border">
                   {detail.questions.map((question) => (
@@ -741,6 +775,19 @@ export function ResultsWorkspace({
           ) : null}
         </DialogContent>
       </Dialog>
+
+      {liveSnapshot ? (
+        <PrintExamDialog
+          open={printTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setPrintTarget(null);
+          }}
+          runId={liveSnapshot.run.id}
+          participantId={printTarget?.participantId}
+          subject={printTarget?.subject ?? ""}
+          incidentCount={printTarget?.incidentCount}
+        />
+      ) : null}
     </section>
   );
 }
