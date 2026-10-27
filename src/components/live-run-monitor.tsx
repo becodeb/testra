@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, Clock3, Link2, Minus, Plus, Radio, Square, Users } from "lucide-react";
+import { AlertTriangle, Check, Clock3, Link2, Minus, Plus, Printer, Radio, Square, Users } from "lucide-react";
 
+import { PrintExamDialog } from "@/components/print-exam-dialog";
 import { Button } from "@/components/ui/button";
 import { clipboardDetail, copyForIncident } from "@/lib/incident-copy";
 import { formatAssignedProgress } from "@/lib/exam-progress";
+import { hasFinished, printAllSubject, printBlockedReason } from "@/lib/exam-printout";
 import { matchedExpectedStudentIndexes } from "@/lib/student-identity";
 
 interface MonitorSnapshot {
@@ -48,6 +50,7 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
   const [linkCopiado, setLinkCopiado] = useState(false);
+  const [printTarget, setPrintTarget] = useState<{ participantId?: string; subject: string } | null>(null);
 
   /**
    * El link sale del origen del navegador, no de un dominio fijo: así funciona
@@ -130,6 +133,11 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
   const remaining = snapshot.run.ends_at ? Math.max(0, Math.ceil((snapshot.run.ends_at - now) / 1000)) : null;
   const activityIncidents = useMemo(() => snapshot.incidents.filter((incident) => !RHYTHM_INCIDENT_TYPES.has(String(incident.type))), [snapshot.incidents]);
   const rhythmIncidents = useMemo(() => snapshot.incidents.filter((incident) => RHYTHM_INCIDENT_TYPES.has(String(incident.type))), [snapshot.incidents]);
+  // Las mismas reglas que en Resultados: la constancia es de un examen ya
+  // corregido, así que la toma entera espera a que no quede nada pendiente.
+  const finishedCount = snapshot.participants.filter((participant) => hasFinished(String(participant.status))).length;
+  const pendingCorrections = snapshot.participants.reduce((total, participant) => total + Number(participant.pending_manual ?? 0), 0);
+  const printAllBlocked = snapshot.run.status !== "ended" ? "Se habilita cuando la sesión termine" : !finishedCount ? "Ningún alumno entregó" : pendingCorrections ? "Se habilita cuando termines de corregir" : null;
 
   async function control(action: "start" | "end" | "adjust-time", deltaS?: number) {
     if (action === "end" && snapshot.participants.some((participant) => participant.status === "active")
@@ -197,6 +205,7 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
           </div>
           <div className="flex flex-col items-end gap-3">
             <span className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${snapshot.run.status === "running" ? "border-ok/30 text-ok" : "text-ink-2"}`}><Radio className="size-4" aria-hidden="true" /> {snapshot.run.status === "lobby" ? "Esperando" : snapshot.run.status === "running" ? "En curso" : "Cerrada"}</span>
+            {snapshot.run.status === "ended" ? <Button type="button" variant="outline" size="sm" disabled={printAllBlocked !== null} title={printAllBlocked ?? undefined} onClick={() => setPrintTarget({ subject: printAllSubject(finishedCount) })}><Printer data-icon="inline-start" aria-hidden="true" />Imprimir todos</Button> : null}
             {remaining !== null ? <div className="text-right"><span className="text-xs text-muted">{snapshot.run.delivery_mode === "async" ? "La ventana cierra en" : "Tiempo restante"}</span><span role="timer" aria-live="off" className="mono-number mt-1 flex items-center gap-2 text-xl font-semibold"><Clock3 className="size-5 text-muted" aria-hidden="true" />{formatTime(remaining)}</span></div> : null}
           </div>
         </div>
@@ -224,7 +233,7 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
             <table className="w-full min-w-[580px] text-left text-sm">
               <thead className="sticky top-0 bg-inset text-xs text-ink-2"><tr><th className="px-4 py-2.5">Alumno</th><th className="px-4 py-2.5">Estado</th><th className="px-4 py-2.5 text-right">Avance</th><th className="px-4 py-2.5 text-right">Puntaje</th><th className="px-4 py-2.5 text-right">Tiempo</th><th className="px-4 py-2.5 text-right">Última señal</th><th className="px-4 py-2.5">Acciones</th></tr></thead>
               <tbody className="divide-y">
-                {snapshot.participants.map((participant) => <tr key={String(participant.id)}><th scope="row" className="px-4 py-3 font-medium text-ink"><button type="button" className="hover:text-brand hover:underline" onClick={() => setSelectedParticipant(String(participant.id))}>{String(participant.name)}</button>{snapshot.run.delivery_mode === "async" ? <span className="mt-1 block text-xs font-normal text-muted">{participant.attempt_started_at ? `Inició ${timeFormatter.format(Number(participant.attempt_started_at))}` : "Todavía no inició"}</span> : null}</th><td className="px-4 py-3"><Status value={String(participant.status)} /></td><td className="mono-number px-4 py-3 text-right">{formatAssignedProgress(Number(participant.answered), Number(participant.assigned_questions ?? snapshot.questionCount))}</td><td className="mono-number px-4 py-3 text-right">{participant.score === null ? "—" : `${Number(participant.percent ?? 0)}%`}{Number(participant.pending_manual) ? " + pendiente" : ""}</td><td className="mono-number px-4 py-3 text-right">{Number(participant.extra_time_s) > 0 ? `+${Math.round(Number(participant.extra_time_s) / 60)} min` : "base"}</td><td className="mono-number px-4 py-3 text-right whitespace-nowrap text-muted">{timeFormatter.format(Number(participant.last_seen))}</td><td className="px-4 py-3"><div className="flex flex-wrap items-center gap-1">{(snapshot.adaptedExams ?? []).length ? <><label className="sr-only" htmlFor={`version-${participant.id}`}>Versión de {String(participant.name)}</label><select id={`version-${participant.id}`} className="h-7 max-w-[11rem] rounded-md border bg-paper px-1.5 text-xs text-ink-2" value={String(participant.assigned_exam_id ?? "")} disabled={working || participant.status === "submitted" || snapshot.run.status === "ended"} onChange={(event) => void assignExam(String(participant.id), event.target.value)}><option value="">Versión original</option>{(snapshot.adaptedExams ?? []).map((exam) => <option key={exam.id} value={exam.id}>{exam.title}</option>)}</select></> : null}<Button type="button" size="xs" variant="outline" disabled={working || snapshot.run.status === "ended"} onClick={() => void participantControl(participant, "participant-time")}>Tiempo</Button>{participant.status === "submitted" && snapshot.run.status === "running" ? <Button type="button" size="xs" variant="outline" disabled={working} onClick={() => void participantControl(participant, "reopen")}>Reabrir</Button> : null}</div></td></tr>)}
+                {snapshot.participants.map((participant) => <tr key={String(participant.id)}><th scope="row" className="px-4 py-3 font-medium text-ink"><button type="button" className="hover:text-brand hover:underline" onClick={() => setSelectedParticipant(String(participant.id))}>{String(participant.name)}</button>{snapshot.run.delivery_mode === "async" ? <span className="mt-1 block text-xs font-normal text-muted">{participant.attempt_started_at ? `Inició ${timeFormatter.format(Number(participant.attempt_started_at))}` : "Todavía no inició"}</span> : null}</th><td className="px-4 py-3"><Status value={String(participant.status)} /></td><td className="mono-number px-4 py-3 text-right">{formatAssignedProgress(Number(participant.answered), Number(participant.assigned_questions ?? snapshot.questionCount))}</td><td className="mono-number px-4 py-3 text-right">{participant.score === null ? "—" : `${Number(participant.percent ?? 0)}%`}{Number(participant.pending_manual) ? " + pendiente" : ""}</td><td className="mono-number px-4 py-3 text-right">{Number(participant.extra_time_s) > 0 ? `+${Math.round(Number(participant.extra_time_s) / 60)} min` : "base"}</td><td className="mono-number px-4 py-3 text-right whitespace-nowrap text-muted">{timeFormatter.format(Number(participant.last_seen))}</td><td className="px-4 py-3"><div className="flex flex-wrap items-center gap-1">{(snapshot.adaptedExams ?? []).length ? <><label className="sr-only" htmlFor={`version-${participant.id}`}>Versión de {String(participant.name)}</label><select id={`version-${participant.id}`} className="h-7 max-w-[11rem] rounded-md border bg-paper px-1.5 text-xs text-ink-2" value={String(participant.assigned_exam_id ?? "")} disabled={working || participant.status === "submitted" || snapshot.run.status === "ended"} onChange={(event) => void assignExam(String(participant.id), event.target.value)}><option value="">Versión original</option>{(snapshot.adaptedExams ?? []).map((exam) => <option key={exam.id} value={exam.id}>{exam.title}</option>)}</select></> : null}<Button type="button" size="xs" variant="outline" disabled={working || snapshot.run.status === "ended"} onClick={() => void participantControl(participant, "participant-time")}>Tiempo</Button>{participant.status === "submitted" && snapshot.run.status === "running" ? <Button type="button" size="xs" variant="outline" disabled={working} onClick={() => void participantControl(participant, "reopen")}>Reabrir</Button> : null}{hasFinished(String(participant.status)) ? <PrintParticipantButton participant={participant} onPrint={() => setPrintTarget({ participantId: String(participant.id), subject: String(participant.name) })} /> : null}</div></td></tr>)}
                 {!snapshot.participants.length ? <tr><td colSpan={7} className="px-4 py-10 text-center text-muted">Todavía no ingresó ningún alumno.</td></tr> : null}
               </tbody>
             </table>
@@ -245,8 +254,21 @@ export function LiveRunMonitor({ runId, initialSnapshot, canControl = true }: Li
       </div>
 
       <aside className="rounded-md border border-warn/25 bg-paper p-4 text-sm leading-relaxed text-ink-2"><strong className="text-ink">Los avisos necesitan contexto.</strong> Cambiar de Wi-Fi, perder conexión o alternar ventanas puede generar señales legítimas. Testra nunca cambia una nota automáticamente por estos eventos. <a href="/docs/vigilancia" className="font-semibold text-brand underline-offset-2 hover:underline">Qué significa cada aviso</a>.</aside>
+
+      <PrintExamDialog
+        open={printTarget !== null}
+        onOpenChange={(open) => { if (!open) setPrintTarget(null); }}
+        runId={runId}
+        participantId={printTarget?.participantId}
+        subject={printTarget?.subject ?? ""}
+      />
     </div>
   );
+}
+
+function PrintParticipantButton({ participant, onPrint }: { participant: Record<string, string | number | null>; onPrint: () => void }) {
+  const blocked = printBlockedReason(String(participant.status), Number(participant.pending_manual ?? 0));
+  return <Button type="button" size="xs" variant="outline" disabled={blocked !== null} title={blocked ?? undefined} aria-label={`Imprimir el examen de ${String(participant.name)}`} onClick={onPrint}><Printer data-icon="inline-start" aria-hidden="true" />Imprimir</Button>;
 }
 
 function formatTime(seconds: number) {

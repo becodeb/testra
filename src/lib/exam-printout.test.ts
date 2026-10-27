@@ -5,6 +5,8 @@ import {
   formatPoints,
   gradedByLabel,
   hasFinished,
+  printAllSubject,
+  printBlockedReason,
   printoutUrl,
   scoreTone,
   submitReasonLabel,
@@ -46,6 +48,18 @@ describe("rótulos", () => {
     expect(hasFinished("expired")).toBe(true);
     expect(hasFinished("active")).toBe(false);
     expect(hasFinished("waiting")).toBe(false);
+  });
+
+  it("habilita la hoja de un alumno solo cuando entregó y está corregido", () => {
+    expect(printBlockedReason("active", 0)).toBe("Se habilita cuando el alumno entregue");
+    expect(printBlockedReason("submitted", 2)).toBe("Se habilita cuando termines de corregir este examen");
+    expect(printBlockedReason("submitted", 0)).toBeNull();
+    expect(printBlockedReason("expired", 0)).toBeNull();
+  });
+
+  it("nombra a quiénes se imprime sin decir \"los 1 alumno\"", () => {
+    expect(printAllSubject(1)).toBe("todos los que entregaron (1 alumno)");
+    expect(printAllSubject(24)).toBe("los 24 alumnos que entregaron, uno por hoja");
   });
 
   it("explica cómo se cerró la entrega", () => {

@@ -24,6 +24,22 @@ export function hasFinished(status: string): boolean {
   return status === "submitted" || status === "expired";
 }
 
+/**
+ * Por qué todavía no se puede imprimir la hoja de un alumno, para el `title`
+ * del botón; `null` cuando ya se puede. La copia en papel es de un examen
+ * corregido: con una respuesta pendiente la nota impresa después cambia.
+ */
+export function printBlockedReason(status: string, pendingCorrections: number): string | null {
+  if (!hasFinished(status)) return "Se habilita cuando el alumno entregue";
+  if (pendingCorrections > 0) return "Se habilita cuando termines de corregir este examen";
+  return null;
+}
+
+/** A quién se imprime cuando es la toma entera, para el texto del diálogo. */
+export function printAllSubject(finishedCount: number): string {
+  return finishedCount === 1 ? "todos los que entregaron (1 alumno)" : `los ${finishedCount} alumnos que entregaron, uno por hoja`;
+}
+
 export type ScoreTone = "full" | "partial" | "none" | "pending";
 
 export function scoreTone(awarded: number | null, points: number): ScoreTone {
