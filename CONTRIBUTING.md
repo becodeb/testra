@@ -2,9 +2,9 @@
 
 ## Product principles
 
-- A student must see every signal recorded about them when it happens.
+- A student sees every signal recorded about them when it happens, unless the teacher chose "Solo registrar" (`record_only`): then the exam shows nothing about supervision, neither the notice before joining nor warnings or counters. The teacher still sees the same record.
 - Incidents are conversation material for the teacher, never an automatic failing grade.
-- Answer keys must never be serialized to a student-facing response. Use `toStudentQuestion()` and keep its leak tests passing.
+- Answer keys must never be serialized to a student-facing response. Use `toStudentQuestion()` and keep its leak tests passing. The only exception is the results view, released by `resultsVisibility()` once the run has closed and only if the teacher chose to show answers.
 - Server timestamps and the run actor's clock are authoritative. Never trust a client clock for grading, timing, or ordering.
 - Do not use `localStorage` as a source of truth.
 - A live run always owns a frozen question snapshot.

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 const INTEGRITY_MS = 10_000;
 const CLOCK_MS = 2_000;
+const TOUCH_MIN_FOCUS_LOSS_MS = 5_000;
 
 export type ClientIncidentType =
   | "cambio-de-pestana"
@@ -31,6 +32,12 @@ interface UseExamMonitoringOptions {
   detectFocusLoss?: boolean;
   blockClipboard?: boolean;
   requireFullscreen?: boolean;
+  /**
+   * Tablet o celular. Ahí el teclado, los menús del sistema y las notificaciones
+   * sacan el foco sin que el alumno se vaya, y el sistema frena los temporizadores
+   * por su cuenta: ver `isReportableAbsence` y las dos señales que se apagan abajo.
+   */
+  touchDevice?: boolean;
   /**
    * Por omisión el aviso va al servidor con `sendBeacon`, que es lo único que
    * sobrevive al cierre de la pestaña. La demo pública no tiene servidor al que
@@ -129,6 +136,26 @@ export function nextPresence(current: Absence | null, signal: PresenceSignal, at
 }
 
 /**
+ * En una tablet, perder el foco sin que la página se oculte casi siempre es el
+ * teclado o un menú del sistema. Lo que dura es otra cosa: Slide Over o pantalla
+ * dividida con otra app se ven igual, pero no duran un instante. Si la página se
+ * ocultó, el alumno salió y cuenta siempre.
+ */
+export function isReportableAbsence(absence: Absence, durationMs: number, touchDevice: boolean): boolean {
+  return absence.sawHidden || !touchDevice || durationMs >= TOUCH_MIN_FOCUS_LOSS_MS;
+}
+
+/**
+ * Un salto de reloj solo avisa de algo si ningún evento lo explicó. Tiene que
+ * contar también `visibilitychange`: en iPad y Safari la página puede ocultarse
+ * y volver sin `blur` ni `focus`, y sin esto la misma salida se registraba dos
+ * veces, una por el evento y otra por el reloj.
+ */
+export function isUnexplainedClockGap(drift: number, absenceOpen: boolean, msSinceLastPresence: number): boolean {
+  return !absenceOpen && msSinceLastPresence > drift;
+}
+
+/**
  * `focus` y `blur` no burbujean, pero si atraviesan la fase de captura. Como los
  * oyentes estan puestos sobre `window` con `capture: true` —para que un script
  * pegado en la consola no pueda taparlos—, tambien llegan los de cada campo de
@@ -213,7 +240,7 @@ export function beaconLifecycleReporter(
   };
 }
 
-export function useExamMonitoring({ active, participantId, onIncident, activeQuestionId, detectFocusLoss = true, blockClipboard = false, requireFullscreen = false, reportLifecycle }: UseExamMonitoringOptions) {
+export function useExamMonitoring({ active, participantId, onIncident, activeQuestionId, detectFocusLoss = true, blockClipboard = false, requireFullscreen = false, touchDevice = false, reportLifecycle }: UseExamMonitoringOptions) {
   const activeRef = useRef(active);
   const callbackRef = useRef(onIncident);
   const lifecycleRef = useRef(reportLifecycle);
@@ -252,15 +279,18 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
       const { absence, returned } = nextPresence(absenceRef.current, signal, at);
       absenceRef.current = absence;
       if (!returned) return;
+      const durationMs = Math.max(0, at - returned.startedAt);
+      if (!isReportableAbsence(returned, durationMs, touchDevice)) return;
       emit({
         type: returned.sawHidden ? "cambio-de-pestana" : "ventana-sin-foco",
         at: returned.startedAt,
-        durationMs: Math.max(0, at - returned.startedAt),
+        durationMs,
         meta: {},
       });
     };
 
     const onVisibility = () => {
+      lastPresenceAt = Date.now();
       if (document.visibilityState === "hidden") {
         sendLifecycle("hidden");
         applyPresence("hidden");
@@ -344,10 +374,13 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
 
     // Segunda linea, para cuando los eventos no llegan: se avisa de la
     // manipulacion en si, y se mira el reloj para descubrir ausencias que
-    // ningun evento reporto.
+    // ningun evento reporto. Las dos se apagan en tablets: sin consola no hay
+    // quien pegue el script que anula los eventos, asi que no agregan nada, y el
+    // sistema frena los temporizadores solo, lo que acusaba a alumnos que no se
+    // habian movido.
     let reported = "";
     const integrity = window.setInterval(() => {
-      if (!watching()) return;
+      if (!watching() || touchDevice) return;
       const signals = supervisionTampering();
       const fingerprint = signals.join(",");
       if (!fingerprint || fingerprint === reported) return;
@@ -361,10 +394,10 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
       const at = Date.now();
       const drift = clockGap(at - lastTick, CLOCK_MS);
       lastTick = at;
-      if (!watching() || !detectFocusLoss || drift === null) return;
+      if (!watching() || !detectFocusLoss || touchDevice || drift === null) return;
       // Si los eventos hicieron su trabajo la ausencia ya se abrio o se cerro
       // recien: no se cuenta dos veces lo mismo.
-      if (absenceRef.current || at - lastPresenceAt <= drift) return;
+      if (!isUnexplainedClockGap(drift, Boolean(absenceRef.current), at - lastPresenceAt)) return;
       emit({ type: "cambio-de-pestana", at: at - drift, durationMs: drift, meta: { deteccion: "reloj" } });
     }, CLOCK_MS);
 
@@ -387,5 +420,5 @@ export function useExamMonitoring({ active, participantId, onIncident, activeQue
       window.removeEventListener("focus", notePresence, captura);
       window.removeEventListener("blur", notePresence, captura);
     };
-  }, [blockClipboard, detectFocusLoss, participantId, requireFullscreen]);
+  }, [blockClipboard, detectFocusLoss, participantId, requireFullscreen, touchDevice]);
 }

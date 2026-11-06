@@ -815,6 +815,7 @@ function timelineLabel(type: string) {
     "submission-reopened": "Se reabrió la entrega",
     disconnected: "Se desconectó",
     reconnected: "Se reconectó",
+    "fullscreen-skipped": "Rindió sin pantalla completa: su dispositivo no la sostiene",
   };
   return labels[type] ?? type;
 }

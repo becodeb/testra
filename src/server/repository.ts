@@ -63,7 +63,7 @@ interface QuestionRow {
   assets: string;
 }
 
-interface RunRow {
+export interface RunRow {
   id: string;
   exam_id: string | null;
   org_id: string | null;
@@ -775,6 +775,22 @@ export async function startAsyncAttempt(access: StudentAccess, participantId: st
   ]);
   await runCommand(participant.run_id, "/async-start", { participantId, startedAt: now, deadlineAt });
   return { startedAt: now, deadlineAt, serverNow: now };
+}
+
+/**
+ * Nota para el docente: este alumno rindió una evaluación con pantalla completa
+ * sin ella, porque su dispositivo no la sostiene. No es un incidente: no lo hizo
+ * el alumno. Queda una sola vez aunque recargue.
+ */
+export async function noteFullscreenSkipped(access: StudentAccess, participantId: string) {
+  const participant = await participantOwnedBy(participantId, access);
+  if (!participant) return false;
+  const prior = await db.prepare("SELECT id FROM participant_events WHERE participant_id = ? AND type = 'fullscreen-skipped'")
+    .bind(participantId).first<{ id: string }>();
+  if (prior) return true;
+  await db.prepare("INSERT INTO participant_events (id, participant_id, at, type, meta) VALUES (?, ?, ?, 'fullscreen-skipped', ?)")
+    .bind(crypto.randomUUID(), participantId, Date.now(), "{}").run();
+  return true;
 }
 
 export async function saveAnswer(access: StudentAccess, participantId: string, questionId: string, value: AnswerValue) {
