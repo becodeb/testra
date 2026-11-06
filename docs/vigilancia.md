@@ -12,12 +12,12 @@ Sólo mientras la toma está en estado `running`, el alumno empezó y todavía n
 | Ventana sin foco | Otra ventana tomó el foco, incluso en otro monitor | Un aviso del sistema también puede quitar el foco |
 | F12 | Se presionó esa tecla | No demuestra que DevTools se haya abierto |
 | Copiar, cortar o pegar | Evento real del portapapeles, incluyendo la cantidad de caracteres | No se guarda el texto copiado o pegado |
-| Salida de pantalla completa | El alumno salió después de haber aceptado entrar | Pantalla completa es opcional y el navegador puede negarla |
+| Salida de pantalla completa | El alumno salió después de haber aceptado entrar | Solo en computadoras: en tablets y celulares no se pide, porque el sistema la cierra solo |
 | Página oculta o cerrada | Beacon de ciclo de vida desde `visibilitychange` o `pagehide` | No todos los cierres se distinguen de una suspensión móvil |
 
 Las ausencias por visibilidad y foco se deduplican. Testra mide desde la primera señal de pérdida hasta que la página vuelve a estar visible y enfocada; el tipo se reconcilia con todas las señales observadas durante el intervalo.
 
-Cada incidente se muestra de inmediato al alumno con su duración o metadatos. Copiar o pegar registra la acción y la cantidad de caracteres, nunca el contenido.
+Con "Advertir y registrar", cada incidente se muestra de inmediato al alumno con su duración o metadatos. Con "Solo registrar", el alumno no ve nada sobre la supervisión: ni el aviso previo, ni carteles, ni el contador; el docente ve el mismo registro. Copiar o pegar registra la acción y la cantidad de caracteres, nunca el contenido.
 
 ## Qué observa el servidor
 

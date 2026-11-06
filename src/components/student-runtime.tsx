@@ -15,7 +15,10 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { RichContent } from "@/components/rich-content";
 import { ReadingSettingsPanel, ReadingSettingsToggle, readingStyle, useReadingSettings } from "@/components/reading-settings";
+import { StudentResultsView } from "@/components/student-results";
+import { fullscreenApiAvailable, isTouchExamDevice } from "@/lib/exam-device";
 import { studentIncidentMessage } from "@/lib/incident-copy";
+import type { StudentResults } from "@/lib/student-results";
 
 export type StudentAnswerValue = string | boolean | string[];
 
@@ -110,6 +113,12 @@ export function StudentRuntime({
   const [starting, setStarting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== "undefined" && Boolean(document.fullscreenElement));
+  // Se sabe recién al hidratar: en el servidor no hay dispositivo que mirar.
+  const [touchDevice, setTouchDevice] = useState(false);
+  const [fullscreenUnavailable, setFullscreenUnavailable] = useState(false);
+  const fullscreenEnforced = requireFullscreen && !touchDevice && !fullscreenUnavailable;
+  const [results, setResults] = useState<StudentResults | null>(null);
+  const showIncidents = violationAction === "warn_and_record";
   const announcedRef = useRef(new Set<number>());
   const clockOffset = useRef(serverNow - Date.now());
   const answersRef = useRef(answers);
@@ -118,8 +127,45 @@ export function StudentRuntime({
   const active = questions[activeIndex];
 
   useEffect(() => {
+    setTouchDevice(isTouchExamDevice());
+    setFullscreenUnavailable(!fullscreenApiAvailable());
     setReady(true);
   }, []);
+
+  // Una sola nota por carga para el docente, cuando el alumno rinde de verdad.
+  const fullscreenSkipped = ready && requireFullscreen && !fullscreenEnforced && runStatus === "running" && attemptActive && !submitted;
+  useEffect(() => {
+    if (!fullscreenSkipped) return;
+    void fetch("/api/student/fullscreen-skipped", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ participantId }),
+    });
+  }, [fullscreenSkipped, participantId]);
+
+  // El resultado puede liberarse después de entregar: cuando termina la sesión o
+  // cuando el docente publica. Se sigue preguntando hasta que ya no pueda cambiar.
+  useEffect(() => {
+    if (!submitted) {
+      setResults(null);
+      return;
+    }
+    let stopped = false;
+    let timer = 0;
+    const load = async () => {
+      const response = await fetch(`/api/student/results?participante=${encodeURIComponent(participantId)}`).catch(() => null);
+      if (stopped) return;
+      const body = response?.ok ? await response.json() as StudentResults : null;
+      if (stopped) return;
+      if (body) setResults(body);
+      if (!body?.final) timer = window.setTimeout(() => void load(), 20_000);
+    };
+    void load();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [participantId, submitted]);
 
   useEffect(() => {
     const update = () => setIsFullscreen(Boolean(document.fullscreenElement));
@@ -133,16 +179,16 @@ export function StudentRuntime({
 
   const onIncident = useCallback((nextIncident: ClientIncident) => {
     setIncidentCount((count) => count + 1);
-    if (violationAction === "warn_and_record") setIncident(nextIncident);
+    if (showIncidents) setIncident(nextIncident);
     void fetch("/api/student/incident", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ participantId, ...nextIncident }),
       keepalive: true,
     });
-  }, [participantId, violationAction]);
+  }, [participantId, showIncidents]);
 
-  useExamMonitoring({ active: runStatus === "running" && attemptActive && !submitted, participantId, activeQuestionId: active.id, detectFocusLoss, blockClipboard, requireFullscreen, onIncident });
+  useExamMonitoring({ active: runStatus === "running" && attemptActive && !submitted, participantId, activeQuestionId: active.id, detectFocusLoss, blockClipboard, requireFullscreen: fullscreenEnforced, touchDevice, onIncident });
 
   const persistAnswer = useCallback(async (questionId: string, value: StudentAnswerValue) => {
     setSaveState("loading");
@@ -346,6 +392,7 @@ export function StudentRuntime({
       await document.documentElement.requestFullscreen();
     } catch {
       // Pantalla completa es una invitación; un rechazo nunca bloquea la evaluación.
+      setFullscreenUnavailable(true);
     }
   }
 
@@ -372,19 +419,26 @@ export function StudentRuntime({
 
   if (submitted) {
     return (
-      <main id="contenido" className="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-2xl place-items-center px-4 py-12">
+      <main id="contenido" className="mx-auto grid max-w-2xl gap-4 px-4 py-12">
         <div className="w-full rounded-lg border bg-paper p-8 text-center shadow-card">
           <span className="mx-auto grid size-10 place-items-center rounded-full bg-brand-soft text-brand"><Check aria-hidden="true" /></span>
           <h1 className="mt-4 text-xl font-semibold text-ink">Entrega recibida</h1>
-          <p className="mt-2 text-sm leading-relaxed text-muted">Tus respuestas quedaron guardadas. Podés cerrar esta pestaña.</p>
-          <dl className="mx-auto mt-6 grid max-w-sm grid-cols-2 gap-3 border-y py-4"><div><dt className="text-xs text-muted">Respondidas</dt><dd className="mono-number mt-1 font-semibold">{questions.length - unanswered}/{questions.length}</dd></div><div><dt className="text-xs text-muted">Incidentes visibles</dt><dd className="mono-number mt-1 font-semibold">{incidentCount}</dd></div></dl>
+          <p className="mt-2 text-sm leading-relaxed text-muted">Tus respuestas quedaron guardadas. {results?.waitingFor === "teacher" ? "Tus resultados van a aparecer en este mismo link cuando el docente los publique; podés cerrar esta pestaña." : results?.waitingFor === "run-end" && results.level === "none" ? "Tus resultados van a aparecer en este mismo link cuando termine la sesión; podés cerrar esta pestaña." : "Podés cerrar esta pestaña."}</p>
+          <dl className={`mx-auto mt-6 grid max-w-sm gap-3 border-y py-4 ${showIncidents ? "grid-cols-2" : "grid-cols-1"}`}><div><dt className="text-xs text-muted">Respondidas</dt><dd className="mono-number mt-1 font-semibold">{questions.length - unanswered}/{questions.length}</dd></div>{showIncidents ? <div><dt className="text-xs text-muted">Incidentes visibles</dt><dd className="mono-number mt-1 font-semibold">{incidentCount}</dd></div> : null}</dl>
         </div>
+        {results ? <StudentResultsView results={results} /> : null}
       </main>
     );
   }
 
-  if (runStatus === "running" && requireFullscreen && !isFullscreen) {
-    return <main id="contenido" className="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-xl place-items-center px-4 py-12"><section className="w-full rounded-xl border bg-paper p-8 text-center shadow-card"><Maximize2 className="mx-auto size-8 text-brand" /><h1 className="mt-4 text-xl font-semibold text-ink">Entrá en pantalla completa</h1><p className="mt-2 text-sm leading-6 text-muted">Esta evaluación usa supervisión estricta. Podés continuar cuando actives la pantalla completa.</p><Button type="button" className="mt-6" onClick={enterFullscreen}><Maximize2 data-icon="inline-start" />Activar pantalla completa</Button></section></main>;
+  // Hasta hidratar no se sabe si este dispositivo la pide: mostrar el cartel de
+  // pantalla completa a una tablet para sacárselo enseguida confunde.
+  if (runStatus === "running" && requireFullscreen && !ready) {
+    return <main id="contenido" className="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-xl place-items-center px-4 py-12"><p className="inline-flex items-center gap-2 text-sm text-ink-2"><StatusBadge state="loading" /> Preparando la evaluación…</p></main>;
+  }
+
+  if (runStatus === "running" && fullscreenEnforced && !isFullscreen) {
+    return <main id="contenido" className="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-xl place-items-center px-4 py-12"><section className="w-full rounded-xl border bg-paper p-8 text-center shadow-card"><Maximize2 className="mx-auto size-8 text-brand" /><h1 className="mt-4 text-xl font-semibold text-ink">Entrá en pantalla completa</h1><p className="mt-2 text-sm leading-6 text-muted">Esta evaluación se rinde en pantalla completa. Podés continuar cuando la actives.</p><Button type="button" className="mt-6" onClick={enterFullscreen}><Maximize2 data-icon="inline-start" />Activar pantalla completa</Button></section></main>;
   }
 
   return (
@@ -414,7 +468,7 @@ export function StudentRuntime({
           </section>
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-ink-2">Pregunta {activeIndex + 1} de {questions.length} · <span className="mono-number">{active.points} pt{active.points === 1 ? "" : "s"}</span></p><div className="flex items-center gap-2"><span className="text-xs text-muted">{incidentCount} aviso{incidentCount === 1 ? "" : "s"} visible{incidentCount === 1 ? "" : "s"}</span>{requireFullscreen ? <Button type="button" variant="outline" size="sm" onClick={enterFullscreen}><Maximize2 data-icon="inline-start" /> Pantalla completa</Button> : null}</div></div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-ink-2">Pregunta {activeIndex + 1} de {questions.length} · <span className="mono-number">{active.points} pt{active.points === 1 ? "" : "s"}</span></p><div className="flex items-center gap-2">{showIncidents ? <span className="text-xs text-muted">{incidentCount} aviso{incidentCount === 1 ? "" : "s"} visible{incidentCount === 1 ? "" : "s"}</span> : null}{fullscreenEnforced ? <Button type="button" variant="outline" size="sm" onClick={enterFullscreen}><Maximize2 data-icon="inline-start" /> Pantalla completa</Button> : null}</div></div>
             <section className="rounded-lg border bg-paper p-5 shadow-card md:p-8" aria-labelledby="student-question"><div id="student-question"><RichContent text={active.prompt} assets={active.assets} className="max-w-4xl text-lg font-semibold leading-relaxed text-ink" /></div><div className="mt-7"><StudentAnswer question={active} value={answers[active.id]} onChange={(value) => setAnswer(active.id, value)} /></div></section>
             <div className="mt-auto rounded-lg border bg-paper p-4 shadow-card">{showProgress ? <QuestionNavigator states={states} activeIndex={activeIndex} onSelect={(index) => { if (allowBackwards || index >= activeIndex) { setActiveIndex(index); setReviewing(false); } }} mode="student" /> : null}<div className={`${showProgress ? "mt-4 border-t pt-4" : ""} flex items-center justify-between gap-3`}><Button type="button" variant="outline" disabled={!allowBackwards || activeIndex === 0} onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}><ArrowLeft data-icon="inline-start" />Anterior</Button><Button type="button" onClick={() => activeIndex === questions.length - 1 ? setReviewing(true) : setActiveIndex((index) => index + 1)}>{activeIndex === questions.length - 1 ? "Revisar" : "Siguiente"}<ArrowRight data-icon="inline-end" /></Button></div></div>
           </>

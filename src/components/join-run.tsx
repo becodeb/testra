@@ -15,9 +15,11 @@ interface JoinRunProps {
   defaultEmail?: string;
   requiresClassroomEmail?: boolean;
   monitoringSummary?: string;
+  /** El docente eligió "Solo registrar": el alumno no ve nada sobre la supervisión. */
+  showMonitoringNotice?: boolean;
 }
 
-export function JoinRun({ step = "code", code: initialCode = "", runTitle, defaultName = "", defaultEmail = "", requiresClassroomEmail = false, monitoringSummary = "cambios de visibilidad y conexión" }: JoinRunProps) {
+export function JoinRun({ step = "code", code: initialCode = "", runTitle, defaultName = "", defaultEmail = "", requiresClassroomEmail = false, monitoringSummary = "cambios de visibilidad y conexión", showMonitoringNotice = true }: JoinRunProps) {
   const [ready, setReady] = useState(false);
   const [code, setCode] = useState(initialCode);
   const [name, setName] = useState(defaultName);
@@ -127,7 +129,7 @@ export function JoinRun({ step = "code", code: initialCode = "", runTitle, defau
         </Field>
       )}
 
-      {isNameStep ? <aside className="mt-5 rounded-md bg-inset p-4 text-xs leading-5 text-ink-2"><strong>Antes de entrar:</strong> durante la toma activa Testra registra {monitoringSummary}. No guarda el contenido del portapapeles. Estos avisos se muestran al alumno, no cambian la nota y no prueban una infracción por sí solos; la revisión final siempre corresponde al docente. <a href="/docs/vigilancia" target="_blank" rel="noreferrer" className="font-semibold text-brand hover:underline">Ver explicación completa</a>.</aside> : null}
+      {isNameStep && showMonitoringNotice ? <aside className="mt-5 rounded-md bg-inset p-4 text-xs leading-5 text-ink-2"><strong>Antes de entrar:</strong> durante la toma activa Testra registra {monitoringSummary}. No guarda el contenido del portapapeles. Estos avisos se muestran al alumno, no cambian la nota y no prueban una infracción por sí solos; la revisión final siempre corresponde al docente. <a href="/docs/vigilancia" target="_blank" rel="noreferrer" className="font-semibold text-brand hover:underline">Ver explicación completa</a>.</aside> : null}
 
       <Button type="submit" className="mt-5 w-full" disabled={loading}>
         {loading ? "Ingresando…" : isNameStep ? "Entrar a la sala" : "Continuar"}

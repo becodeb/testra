@@ -253,7 +253,7 @@ export async function getExamPrintout(
   };
 }
 
-function printedAnswer(question: FullQuestion, value: unknown): PrintedAnswer {
+export function printedAnswer(question: FullQuestion, value: unknown): PrintedAnswer {
   if (question.type === "mc" || question.type === "ms") {
     const selected = question.type === "mc" ? [value] : Array.isArray(value) ? value : [];
     const correct = question.type === "mc" ? [question.config.correctOptionId] : question.config.correctOptionIds;
@@ -276,7 +276,7 @@ function printedAnswer(question: FullQuestion, value: unknown): PrintedAnswer {
   };
 }
 
-function isAnswered(value: unknown): boolean {
+export function isAnswered(value: unknown): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value === "string") return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0;
@@ -289,7 +289,7 @@ function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
   return groups;
 }
 
-function parseJson(raw: string | null | undefined): unknown {
+export function parseJson(raw: string | null | undefined): unknown {
   if (!raw) return null;
   try {
     return JSON.parse(raw);

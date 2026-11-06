@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { beaconLifecycleReporter, clipboardCharacterCount, clipboardShortcut, clockGap, isDuplicateClipboardIncident, isWindowPresenceEvent, nextPresence, supervisionTampering, type Absence, type PresenceSignal } from "@/hooks/use-exam-monitoring";
+import { beaconLifecycleReporter, clipboardCharacterCount, clipboardShortcut, clockGap, isDuplicateClipboardIncident, isReportableAbsence, isUnexplainedClockGap, isWindowPresenceEvent, nextPresence, supervisionTampering, type Absence, type PresenceSignal } from "@/hooks/use-exam-monitoring";
 
 /** Reproduce una secuencia de eventos y devuelve las ausencias cerradas. */
 function replay(signals: ReadonlyArray<[PresenceSignal, number]>) {
@@ -104,6 +104,38 @@ describe("clockGap", () => {
 
   it("descubre la pestana tapada aunque ningun evento haya avisado", () => {
     expect(clockGap(30_000, 2_000)).toBe(28_000);
+  });
+});
+
+describe("isReportableAbsence", () => {
+  const blur = { startedAt: 0, sawHidden: false };
+  const hidden = { startedAt: 0, sawHidden: true };
+
+  it("en computadora cuenta cualquier pérdida de foco", () => {
+    expect(isReportableAbsence(blur, 200, false)).toBe(true);
+  });
+
+  it("en tablet ignora las pérdidas de foco cortas, como el teclado", () => {
+    expect(isReportableAbsence(blur, 4_999, true)).toBe(false);
+    expect(isReportableAbsence(blur, 5_000, true)).toBe(true);
+  });
+
+  it("salir de la app cuenta siempre, aunque sea un instante", () => {
+    expect(isReportableAbsence(hidden, 100, true)).toBe(true);
+  });
+});
+
+describe("isUnexplainedClockGap", () => {
+  it("no duplica una salida que ya informó visibilitychange", () => {
+    expect(isUnexplainedClockGap(30_000, false, 1_000)).toBe(false);
+  });
+
+  it("no cuenta nada mientras hay una ausencia abierta", () => {
+    expect(isUnexplainedClockGap(30_000, true, 60_000)).toBe(false);
+  });
+
+  it("avisa cuando ningún evento explicó el salto", () => {
+    expect(isUnexplainedClockGap(30_000, false, 60_000)).toBe(true);
   });
 });
 

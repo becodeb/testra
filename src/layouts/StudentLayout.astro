@@ -12,10 +12,13 @@ interface Props {
   // Las paginas publicas pasan la suya. Las privadas se quedan con esta, que
   // igual no se publica: `Seo` las marca noindex por no estar en PUBLIC_ROUTES.
   description?: string;
+  // Con "Solo registrar" el alumno no ve nada sobre la supervisión, tampoco acá.
+  hideMonitoringLink?: boolean;
 }
 const {
   title,
   description = "Testra ayuda a docentes a crear, tomar y corregir evaluaciones en linea.",
+  hideMonitoringLink = false,
 } = Astro.props;
 const actor = getAuthenticatedActor(Astro.locals);
 ---
@@ -34,7 +37,7 @@ const actor = getAuthenticatedActor(Astro.locals);
           {actor?.role === "teacher" ? <a href="/evaluaciones" class="font-semibold text-brand hover:underline">Panel docente</a> : null}
           {actor ? <a href="/rendir" class="hover:text-ink">Ingresar código</a> : null}
           <a href="/acerca" class="hover:text-ink">Acerca de</a>
-          <a href="/docs/vigilancia" class="hover:text-ink">Qué se registra</a>
+          {hideMonitoringLink ? null : <a href="/docs/vigilancia" class="hover:text-ink">Qué se registra</a>}
           {/* Sin sesión no había ninguna forma de entrar desde la cabecera. Se
               esconde en /login, donde sería un botón hacia la misma página. */}
           {!actor && Astro.url.pathname !== "/login" ? <a href="/login" class="inline-flex h-8 items-center rounded-md bg-brand px-3 font-semibold text-white transition-colors hover:bg-brand-deep">Entrar</a> : null}

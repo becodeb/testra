@@ -10,6 +10,7 @@ const code = Astro.params.code!.trim().toUpperCase();
 const session = await getStudentSession({ actor, request: Astro.request }, code);
 const run = session?.run ?? await getJoinableRun(code);
 if (!run) { Astro.locals.notFoundMessage = "No encontramos una evaluación activa con ese código"; return Astro.rewrite("/404"); }
+const recordOnly = run.violation_action === "record_only";
 const monitored = [
   run.detect_focus_loss ? "cambios de pestaña o ventana" : null,
   "interrupciones de conexión",
@@ -18,7 +19,7 @@ const monitored = [
 ].filter(Boolean).join(", ");
 ---
 
-<StudentLayout title={run.title}>
+<StudentLayout title={run.title} hideMonitoringLink={recordOnly}>
   {session ? (
     <StudentRuntime
       client:load
@@ -49,7 +50,7 @@ const monitored = [
     />
   ) : (
     <main id="contenido" class="mx-auto grid min-h-[calc(100dvh-3.75rem)] max-w-lg place-items-center px-4 py-12">
-      <JoinRun client:load step="name" code={run.code} runTitle={run.title} defaultName={actor?.name ?? ""} defaultEmail={actor?.email ?? ""} requiresClassroomEmail={Boolean(run.classroom_course_id && run.classroom_coursework_id)} monitoringSummary={monitored} />
+      <JoinRun client:load step="name" code={run.code} runTitle={run.title} defaultName={actor?.name ?? ""} defaultEmail={actor?.email ?? ""} requiresClassroomEmail={Boolean(run.classroom_course_id && run.classroom_coursework_id)} monitoringSummary={monitored} showMonitoringNotice={!recordOnly} />
     </main>
   )}
 </StudentLayout>
